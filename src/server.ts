@@ -2,7 +2,6 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import websocket from '@fastify/websocket';
 import { PrismaClient } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
@@ -17,7 +16,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// Create Fastify instance with corrected logger config
+// Create Fastify instance
 const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || 'info',
@@ -48,9 +47,6 @@ async function registerPlugins() {
     max: parseInt(process.env.RATE_LIMIT_MAX || '100'),
     timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '60000')
   });
-
-  // WebSocket support
-  await fastify.register(websocket);
 }
 
 // Routes
@@ -184,73 +180,55 @@ async function registerRoutes() {
         }
       });
 
-      // WebSocket for real-time chat - CORRECTED VERSION
-      fastify.register(async function (fastify) {
-        fastify.get('/conversations/:conversationId/ws', { websocket: true }, (connection, req) => {
-          const { conversationId } = req.params as { conversationId: string };
-          
-          // Correct Fastify WebSocket API usage
-          connection.on('message', async (message: Buffer) => {
-            try {
-              const data = JSON.parse(message.toString());
-              
-              // Save message to database
-              await prisma.message.create({
-                data: {
-                  conversationId,
-                  role: data.role,
-                  content: data.content,
-                  contentType: data.contentType || 'text'
-                }
-              });
+      // Add message to conversation (HTTP endpoint instead of WebSocket for now)
+      fastify.post('/conversations/:conversationId/messages', async (request, reply) => {
+        const { conversationId } = request.params as { conversationId: string };
+        const { role, content, contentType } = request.body as any;
 
-              // Update conversation activity
-              await prisma.conversation.update({
-                where: { id: conversationId },
-                data: { 
-                  lastActivity: new Date(),
-                  messageCount: { increment: 1 }
-                }
-              });
-
-              // Echo message to all connected clients
-              connection.send(JSON.stringify({
-                type: 'message',
-                data: {
-                  conversationId,
-                  role: data.role,
-                  content: data.content,
-                  timestamp: new Date()
-                }
-              }));
-
-              // TODO: Process with AI if role is 'user'
-              if (data.role === 'user') {
-                // This will be implemented in next iteration
-                // - Load knowledge base
-                // - Call OpenAI
-                // - Save AI response
-                // - Send AI response via WebSocket
-              }
-
-            } catch (error) {
-              fastify.log.error(error);
-              connection.send(JSON.stringify({
-                type: 'error',
-                message: 'Failed to process message'
-              }));
+        try {
+          // Save message to database
+          const message = await prisma.message.create({
+            data: {
+              conversationId,
+              role,
+              content,
+              contentType: contentType || 'text'
             }
           });
 
-          connection.on('close', () => {
-            fastify.log.info(`WebSocket connection closed for conversation ${conversationId}`);
+          // Update conversation activity
+          await prisma.conversation.update({
+            where: { id: conversationId },
+            data: { 
+              lastActivity: new Date(),
+              messageCount: { increment: 1 }
+            }
           });
 
-          connection.on('error', (error) => {
-            fastify.log.error(`WebSocket error for conversation ${conversationId}:`, error);
-          });
-        });
+          return message;
+        } catch (error) {
+          fastify.log.error(error);
+          return reply.status(500).send({ error: 'Failed to add message' });
+        }
       });
+
+      // Get messages for conversation
+      fastify.get('/conversations/:conversationId/messages', async (request, reply) => {
+        const { conversationId } = request.params as { conversationId: string };
+
+        try {
+          const messages = await prisma.message.findMany({
+            where: { conversationId },
+            orderBy: { createdAt: 'asc' }
+          });
+
+          return messages;
+        } catch (error) {
+          fastify.log.error(error);
+          return reply.status(500).send({ error: 'Failed to get messages' });
+        }
+      });
+    });
 
     // Orders routes
     fastify.register(async function (fastify) {
