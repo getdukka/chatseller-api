@@ -137,3 +137,45 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Database files (si tu testes avec SQLite localement)
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment backups
+.env.backup
+.env.old
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
+
+# Prisma generated files (optionnel - parfois on veut les committer)
+# prisma/migrations/migration_lock.toml
+
+# Upload directories (si tu as des uploads de fichiers)
+uploads/
+temp/
+
+# Documentation build (si tu génères des docs)
+docs/build/
+
+# Coverage reports détaillés
+coverage/
+*.lcov
