@@ -17,11 +17,16 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// Create Fastify instance
+// Create Fastify instance with corrected logger config
 const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || 'info',
-    prettyPrint: process.env.NODE_ENV === 'development'
+    transport: process.env.NODE_ENV === 'development' ? {
+      target: 'pino-pretty',
+      options: {
+        colorize: true
+      }
+    } : undefined
   }
 });
 
@@ -179,12 +184,12 @@ async function registerRoutes() {
         }
       });
 
-      // WebSocket for real-time chat
+      // WebSocket for real-time chat - CORRECTED
       fastify.register(async function (fastify) {
         fastify.get('/conversations/:conversationId/ws', { websocket: true }, (connection, req) => {
           const { conversationId } = req.params as { conversationId: string };
           
-          connection.socket.on('message', async (message) => {
+          connection.socket.on('message', async (message: Buffer) => {
             try {
               const data = JSON.parse(message.toString());
               
