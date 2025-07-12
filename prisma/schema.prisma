@@ -1,0 +1,220 @@
+// ChatSeller API - Prisma Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Shop {
+  id                String   @id @default(uuid()) @db.Uuid
+  name              String   @db.VarChar(255)
+  email             String   @unique @db.VarChar(255)
+  domain            String?  @db.VarChar(255)
+  
+  // Configuration JSON
+  widgetConfig      Json     @default("{\"theme\":\"modern\",\"primaryColor\":\"#E91E63\",\"position\":\"bottom-right\",\"buttonText\":\"Parler au vendeur\",\"language\":\"fr\"}")
+  agentConfig       Json     @default("{\"name\":\"Rose\",\"avatar\":\"https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff\",\"welcomeMessage\":\"Bonjour ! Je suis votre assistante d'achat. Comment puis-je vous aider ?\",\"fallbackMessage\":\"Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.\",\"collectPaymentMethod\":true,\"upsellEnabled\":false}")
+  
+  // Métadonnées
+  subscriptionPlan  String   @default("free") @db.VarChar(50)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  knowledgeBase     KnowledgeBase[]
+  conversations     Conversation[]
+  orders            Order[]
+  upsellRules       UpsellRule[]
+  analyticsEvents   AnalyticsEvent[]
+  
+  @@map("shops")
+}
+
+model KnowledgeBase {
+  id           String   @id @default(uuid()) @db.Uuid
+  shopId       String   @map("shop_id") @db.Uuid
+  
+  // Contenu
+  title        String?  @db.VarChar(500)
+  content      String   @db.Text
+  contentType  String   @default("manual") @map("content_type") @db.VarChar(50)
+  
+  // Métadonnées
+  sourceFile   String?  @map("source_file") @db.VarChar(255)
+  tags         String[]
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  shop         Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  
+  @@index([shopId])
+  @@map("knowledge_base")
+}
+
+model Conversation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  shopId             String   @map("shop_id") @db.Uuid
+  
+  // Identification visiteur
+  visitorId          String?  @map("visitor_id") @db.VarChar(100)
+  visitorIp          String?  @map("visitor_ip") @db.Inet
+  visitorUserAgent   String?  @map("visitor_user_agent") @db.Text
+  
+  // Contexte produit
+  productId          String?  @map("product_id") @db.VarChar(100)
+  productName        String?  @map("product_name") @db.VarChar(255)
+  productUrl         String?  @map("product_url") @db.Text
+  productPrice       Decimal? @map("product_price") @db.Decimal(10, 2)
+  
+  // État
+  status             String   @default("active") @db.VarChar(50)
+  language           String   @default("fr") @db.VarChar(10)
+  customerData       Json     @default("{}") @map("customer_data")
+  
+  // Timestamps
+  startedAt          DateTime @default(now()) @map("started_at")
+  lastActivity       DateTime @default(now()) @map("last_activity")
+  completedAt        DateTime? @map("completed_at")
+  
+  // Analytics
+  messageCount       Int      @default(0) @map("message_count")
+  conversionCompleted Boolean @default(false) @map("conversion_completed")
+  
+  // Relations
+  shop               Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  messages           Message[]
+  orders             Order[]
+  
+  @@index([shopId])
+  @@index([status])
+  @@index([visitorId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  
+  // Contenu
+  role           String   @db.VarChar(20)
+  content        String   @db.Text
+  contentType    String   @default("text") @map("content_type") @db.VarChar(20)
+  
+  // Métadonnées IA
+  tokensUsed     Int?     @map("tokens_used")
+  responseTimeMs Int?     @map("response_time_ms")
+  modelUsed      String?  @map("model_used") @db.VarChar(50)
+  
+  // Actions
+  actionTaken    String?  @map("action_taken") @db.VarChar(100)
+  actionData     Json?    @map("action_data")
+  
+  createdAt      DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+model Order {
+  id               String   @id @default(uuid()) @db.Uuid
+  shopId           String   @map("shop_id") @db.Uuid
+  conversationId   String   @map("conversation_id") @db.Uuid
+  
+  // Client
+  customerName     String?  @map("customer_name") @db.VarChar(255)
+  customerPhone    String?  @map("customer_phone") @db.VarChar(50)
+  customerEmail    String?  @map("customer_email") @db.VarChar(255)
+  customerAddress  String?  @map("customer_address") @db.Text
+  
+  // Commande
+  productItems     Json     @map("product_items")
+  totalAmount      Decimal? @map("total_amount") @db.Decimal(10, 2)
+  currency         String   @default("XOF") @db.VarChar(10)
+  paymentMethod    String?  @map("payment_method") @db.VarChar(100)
+  
+  // Upsells
+  upsellItems      Json     @default("[]") @map("upsell_items")
+  upsellAmount     Decimal  @default(0) @map("upsell_amount") @db.Decimal(10, 2)
+  
+  // État
+  status           String   @default("pending") @db.VarChar(50)
+  notes            String?  @db.Text
+  
+  // Export
+  exportedAt       DateTime? @map("exported_at")
+  externalOrderId  String?   @map("external_order_id") @db.VarChar(255)
+  webhookSentAt    DateTime? @map("webhook_sent_at")
+  
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  shop             Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  @@index([shopId])
+  @@index([status])
+  @@map("orders")
+}
+
+model UpsellRule {
+  id                     String   @id @default(uuid()) @db.Uuid
+  shopId                 String   @map("shop_id") @db.Uuid
+  
+  // Conditions
+  triggerProductId       String?  @map("trigger_product_id") @db.VarChar(100)
+  triggerConditions      Json?    @map("trigger_conditions")
+  
+  // Recommandations
+  recommendedProductId   String?  @map("recommended_product_id") @db.VarChar(100)
+  recommendedProductName String?  @map("recommended_product_name") @db.VarChar(255)
+  discountPercentage     Decimal  @default(0) @map("discount_percentage") @db.Decimal(5, 2)
+  recommendationText     String?  @map("recommendation_text") @db.Text
+  
+  // Configuration
+  isActive               Boolean  @default(true) @map("is_active")
+  priority               Int      @default(0)
+  
+  createdAt              DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  shop                   Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  
+  @@map("upsell_rules")
+}
+
+model AnalyticsEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  shopId         String   @map("shop_id") @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  
+  // Événement
+  eventType      String   @map("event_type") @db.VarChar(100)
+  eventData      Json     @default("{}") @map("event_data")
+  
+  // Contexte
+  userAgent      String?  @map("user_agent") @db.Text
+  ipAddress      String?  @map("ip_address") @db.Inet
+  referrer       String?  @db.Text
+  pageUrl        String?  @map("page_url") @db.Text
+  
+  createdAt      DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  shop           Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  
+  @@index([shopId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("analytics_events")
+}
