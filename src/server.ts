@@ -184,12 +184,13 @@ async function registerRoutes() {
         }
       });
 
-      // WebSocket for real-time chat - CORRECTED
+      // WebSocket for real-time chat - CORRECTED VERSION
       fastify.register(async function (fastify) {
         fastify.get('/conversations/:conversationId/ws', { websocket: true }, (connection, req) => {
           const { conversationId } = req.params as { conversationId: string };
           
-          connection.socket.on('message', async (message: Buffer) => {
+          // Correct Fastify WebSocket API usage
+          connection.on('message', async (message: Buffer) => {
             try {
               const data = JSON.parse(message.toString());
               
@@ -213,7 +214,7 @@ async function registerRoutes() {
               });
 
               // Echo message to all connected clients
-              connection.socket.send(JSON.stringify({
+              connection.send(JSON.stringify({
                 type: 'message',
                 data: {
                   conversationId,
@@ -234,15 +235,22 @@ async function registerRoutes() {
 
             } catch (error) {
               fastify.log.error(error);
-              connection.socket.send(JSON.stringify({
+              connection.send(JSON.stringify({
                 type: 'error',
                 message: 'Failed to process message'
               }));
             }
           });
+
+          connection.on('close', () => {
+            fastify.log.info(`WebSocket connection closed for conversation ${conversationId}`);
+          });
+
+          connection.on('error', (error) => {
+            fastify.log.error(`WebSocket error for conversation ${conversationId}:`, error);
+          });
         });
       });
-    });
 
     // Orders routes
     fastify.register(async function (fastify) {
