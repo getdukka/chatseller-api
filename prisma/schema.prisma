@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Shop {
+  id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name              String    @db.VarChar(255)
+  email             String    @unique @db.VarChar(255)
+  domain            String?   @db.VarChar(255)
+  widget_config     Json?     @default("{\"theme\": \"modern\", \"language\": \"fr\", \"position\": \"bottom-right\", \"buttonText\": \"Parler au vendeur\", \"primaryColor\": \"#E91E63\"}")
+  agent_config      Json?     @default("{\"name\": \"Rose\", \"avatar\": \"https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff\", \"upsellEnabled\": false, \"welcomeMessage\": \"Bonjour ! Je suis votre assistante d'achat. Comment puis-je vous aider ?\", \"fallbackMessage\": \"Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.\", \"collectPaymentMethod\": true}")
+  subscription_plan String?   @default("free") @db.VarChar(50)
+  createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  is_active         Boolean?  @default(true)
+
+  @@map("shops")
+}
+
+model KnowledgeBase {
+  id          String   @id @default(uuid()) @db.Uuid
+  shopId      String   @map("shop_id") @db.Uuid
+  title       String?  @db.VarChar(500)
+  content     String
+  contentType String   @default("manual") @map("content_type") @db.VarChar(50)
+  sourceFile  String?  @map("source_file") @db.VarChar(255)
+  tags        String[]
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([shopId], map: "idx_knowledge_shop_id")
+  @@map("knowledge_base")
+}
+
+model Conversation {
+  id                  String    @id @default(uuid()) @db.Uuid
+  shopId              String    @map("shop_id") @db.Uuid
+  visitorId           String?   @map("visitor_id") @db.VarChar(100)
+  visitorIp           String?   @map("visitor_ip") @db.Inet
+  visitorUserAgent    String?   @map("visitor_user_agent")
+  productId           String?   @map("product_id") @db.VarChar(100)
+  productName         String?   @map("product_name") @db.VarChar(255)
+  productUrl          String?   @map("product_url")
+  productPrice        Decimal?  @map("product_price") @db.Decimal(10, 2)
+  status              String    @default("active") @db.VarChar(50)
+  language            String    @default("fr") @db.VarChar(10)
+  customerData        Json      @default("{}") @map("customer_data")
+  startedAt           DateTime  @default(now()) @map("started_at")
+  lastActivity        DateTime  @default(now()) @map("last_activity")
+  completedAt         DateTime? @map("completed_at")
+  messageCount        Int       @default(0) @map("message_count")
+  conversionCompleted Boolean   @default(false) @map("conversion_completed")
+
+  @@index([shopId], map: "idx_conversations_shop_id")
+  @@index([status], map: "idx_conversations_status")
+  @@index([visitorId], map: "idx_conversations_visitor")
+  @@map("conversations")
+}
+
+model Message {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  role           String   @db.VarChar(20)
+  content        String
+  contentType    String   @default("text") @map("content_type") @db.VarChar(20)
+  tokensUsed     Int?     @map("tokens_used")
+  responseTimeMs Int?     @map("response_time_ms")
+  modelUsed      String?  @map("model_used") @db.VarChar(50)
+  actionTaken    String?  @map("action_taken") @db.VarChar(100)
+  actionData     Json?    @map("action_data")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([conversationId], map: "idx_messages_conversation")
+  @@index([createdAt], map: "idx_messages_created")
+  @@map("messages")
+}
+
+model Order {
+  id              String    @id @default(uuid()) @db.Uuid
+  shopId          String    @map("shop_id") @db.Uuid
+  conversationId  String    @map("conversation_id") @db.Uuid
+  customerName    String?   @map("customer_name") @db.VarChar(255)
+  customerPhone   String?   @map("customer_phone") @db.VarChar(50)
+  customerEmail   String?   @map("customer_email") @db.VarChar(255)
+  customerAddress String?   @map("customer_address")
+  productItems    Json      @map("product_items")
+  totalAmount     Decimal?  @map("total_amount") @db.Decimal(10, 2)
+  currency        String    @default("XOF") @db.VarChar(10)
+  paymentMethod   String?   @map("payment_method") @db.VarChar(100)
+  upsellItems     Json      @default("[]") @map("upsell_items")
+  upsellAmount    Decimal   @default(0) @map("upsell_amount") @db.Decimal(10, 2)
+  status          String    @default("pending") @db.VarChar(50)
+  notes           String?
+  exportedAt      DateTime? @map("exported_at")
+  externalOrderId String?   @map("external_order_id") @db.VarChar(255)
+  webhookSentAt   DateTime? @map("webhook_sent_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([shopId], map: "idx_orders_shop_id")
+  @@index([status], map: "idx_orders_status")
+  @@map("orders")
+}
+
+model UpsellRule {
+  id                     String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  shopId                 String    @map("shop_id") @db.Uuid
+  triggerProductId       String?   @map("trigger_product_id") @db.VarChar(100)
+  triggerConditions      Json?     @map("trigger_conditions")
+  recommendedProductId   String?   @map("recommended_product_id") @db.VarChar(100)
+  recommendedProductName String?   @map("recommended_product_name") @db.VarChar(255)
+  discountPercentage     Decimal?  @default(0) @map("discount_percentage") @db.Decimal(5, 2)
+  recommendationText     String?   @map("recommendation_text")
+  isActive               Boolean?  @default(true) @map("is_active")
+  priority               Int?      @default(0)
+  createdAt              DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("upsell_rules")
+}
+
+model AnalyticsEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  shopId         String   @map("shop_id") @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  eventType      String   @map("event_type") @db.VarChar(100)
+  eventData      Json     @default("{}") @map("event_data")
+  userAgent      String?  @map("user_agent")
+  ipAddress      String?  @map("ip_address") @db.Inet
+  referrer       String?
+  pageUrl        String?  @map("page_url")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt], map: "idx_analytics_created")
+  @@index([shopId], map: "idx_analytics_shop_id")
+  @@index([eventType], map: "idx_analytics_type")
+  @@map("analytics_events")
+}
+
+model Subscription {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopId               String    @map("shop_id") @db.Uuid
+  stripeCustomerId     String?   @map("stripe_customer_id")
+  stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
+  stripePriceId        String?   @map("stripe_price_id")
+  stripe_product_id    String?
+  plan_name            String
+  status               String
+  currentPeriodStart   DateTime? @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd     DateTime? @map("current_period_end") @db.Timestamptz(6)
+  trialStart           DateTime? @map("trial_start") @db.Timestamptz(6)
+  trialEnd             DateTime? @map("trial_end") @db.Timestamptz(6)
+  canceledAt           DateTime? @map("canceled_at") @db.Timestamptz(6)
+  ended_at             DateTime? @db.Timestamptz(6)
+  metadata             Json?     @default("{}")
+  createdAt            DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id                    String    @id @default(uuid()) @db.Uuid
+  shopId                String    @map("shop_id") @db.Uuid
+  subscriptionId        String    @map("subscription_id") @db.Uuid
+  stripeInvoiceId       String    @unique @map("stripe_invoice_id") @db.VarChar(255)
+  stripePaymentIntentId String?   @map("stripe_payment_intent_id") @db.VarChar(255)
+  amountPaid            Decimal   @map("amount_paid") @db.Decimal(10, 2)
+  currency              String    @default("eur") @db.VarChar(10)
+  status                String    @db.VarChar(50)
+  invoicePdf            String?   @map("invoice_pdf")
+  hostedInvoiceUrl      String?   @map("hosted_invoice_url")
+  periodStart           DateTime  @map("period_start")
+  periodEnd             DateTime  @map("period_end")
+  dueDate               DateTime? @map("due_date")
+  paidAt                DateTime? @map("paid_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  amountDue             Decimal   @map("amount_due") @db.Decimal(10, 2)
+
+  @@map("invoices")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_settings {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id               String?   @db.Uuid
+  agent_name            String?   @default("Agent IA") @db.VarChar(100)
+  welcome_message       String?   @default("Bonjour ! Comment puis-je vous aider ?")
+  agent_tone            String?   @default("friendly") @db.VarChar(50)
+  custom_instructions   String?
+  widget_config         Json?     @default("{}")
+  notification_settings Json?     @default("{}")
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model users {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email          String    @unique @db.VarChar(255)
+  password_hash  String    @db.VarChar(255)
+  first_name     String    @db.VarChar(100)
+  last_name      String    @db.VarChar(100)
+  company        String    @db.VarChar(255)
+  role           String?   @default("user") @db.VarChar(50)
+  email_verified Boolean?  @default(false)
+  newsletter     Boolean?  @default(false)
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
+  last_login_at  DateTime? @db.Timestamptz(6)
+
+  @@index([email], map: "idx_users_email")
+}
