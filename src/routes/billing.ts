@@ -1,4 +1,4 @@
-// src/routes/billing.ts - VERSION CORRIGÉE AVEC AUTO-CRÉATION SHOP
+// src/routes/billing.ts - VERSION DEBUG ULTRA-DÉTAILLÉE
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Stripe from 'stripe';
@@ -65,65 +65,164 @@ async function verifySupabaseAuth(request: any) {
   return user;
 }
 
-// ✅ NOUVELLE FONCTION: Créer ou récupérer un shop
+// ✅ FONCTION DE TEST CONNEXION PRISMA
+async function testPrismaConnection(fastify: FastifyInstance) {
+  try {
+    fastify.log.info('🔗 Test de connexion Prisma...');
+    
+    // Test simple de connexion
+    await prisma.$queryRaw`SELECT 1 as test`;
+    fastify.log.info('✅ Connexion Prisma OK');
+    
+    // Test de lecture de la table shops
+    const shopCount = await prisma.shop.count();
+    fastify.log.info(`📊 Nombre de shops existants: ${shopCount}`);
+    
+    return true;
+  } catch (error: any) {
+    fastify.log.error('❌ Erreur connexion Prisma:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack
+    });
+    return false;
+  }
+}
+
+// ✅ NOUVELLE FONCTION: Créer ou récupérer un shop (VERSION DEBUG)
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   fastify.log.info(`🔍 Recherche du shop pour l'utilisateur: ${user.id} (${user.email})`);
   
   try {
+    // 0. Tester la connexion Prisma d'abord
+    const connectionOK = await testPrismaConnection(fastify);
+    if (!connectionOK) {
+      throw new Error('Connexion Prisma échoue');
+    }
+
     // 1. Chercher d'abord par ID utilisateur
-    let shop = await prisma.shop.findUnique({
-      where: { id: user.id }
-    });
+    fastify.log.info(`🔍 Étape 1: Recherche par ID: ${user.id}`);
+    
+    let shop;
+    try {
+      shop = await prisma.shop.findUnique({
+        where: { id: user.id }
+      });
+      fastify.log.info(`📋 Résultat recherche par ID: ${shop ? 'TROUVÉ' : 'NON TROUVÉ'}`);
+    } catch (error: any) {
+      fastify.log.error('❌ Erreur recherche par ID:', {
+        message: error.message,
+        code: error.code
+      });
+    }
 
     if (shop) {
-      fastify.log.info(`✅ Shop trouvé par ID: ${shop.id}`);
+      fastify.log.info(`✅ Shop trouvé par ID: ${shop.id} - ${shop.name}`);
       return shop;
     }
 
     // 2. Chercher par email
-    shop = await prisma.shop.findUnique({
-      where: { email: user.email }
-    });
+    fastify.log.info(`🔍 Étape 2: Recherche par email: ${user.email}`);
+    
+    try {
+      shop = await prisma.shop.findUnique({
+        where: { email: user.email }
+      });
+      fastify.log.info(`📋 Résultat recherche par email: ${shop ? 'TROUVÉ' : 'NON TROUVÉ'}`);
+    } catch (error: any) {
+      fastify.log.error('❌ Erreur recherche par email:', {
+        message: error.message,
+        code: error.code
+      });
+    }
 
     if (shop) {
-      fastify.log.info(`✅ Shop trouvé par email: ${shop.id}`);
+      fastify.log.info(`✅ Shop trouvé par email: ${shop.id} - ${shop.name}`);
       return shop;
     }
 
     // 3. Créer automatiquement le shop si il n'existe pas
-    fastify.log.info(`🏗️ Création automatique du shop pour: ${user.email}`);
-    
-    const newShop = await prisma.shop.create({
-      data: {
-        id: user.id,
-        name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
-        email: user.email,
-        subscription_plan: 'free',
-        is_active: true,
-        widget_config: {
-          theme: "modern",
-          language: "fr", 
-          position: "bottom-right",
-          buttonText: "Parler au vendeur",
-          primaryColor: "#3B82F6"
-        },
-        agent_config: {
-          name: "Assistant ChatSeller",
-          avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
-          upsellEnabled: false,
-          welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
-          fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
-          collectPaymentMethod: true
-        }
-      }
+    fastify.log.info(`🏗️ Étape 3: Création automatique du shop`);
+    fastify.log.info(`📝 Données utilisateur:`, {
+      id: user.id,
+      email: user.email,
+      user_metadata: user.user_metadata
     });
+    
+    const shopData = {
+      id: user.id,
+      name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
+      email: user.email,
+      subscription_plan: 'free' as const,
+      is_active: true,
+      widget_config: {
+        theme: "modern",
+        language: "fr", 
+        position: "bottom-right",
+        buttonText: "Parler au vendeur",
+        primaryColor: "#3B82F6"
+      },
+      agent_config: {
+        name: "Assistant ChatSeller",
+        avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
+        upsellEnabled: false,
+        welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
+        fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
+        collectPaymentMethod: true
+      }
+    };
 
-    fastify.log.info(`✅ Shop créé avec succès: ${newShop.id}`);
+    fastify.log.info(`📝 Données shop à créer:`, shopData);
+
+    let newShop;
+    try {
+      newShop = await prisma.shop.create({
+        data: shopData
+      });
+      fastify.log.info(`✅ Shop créé avec succès: ${newShop.id} - ${newShop.name}`);
+    } catch (error: any) {
+      fastify.log.error('❌ ERREUR CRITIQUE lors de la création du shop:', {
+        message: error.message,
+        code: error.code,
+        meta: error.meta,
+        stack: error.stack,
+        shopData: shopData
+      });
+
+      // Si erreur d'ID conflict, essayer sans forcer l'ID
+      if (error.code === 'P2002' || error.message.includes('duplicate') || error.message.includes('unique')) {
+        fastify.log.info('🔄 Tentative création sans ID forcé...');
+        
+        try {
+          const { id, ...shopDataWithoutId } = shopData;
+          newShop = await prisma.shop.create({
+            data: shopDataWithoutId
+          });
+          fastify.log.info(`✅ Shop créé sans ID forcé: ${newShop.id} - ${newShop.name}`);
+        } catch (error2: any) {
+          fastify.log.error('❌ Échec création sans ID forcé:', {
+            message: error2.message,
+            code: error2.code,
+            meta: error2.meta
+          });
+          throw error2;
+        }
+      } else {
+        throw error;
+      }
+    }
+
     return newShop;
 
-  } catch (error) {
-    fastify.log.error('❌ Erreur lors de la création/récupération du shop:', error);
-    throw new Error('Impossible de créer ou récupérer le shop');
+  } catch (error: any) {
+    fastify.log.error('❌ ERREUR GLOBALE dans getOrCreateShop:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+      userId: user.id,
+      userEmail: user.email
+    });
+    throw new Error(`Impossible de créer ou récupérer le shop: ${error.message}`);
   }
 }
 
@@ -148,23 +247,26 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (CORRIGÉE)
+  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (VERSION DEBUG)
   fastify.post('/create-checkout-session', async (request, reply) => {
     try {
       fastify.log.info('🚀 Début création session checkout');
       
       const body = createSubscriptionSchema.parse(request.body);
-      const user = await verifySupabaseAuth(request);
+      fastify.log.info('📋 Body validé:', body);
       
+      const user = await verifySupabaseAuth(request);
       fastify.log.info(`👤 Utilisateur authentifié: ${user.id} (${user.email})`);
       
-      // ✅ UTILISER LA NOUVELLE FONCTION CORRIGÉE
+      // ✅ UTILISER LA NOUVELLE FONCTION DEBUG
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        fastify.log.error('❌ Impossible de créer ou récupérer le shop');
+        fastify.log.error('❌ Shop null après getOrCreateShop');
         return reply.status(500).send({ error: 'Erreur lors de la récupération du shop' });
       }
+
+      fastify.log.info(`✅ Shop récupéré: ${shop.id} - ${shop.name} - Plan: ${shop.subscription_plan}`);
 
       // ✅ VÉRIFIER SI DÉJÀ ABONNÉ
       if (shop.subscription_plan === 'professional') {
@@ -183,6 +285,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       // ✅ CRÉER OU RÉCUPÉRER LE CUSTOMER STRIPE
       let customer;
       
+      fastify.log.info(`🔍 Recherche customer Stripe pour: ${shop.email}`);
+      
       // Chercher si le customer existe déjà
       const existingCustomers = await stripe.customers.list({
         email: shop.email,
@@ -193,6 +297,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         customer = existingCustomers.data[0];
         fastify.log.info(`✅ Customer Stripe existant trouvé: ${customer.id}`);
       } else {
+        fastify.log.info(`🏗️ Création nouveau customer Stripe`);
         customer = await stripe.customers.create({
           email: shop.email,
           name: shop.name,
@@ -205,7 +310,9 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ CRÉER LA SESSION DE CHECKOUT
-      const session = await stripe.checkout.sessions.create({
+      fastify.log.info(`🏗️ Création session checkout...`);
+      
+      const sessionData: Stripe.Checkout.SessionCreateParams = {
         customer: customer.id,
         payment_method_types: ['card'],
         line_items: [
@@ -214,7 +321,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
             quantity: 1,
           },
         ],
-        mode: 'subscription',
+        mode: 'subscription' as const,
         success_url: body.successUrl,
         cancel_url: body.cancelUrl,
         metadata: {
@@ -229,7 +336,11 @@ export default async function billingRoutes(fastify: FastifyInstance) {
             shopEmail: shop.email
           }
         }
-      });
+      };
+
+      fastify.log.info(`📋 Données session checkout:`, sessionData);
+
+      const session = await stripe.checkout.sessions.create(sessionData);
 
       fastify.log.info(`✅ Session checkout créée avec succès: ${session.id}`);
       fastify.log.info(`🔗 URL de redirection: ${session.url}`);
@@ -241,7 +352,12 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ Create checkout session error:', error);
+      fastify.log.error('❌ Create checkout session error:', {
+        message: error.message,
+        stack: error.stack,
+        code: error.code,
+        name: error.name
+      });
       
       if (error.name === 'ZodError') {
         return reply.status(400).send({
@@ -256,17 +372,19 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       
       return reply.status(500).send({
         error: 'Erreur lors de la création de la session de paiement',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: error.message
       });
     }
   });
 
-  // ✅ ROUTE : OBTENIR LE STATUT DE L'ABONNEMENT (CORRIGÉE)
+  // ✅ ROUTE : OBTENIR LE STATUT DE L'ABONNEMENT (VERSION DEBUG)
   fastify.get('/subscription-status', async (request, reply) => {
     try {
       fastify.log.info('🔍 Récupération statut abonnement');
       
       const user = await verifySupabaseAuth(request);
+      fastify.log.info(`👤 Utilisateur authentifié: ${user.id} (${user.email})`);
+      
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
@@ -288,7 +406,11 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ Get subscription status error:', error);
+      fastify.log.error('❌ Get subscription status error:', {
+        message: error.message,
+        stack: error.stack,
+        code: error.code
+      });
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
         return reply.status(401).send({ error: error.message });
@@ -296,12 +418,12 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       
       return reply.status(500).send({ 
         error: 'Erreur lors de la récupération du statut',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: error.message
       });
     }
   });
 
-  // ✅ WEBHOOK STRIPE (CORRIGÉ)
+  // ✅ WEBHOOK STRIPE (SIMPLIFIÉ POUR DEBUG)
   fastify.post('/webhook', async (request, reply) => {
     try {
       const signature = request.headers['stripe-signature'] as string;
@@ -331,10 +453,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
           await handleSubscriptionCanceled(event.data.object as Stripe.Subscription, fastify);
           break;
 
-        case 'customer.subscription.updated':
-          await handleSubscriptionUpdated(event.data.object as Stripe.Subscription, fastify);
-          break;
-
         default:
           fastify.log.info(`ℹ️ Unhandled event type: ${event.type}`);
       }
@@ -347,10 +465,12 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ FONCTIONS WEBHOOK CORRIGÉES
+  // ✅ FONCTIONS WEBHOOK SIMPLIFIÉES
   async function handleCheckoutCompleted(session: Stripe.Checkout.Session, fastify: FastifyInstance) {
     const userId = session.metadata?.userId;
     const plan = session.metadata?.plan;
+
+    fastify.log.info(`📧 Webhook checkout completed - User: ${userId}, Plan: ${plan}`);
 
     if (!userId || !plan) {
       fastify.log.error('❌ Missing metadata in checkout session:', { userId, plan });
@@ -358,7 +478,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // ✅ METTRE À JOUR LE SHOP AVEC LE PLAN PAYÉ
       await prisma.shop.update({
         where: { id: userId },
         data: {
@@ -377,13 +496,14 @@ export default async function billingRoutes(fastify: FastifyInstance) {
   async function handleSubscriptionCanceled(subscription: Stripe.Subscription, fastify: FastifyInstance) {
     const userId = subscription.metadata?.userId;
 
+    fastify.log.info(`📧 Webhook subscription canceled - User: ${userId}`);
+
     if (!userId) {
       fastify.log.error('❌ Missing userId in subscription metadata');
       return;
     }
 
     try {
-      // ✅ REMETTRE LE SHOP EN PLAN GRATUIT
       await prisma.shop.update({
         where: { id: userId },
         data: {
@@ -396,31 +516,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       fastify.log.info(`✅ Subscription canceled for user ${userId}`);
     } catch (error) {
       fastify.log.error('❌ Error canceling shop subscription:', error);
-    }
-  }
-
-  async function handleSubscriptionUpdated(subscription: Stripe.Subscription, fastify: FastifyInstance) {
-    const userId = subscription.metadata?.userId;
-
-    if (!userId) {
-      fastify.log.error('❌ Missing userId in subscription metadata');
-      return;
-    }
-
-    try {
-      const isActive = subscription.status === 'active';
-      
-      await prisma.shop.update({
-        where: { id: userId },
-        data: {
-          is_active: isActive,
-          updatedAt: new Date()
-        }
-      });
-
-      fastify.log.info(`✅ Subscription updated for user ${userId}, status: ${subscription.status}`);
-    } catch (error) {
-      fastify.log.error('❌ Error updating shop subscription:', error);
     }
   }
 }
