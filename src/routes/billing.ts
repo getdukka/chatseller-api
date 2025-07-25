@@ -1,4 +1,4 @@
-// src/routes/billing.ts - VERSION DEBUG ULTRA-DÉTAILLÉE
+// src/routes/billing.ts - VERSION DIAGNOSTIC PRISMA
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Stripe from 'stripe';
@@ -65,56 +65,117 @@ async function verifySupabaseAuth(request: any) {
   return user;
 }
 
-// ✅ FONCTION DE TEST CONNEXION PRISMA
-async function testPrismaConnection(fastify: FastifyInstance) {
+// ✅ FONCTION DE DIAGNOSTIC PRISMA ULTRA-DÉTAILLÉE
+async function diagnosticPrismaConnection(fastify: FastifyInstance) {
+  fastify.log.info('🔗 === DIAGNOSTIC PRISMA CONNECTION ===');
+  
+  // 1. Vérifier les variables d'environnement
+  fastify.log.info('📋 Variables d\'environnement:');
+  fastify.log.info(`DATABASE_URL présent: ${process.env.DATABASE_URL ? 'OUI' : 'NON'}`);
+  
+  if (process.env.DATABASE_URL) {
+    // Masquer le password pour les logs
+    const dbUrl = process.env.DATABASE_URL;
+    const maskedUrl = dbUrl.replace(/:([^:@]+)@/, ':***@');
+    fastify.log.info(`DATABASE_URL: ${maskedUrl}`);
+  }
+
+  // 2. Test de connexion basique
   try {
-    fastify.log.info('🔗 Test de connexion Prisma...');
-    
-    // Test simple de connexion
-    await prisma.$queryRaw`SELECT 1 as test`;
-    fastify.log.info('✅ Connexion Prisma OK');
-    
-    // Test de lecture de la table shops
-    const shopCount = await prisma.shop.count();
-    fastify.log.info(`📊 Nombre de shops existants: ${shopCount}`);
-    
-    return true;
+    fastify.log.info('🔌 Test connexion basique...');
+    const result = await prisma.$queryRaw`SELECT 1 as test, NOW() as current_time`;
+    fastify.log.info('✅ Connexion basique réussie:', result);
   } catch (error: any) {
-    fastify.log.error('❌ Erreur connexion Prisma:', {
+    fastify.log.error('❌ ERREUR connexion basique:', {
       message: error.message,
       code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
       stack: error.stack
     });
-    return false;
+    return { success: false, error: 'Connexion basique échoue', details: error };
   }
+
+  // 3. Test de lecture de la table shops
+  try {
+    fastify.log.info('📊 Test lecture table shops...');
+    const shopCount = await prisma.shop.count();
+    fastify.log.info(`✅ Nombre de shops: ${shopCount}`);
+    
+    // Lister les shops existants
+    const shops = await prisma.shop.findMany({
+      select: { id: true, name: true, email: true, subscription_plan: true }
+    });
+    fastify.log.info('📋 Shops existants:', shops);
+    
+  } catch (error: any) {
+    fastify.log.error('❌ ERREUR lecture table shops:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
+      stack: error.stack
+    });
+    return { success: false, error: 'Lecture table shops échoue', details: error };
+  }
+
+  // 4. Test de création simple
+  try {
+    fastify.log.info('🧪 Test création temporaire...');
+    const testId = 'test-' + Date.now();
+    const testEmail = 'test-' + Date.now() + '@example.com';
+    
+    const testShop = await prisma.shop.create({
+      data: {
+        id: testId,
+        name: 'Test Shop',
+        email: testEmail,
+        subscription_plan: 'free',
+        is_active: true
+      }
+    });
+    
+    fastify.log.info('✅ Création test réussie:', testShop.id);
+    
+    // Supprimer le shop de test
+    await prisma.shop.delete({ where: { id: testId } });
+    fastify.log.info('✅ Suppression test réussie');
+    
+  } catch (error: any) {
+    fastify.log.error('❌ ERREUR création/suppression test:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
+      stack: error.stack
+    });
+    return { success: false, error: 'Test création échoue', details: error };
+  }
+
+  fastify.log.info('🎉 === DIAGNOSTIC PRISMA COMPLET : TOUT OK ===');
+  return { success: true };
 }
 
-// ✅ NOUVELLE FONCTION: Créer ou récupérer un shop (VERSION DEBUG)
+// ✅ NOUVELLE FONCTION: Créer ou récupérer un shop (VERSION SIMPLIFIÉE)
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   fastify.log.info(`🔍 Recherche du shop pour l'utilisateur: ${user.id} (${user.email})`);
   
   try {
-    // 0. Tester la connexion Prisma d'abord
-    const connectionOK = await testPrismaConnection(fastify);
-    if (!connectionOK) {
-      throw new Error('Connexion Prisma échoue');
+    // 0. Diagnostic Prisma complet
+    const diagnostic = await diagnosticPrismaConnection(fastify);
+    if (!diagnostic.success) {
+      throw new Error(`Diagnostic Prisma échoue: ${diagnostic.error}`);
     }
 
     // 1. Chercher d'abord par ID utilisateur
-    fastify.log.info(`🔍 Étape 1: Recherche par ID: ${user.id}`);
+    fastify.log.info(`🔍 Recherche par ID: ${user.id}`);
     
-    let shop;
-    try {
-      shop = await prisma.shop.findUnique({
-        where: { id: user.id }
-      });
-      fastify.log.info(`📋 Résultat recherche par ID: ${shop ? 'TROUVÉ' : 'NON TROUVÉ'}`);
-    } catch (error: any) {
-      fastify.log.error('❌ Erreur recherche par ID:', {
-        message: error.message,
-        code: error.code
-      });
-    }
+    let shop = await prisma.shop.findUnique({
+      where: { id: user.id }
+    });
 
     if (shop) {
       fastify.log.info(`✅ Shop trouvé par ID: ${shop.id} - ${shop.name}`);
@@ -122,32 +183,19 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
     }
 
     // 2. Chercher par email
-    fastify.log.info(`🔍 Étape 2: Recherche par email: ${user.email}`);
+    fastify.log.info(`🔍 Recherche par email: ${user.email}`);
     
-    try {
-      shop = await prisma.shop.findUnique({
-        where: { email: user.email }
-      });
-      fastify.log.info(`📋 Résultat recherche par email: ${shop ? 'TROUVÉ' : 'NON TROUVÉ'}`);
-    } catch (error: any) {
-      fastify.log.error('❌ Erreur recherche par email:', {
-        message: error.message,
-        code: error.code
-      });
-    }
+    shop = await prisma.shop.findUnique({
+      where: { email: user.email }
+    });
 
     if (shop) {
       fastify.log.info(`✅ Shop trouvé par email: ${shop.id} - ${shop.name}`);
       return shop;
     }
 
-    // 3. Créer automatiquement le shop si il n'existe pas
-    fastify.log.info(`🏗️ Étape 3: Création automatique du shop`);
-    fastify.log.info(`📝 Données utilisateur:`, {
-      id: user.id,
-      email: user.email,
-      user_metadata: user.user_metadata
-    });
+    // 3. Créer automatiquement le shop
+    fastify.log.info(`🏗️ Création automatique du shop`);
     
     const shopData = {
       id: user.id,
@@ -174,50 +222,20 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
 
     fastify.log.info(`📝 Données shop à créer:`, shopData);
 
-    let newShop;
-    try {
-      newShop = await prisma.shop.create({
-        data: shopData
-      });
-      fastify.log.info(`✅ Shop créé avec succès: ${newShop.id} - ${newShop.name}`);
-    } catch (error: any) {
-      fastify.log.error('❌ ERREUR CRITIQUE lors de la création du shop:', {
-        message: error.message,
-        code: error.code,
-        meta: error.meta,
-        stack: error.stack,
-        shopData: shopData
-      });
+    const newShop = await prisma.shop.create({
+      data: shopData
+    });
 
-      // Si erreur d'ID conflict, essayer sans forcer l'ID
-      if (error.code === 'P2002' || error.message.includes('duplicate') || error.message.includes('unique')) {
-        fastify.log.info('🔄 Tentative création sans ID forcé...');
-        
-        try {
-          const { id, ...shopDataWithoutId } = shopData;
-          newShop = await prisma.shop.create({
-            data: shopDataWithoutId
-          });
-          fastify.log.info(`✅ Shop créé sans ID forcé: ${newShop.id} - ${newShop.name}`);
-        } catch (error2: any) {
-          fastify.log.error('❌ Échec création sans ID forcé:', {
-            message: error2.message,
-            code: error2.code,
-            meta: error2.meta
-          });
-          throw error2;
-        }
-      } else {
-        throw error;
-      }
-    }
-
+    fastify.log.info(`✅ Shop créé avec succès: ${newShop.id} - ${newShop.name}`);
     return newShop;
 
   } catch (error: any) {
     fastify.log.error('❌ ERREUR GLOBALE dans getOrCreateShop:', {
       message: error.message,
       code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
       stack: error.stack,
       userId: user.id,
       userEmail: user.email
@@ -228,6 +246,20 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
 
 export default async function billingRoutes(fastify: FastifyInstance) {
   
+  // ✅ ROUTE DE TEST PRISMA
+  fastify.get('/test-prisma', async (request, reply) => {
+    try {
+      const diagnostic = await diagnosticPrismaConnection(fastify);
+      return { success: true, diagnostic };
+    } catch (error: any) {
+      fastify.log.error('❌ Test Prisma error:', error);
+      return reply.status(500).send({ 
+        error: 'Erreur test Prisma', 
+        details: error.message 
+      });
+    }
+  });
+
   // ✅ ROUTE : OBTENIR LES PLANS DISPONIBLES (PUBLIC)
   fastify.get('/plans', async (request, reply) => {
     try {
@@ -247,47 +279,35 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (VERSION DEBUG)
+  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (VERSION SIMPLIFIÉE)
   fastify.post('/create-checkout-session', async (request, reply) => {
     try {
       fastify.log.info('🚀 Début création session checkout');
       
       const body = createSubscriptionSchema.parse(request.body);
-      fastify.log.info('📋 Body validé:', body);
-      
       const user = await verifySupabaseAuth(request);
+      
       fastify.log.info(`👤 Utilisateur authentifié: ${user.id} (${user.email})`);
       
-      // ✅ UTILISER LA NOUVELLE FONCTION DEBUG
+      // ✅ UTILISER LA NOUVELLE FONCTION
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        fastify.log.error('❌ Shop null après getOrCreateShop');
         return reply.status(500).send({ error: 'Erreur lors de la récupération du shop' });
       }
 
-      fastify.log.info(`✅ Shop récupéré: ${shop.id} - ${shop.name} - Plan: ${shop.subscription_plan}`);
-
       // ✅ VÉRIFIER SI DÉJÀ ABONNÉ
       if (shop.subscription_plan === 'professional') {
-        fastify.log.info(`ℹ️ Utilisateur déjà abonné au plan: ${shop.subscription_plan}`);
         return reply.status(400).send({ error: 'Vous avez déjà un abonnement actif' });
       }
 
       const plan = STRIPE_PLANS[body.plan];
       if (!plan.stripePriceId) {
-        fastify.log.error(`❌ Plan non disponible pour l'achat: ${body.plan}`);
         return reply.status(400).send({ error: 'Plan non disponible pour l\'achat' });
       }
 
-      fastify.log.info(`💳 Création session Stripe pour le plan: ${body.plan} (${plan.stripePriceId})`);
-
-      // ✅ CRÉER OU RÉCUPÉRER LE CUSTOMER STRIPE
+      // ✅ CRÉER CUSTOMER STRIPE
       let customer;
-      
-      fastify.log.info(`🔍 Recherche customer Stripe pour: ${shop.email}`);
-      
-      // Chercher si le customer existe déjà
       const existingCustomers = await stripe.customers.list({
         email: shop.email,
         limit: 1
@@ -295,9 +315,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
       if (existingCustomers.data.length > 0) {
         customer = existingCustomers.data[0];
-        fastify.log.info(`✅ Customer Stripe existant trouvé: ${customer.id}`);
       } else {
-        fastify.log.info(`🏗️ Création nouveau customer Stripe`);
         customer = await stripe.customers.create({
           email: shop.email,
           name: shop.name,
@@ -306,13 +324,10 @@ export default async function billingRoutes(fastify: FastifyInstance) {
             shopName: shop.name
           }
         });
-        fastify.log.info(`✅ Nouveau customer Stripe créé: ${customer.id}`);
       }
 
-      // ✅ CRÉER LA SESSION DE CHECKOUT
-      fastify.log.info(`🏗️ Création session checkout...`);
-      
-      const sessionData: Stripe.Checkout.SessionCreateParams = {
+      // ✅ CRÉER SESSION CHECKOUT
+      const session = await stripe.checkout.sessions.create({
         customer: customer.id,
         payment_method_types: ['card'],
         line_items: [
@@ -336,14 +351,9 @@ export default async function billingRoutes(fastify: FastifyInstance) {
             shopEmail: shop.email
           }
         }
-      };
+      });
 
-      fastify.log.info(`📋 Données session checkout:`, sessionData);
-
-      const session = await stripe.checkout.sessions.create(sessionData);
-
-      fastify.log.info(`✅ Session checkout créée avec succès: ${session.id}`);
-      fastify.log.info(`🔗 URL de redirection: ${session.url}`);
+      fastify.log.info(`✅ Session checkout créée: ${session.id}`);
 
       return { 
         success: true, 
@@ -359,17 +369,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         name: error.name
       });
       
-      if (error.name === 'ZodError') {
-        return reply.status(400).send({
-          error: 'Données invalides',
-          details: error.errors
-        });
-      }
-      
-      if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
-      }
-      
       return reply.status(500).send({
         error: 'Erreur lors de la création de la session de paiement',
         details: error.message
@@ -377,22 +376,15 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR LE STATUT DE L'ABONNEMENT (VERSION DEBUG)
+  // ✅ ROUTE : OBTENIR LE STATUT DE L'ABONNEMENT
   fastify.get('/subscription-status', async (request, reply) => {
     try {
-      fastify.log.info('🔍 Récupération statut abonnement');
-      
       const user = await verifySupabaseAuth(request);
-      fastify.log.info(`👤 Utilisateur authentifié: ${user.id} (${user.email})`);
-      
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        fastify.log.error('❌ Shop non trouvé pour le statut');
         return reply.status(404).send({ error: 'Shop non trouvé' });
       }
-
-      fastify.log.info(`✅ Statut récupéré - Plan: ${shop.subscription_plan}, Actif: ${shop.is_active}`);
 
       return {
         success: true,
@@ -406,11 +398,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ Get subscription status error:', {
-        message: error.message,
-        stack: error.stack,
-        code: error.code
-      });
+      fastify.log.error('❌ Get subscription status error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
         return reply.status(401).send({ error: error.message });
@@ -423,7 +411,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ WEBHOOK STRIPE (SIMPLIFIÉ POUR DEBUG)
+  // ✅ WEBHOOK STRIPE (SIMPLIFIÉ)
   fastify.post('/webhook', async (request, reply) => {
     try {
       const signature = request.headers['stripe-signature'] as string;
@@ -465,12 +453,10 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ FONCTIONS WEBHOOK SIMPLIFIÉES
+  // ✅ FONCTIONS WEBHOOK
   async function handleCheckoutCompleted(session: Stripe.Checkout.Session, fastify: FastifyInstance) {
     const userId = session.metadata?.userId;
     const plan = session.metadata?.plan;
-
-    fastify.log.info(`📧 Webhook checkout completed - User: ${userId}, Plan: ${plan}`);
 
     if (!userId || !plan) {
       fastify.log.error('❌ Missing metadata in checkout session:', { userId, plan });
@@ -495,8 +481,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
   async function handleSubscriptionCanceled(subscription: Stripe.Subscription, fastify: FastifyInstance) {
     const userId = subscription.metadata?.userId;
-
-    fastify.log.info(`📧 Webhook subscription canceled - User: ${userId}`);
 
     if (!userId) {
       fastify.log.error('❌ Missing userId in subscription metadata');
