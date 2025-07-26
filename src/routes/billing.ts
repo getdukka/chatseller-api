@@ -1,4 +1,4 @@
-// src/routes/billing.ts - VERSION DEBUG PRISMA
+// src/routes/billing.ts - VERSION STRIPE CORRIGÉE
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Stripe from 'stripe';
@@ -27,7 +27,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// ✅ VERSION STRIPE CORRIGÉE
+/// ✅ VERSION STRIPE CORRIGÉE
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-06-30.basil'
 });
@@ -217,12 +217,23 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         supabaseTest.error = error.message;
       }
       
+      // ✅ TEST STRIPE
+      let stripeTest: { success: boolean; error: string | null } = { success: false, error: null };
+      try {
+        // Test simple : récupérer les prix
+        const prices = await stripe.prices.list({ limit: 1 });
+        stripeTest.success = true;
+      } catch (error: any) {
+        stripeTest.error = error.message;
+      }
+      
       return {
         success: true,
         diagnostic: {
           environment: envCheck,
           prisma: prismaTest,
           supabase: supabaseTest,
+          stripe: stripeTest,
           timestamp: new Date().toISOString()
         }
       };
@@ -255,7 +266,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (CORRIGÉE)
+  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (CORRIGÉE AVEC LOGS DÉTAILLÉS)
   fastify.post('/create-checkout-session', async (request, reply) => {
     try {
       fastify.log.info('🚀 Début création session checkout');
@@ -287,68 +298,108 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`💳 Création session Stripe pour le plan: ${body.plan} (${plan.stripePriceId})`);
 
-      // ✅ CRÉER OU RÉCUPÉRER LE CUSTOMER STRIPE
+      // ✅ CRÉER OU RÉCUPÉRER LE CUSTOMER STRIPE AVEC LOGS DÉTAILLÉS
       let customer;
       
-      // Chercher si le customer existe déjà
-      const existingCustomers = await stripe.customers.list({
-        email: shop.email,
-        limit: 1
-      });
-
-      if (existingCustomers.data.length > 0) {
-        customer = existingCustomers.data[0];
-        fastify.log.info(`✅ Customer Stripe existant trouvé: ${customer.id}`);
-      } else {
-        customer = await stripe.customers.create({
+      try {
+        fastify.log.info(`🔍 Recherche customer Stripe existant pour: ${shop.email}`);
+        
+        // Chercher si le customer existe déjà
+        const existingCustomers = await stripe.customers.list({
           email: shop.email,
-          name: shop.name,
-          metadata: {
-            userId: shop.id,
-            shopName: shop.name
-          }
+          limit: 1
         });
-        fastify.log.info(`✅ Nouveau customer Stripe créé: ${customer.id}`);
+
+        if (existingCustomers.data.length > 0) {
+          customer = existingCustomers.data[0];
+          fastify.log.info(`✅ Customer Stripe existant trouvé: ${customer.id}`);
+        } else {
+          fastify.log.info(`🏗️ Création nouveau customer Stripe pour: ${shop.email}`);
+          customer = await stripe.customers.create({
+            email: shop.email,
+            name: shop.name,
+            metadata: {
+              userId: shop.id,
+              shopName: shop.name
+            }
+          });
+          fastify.log.info(`✅ Nouveau customer Stripe créé: ${customer.id}`);
+        }
+      } catch (stripeCustomerError: any) {
+        fastify.log.error('❌ Erreur customer Stripe:', stripeCustomerError);
+        throw stripeCustomerError;
       }
 
-      // ✅ CRÉER LA SESSION DE CHECKOUT
-      const session = await stripe.checkout.sessions.create({
-        customer: customer.id,
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price: plan.stripePriceId,
-            quantity: 1,
-          },
-        ],
-        mode: 'subscription',
-        success_url: body.successUrl,
-        cancel_url: body.cancelUrl,
-        metadata: {
+      // ✅ VÉRIFIER LE PRICE ID AVANT CRÉATION
+      try {
+        fastify.log.info(`🧪 Vérification du Price ID: ${plan.stripePriceId}`);
+        const priceCheck = await stripe.prices.retrieve(plan.stripePriceId);
+        fastify.log.info(`✅ Price ID valide: ${priceCheck.id} - ${priceCheck.unit_amount} ${priceCheck.currency}`);
+      } catch (priceError: any) {
+        fastify.log.error('❌ Price ID invalide:', priceError);
+        return reply.status(500).send({ error: 'Price ID Stripe invalide' });
+      }
+
+      // ✅ CRÉER LA SESSION DE CHECKOUT AVEC LOGS DÉTAILLÉS
+      try {
+        fastify.log.info('🏗️ Création session checkout Stripe...');
+        fastify.log.info(`📋 Paramètres session:`, {
+          customer: customer.id,
+          priceId: plan.stripePriceId,
+          successUrl: body.successUrl,
+          cancelUrl: body.cancelUrl,
           userId: shop.id,
-          plan: body.plan,
-          shopEmail: shop.email
-        },
-        subscription_data: {
+          plan: body.plan
+        });
+
+        const session = await stripe.checkout.sessions.create({
+          customer: customer.id,
+          payment_method_types: ['card'],
+          line_items: [
+            {
+              price: plan.stripePriceId,
+              quantity: 1,
+            },
+          ],
+          mode: 'subscription',
+          success_url: body.successUrl,
+          cancel_url: body.cancelUrl,
           metadata: {
             userId: shop.id,
             plan: body.plan,
             shopEmail: shop.email
+          },
+          subscription_data: {
+            metadata: {
+              userId: shop.id,
+              plan: body.plan,
+              shopEmail: shop.email
+            }
           }
-        }
-      });
+        });
 
-      fastify.log.info(`✅ Session checkout créée avec succès: ${session.id}`);
-      fastify.log.info(`🔗 URL de redirection: ${session.url}`);
+        fastify.log.info(`✅ Session checkout créée avec succès: ${session.id}`);
+        fastify.log.info(`🔗 URL de redirection: ${session.url}`);
 
-      return { 
-        success: true, 
-        checkoutUrl: session.url,
-        sessionId: session.id 
-      };
+        return { 
+          success: true, 
+          checkoutUrl: session.url,
+          sessionId: session.id 
+        };
+
+      } catch (sessionError: any) {
+        fastify.log.error('❌ Erreur création session checkout:');
+        fastify.log.error('📋 Type:', sessionError.constructor.name);
+        fastify.log.error('📋 Message:', sessionError.message);
+        fastify.log.error('📋 Code:', sessionError.code);
+        fastify.log.error('📋 Type Stripe:', sessionError.type);
+        fastify.log.error('📋 Détails complets:', JSON.stringify(sessionError, null, 2));
+        
+        throw sessionError;
+      }
 
     } catch (error: any) {
-      fastify.log.error('❌ Create checkout session error:', error);
+      fastify.log.error('❌ Create checkout session error GLOBAL:', error);
       
       if (error.name === 'ZodError') {
         return reply.status(400).send({
@@ -363,7 +414,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       
       return reply.status(500).send({
         error: 'Erreur lors de la création de la session de paiement',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        stripeError: error.type || undefined
       });
     }
   });
