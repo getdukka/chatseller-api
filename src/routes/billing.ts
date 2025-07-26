@@ -1,4 +1,4 @@
-// src/routes/billing.ts - VERSION STRIPE CORRIGÉE
+// src/routes/billing.ts - VERSION STRIPE CORRIGÉE ✅
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Stripe from 'stripe';
@@ -27,9 +27,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-/// ✅ VERSION STRIPE CORRIGÉE
+// ✅ VERSION STRIPE CORRIGÉE - API VERSION ATTENDUE PAR TYPESCRIPT
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-06-30.basil'
+  apiVersion: '2025-06-30.basil' // ✅ Version attendue par TypeScript
 });
 
 // ✅ CONFIGURATION DES PLANS
@@ -86,21 +86,9 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   fastify.log.info(`🔍 Recherche du shop pour l'utilisateur: ${user.id} (${user.email})`);
   
   try {
-    // ✅ DIAGNOSTIC COMPLET
-    fastify.log.info('🔗 === DIAGNOSTIC PRISMA CONNECTION ===');
-    fastify.log.info('📋 Variables d\'environnement:');
-    fastify.log.info(`DATABASE_URL présent: ${process.env.DATABASE_URL ? 'OUI' : 'NON'}`);
-    fastify.log.info(`DATABASE_URL: ${process.env.DATABASE_URL?.substring(0, 50)}...`);
-    
     // ✅ TEST CONNEXION DE BASE
-    fastify.log.info('🔌 Test connexion basique...');
     await prisma.$connect();
     fastify.log.info('✅ Connexion Prisma OK');
-    
-    // ✅ TEST REQUÊTE SIMPLE
-    fastify.log.info('🧪 Test requête simple...');
-    const testQuery = await prisma.$queryRaw`SELECT 1 as test`;
-    fastify.log.info('✅ Requête test OK:', testQuery);
     
     // 1. Chercher d'abord par ID utilisateur
     fastify.log.info('🔍 Recherche shop par ID...');
@@ -157,18 +145,6 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
 
   } catch (error: any) {
     fastify.log.error('❌ ERREUR GLOBALE dans getOrCreateShop:', error);
-    fastify.log.error('📋 Type d\'erreur:', error.constructor.name);
-    fastify.log.error('📋 Message:', error.message);
-    fastify.log.error('📋 Code:', error.code);
-    
-    // ✅ DIAGNOSTIC SPÉCIFIQUE PRISMA
-    if (error.code === 'P1001') {
-      fastify.log.error('🔌 Erreur de connexion à la base de données');
-    }
-    if (error.code === 'P1008') {
-      fastify.log.error('⏰ Timeout de connexion');
-    }
-    
     throw new Error(`Impossible de créer ou récupérer le shop: ${error.message}`);
   } finally {
     // ✅ FERMER LA CONNEXION PROPREMENT
@@ -182,7 +158,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
 
 export default async function billingRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE DE DIAGNOSTIC
+  // ✅ ROUTE DE DIAGNOSTIC AMÉLIORÉE
   fastify.get('/diagnostic', async (request, reply) => {
     try {
       fastify.log.info('🧪 === DIAGNOSTIC COMPLET ===');
@@ -192,8 +168,9 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         DATABASE_URL: !!process.env.DATABASE_URL,
         SUPABASE_URL: !!process.env.SUPABASE_URL,
         SUPABASE_SERVICE_KEY: !!process.env.SUPABASE_SERVICE_KEY,
-        STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY,
-        STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO
+        STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith('sk_'),
+        STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO && process.env.STRIPE_PRICE_ID_PRO.startsWith('price_'),
+        STRIPE_WEBHOOK_SECRET: !!process.env.STRIPE_WEBHOOK_SECRET
       };
       
       // Test connexion Prisma
@@ -217,11 +194,27 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         supabaseTest.error = error.message;
       }
       
-      // ✅ TEST STRIPE
-      let stripeTest: { success: boolean; error: string | null } = { success: false, error: null };
+      // ✅ TEST STRIPE AMÉLIORÉ
+      let stripeTest: { success: boolean; error: string | null; priceValidation?: any } = { success: false, error: null };
       try {
-        // Test simple : récupérer les prix
+        // Test 1: Connexion de base
         const prices = await stripe.prices.list({ limit: 1 });
+        
+        // Test 2: Validation du Price ID spécifique
+        if (process.env.STRIPE_PRICE_ID_PRO) {
+          try {
+            const priceCheck = await stripe.prices.retrieve(process.env.STRIPE_PRICE_ID_PRO);
+            stripeTest.priceValidation = {
+              id: priceCheck.id,
+              amount: priceCheck.unit_amount,
+              currency: priceCheck.currency,
+              active: priceCheck.active
+            };
+          } catch (priceError: any) {
+            stripeTest.priceValidation = { error: priceError.message };
+          }
+        }
+        
         stripeTest.success = true;
       } catch (error: any) {
         stripeTest.error = error.message;
@@ -266,45 +259,67 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (CORRIGÉE AVEC LOGS DÉTAILLÉS)
+  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (VERSION COMPLÈTEMENT CORRIGÉE)
   fastify.post('/create-checkout-session', async (request, reply) => {
     try {
-      fastify.log.info('🚀 Début création session checkout');
+      fastify.log.info('🚀 === DÉBUT CRÉATION SESSION CHECKOUT ===');
       
+      // Validation des données d'entrée
       const body = createSubscriptionSchema.parse(request.body);
-      const user = await verifySupabaseAuth(request);
+      fastify.log.info(`📝 Données validées: plan=${body.plan}`);
       
+      // Authentification utilisateur
+      const user = await verifySupabaseAuth(request);
       fastify.log.info(`👤 Utilisateur authentifié: ${user.id} (${user.email})`);
       
-      // ✅ UTILISER LA NOUVELLE FONCTION CORRIGÉE
+      // Récupération/création du shop
       const shop = await getOrCreateShop(user, fastify);
-
       if (!shop) {
-        fastify.log.error('❌ Impossible de créer ou récupérer le shop');
-        return reply.status(500).send({ error: 'Erreur lors de la récupération du shop' });
+        throw new Error('Impossible de créer ou récupérer le shop');
       }
 
-      // ✅ VÉRIFIER SI DÉJÀ ABONNÉ
+      // ✅ VÉRIFICATION SI DÉJÀ ABONNÉ
       if (shop.subscription_plan === 'professional') {
-        fastify.log.info(`ℹ️ Utilisateur déjà abonné au plan: ${shop.subscription_plan}`);
-        return reply.status(400).send({ error: 'Vous avez déjà un abonnement actif' });
+        fastify.log.warn(`⚠️ Utilisateur déjà abonné: ${shop.subscription_plan}`);
+        return reply.status(400).send({ 
+          error: 'Vous avez déjà un abonnement actif',
+          currentPlan: shop.subscription_plan 
+        });
       }
 
+      // Récupération du plan
       const plan = STRIPE_PLANS[body.plan];
       if (!plan.stripePriceId) {
-        fastify.log.error(`❌ Plan non disponible pour l'achat: ${body.plan}`);
+        fastify.log.error(`❌ Plan non disponible: ${body.plan}`);
         return reply.status(400).send({ error: 'Plan non disponible pour l\'achat' });
       }
 
-      fastify.log.info(`💳 Création session Stripe pour le plan: ${body.plan} (${plan.stripePriceId})`);
+      fastify.log.info(`📋 Plan sélectionné: ${plan.name} - Prix: ${plan.price}€ - Price ID: ${plan.stripePriceId}`);
 
-      // ✅ CRÉER OU RÉCUPÉRER LE CUSTOMER STRIPE AVEC LOGS DÉTAILLÉS
-      let customer;
-      
+      // ✅ VALIDATION PRÉALABLE DU PRICE ID
       try {
-        fastify.log.info(`🔍 Recherche customer Stripe existant pour: ${shop.email}`);
+        fastify.log.info(`🧪 Validation Price ID: ${plan.stripePriceId}`);
+        const priceValidation = await stripe.prices.retrieve(plan.stripePriceId);
         
-        // Chercher si le customer existe déjà
+        if (!priceValidation.active) {
+          throw new Error(`Price ID inactif: ${plan.stripePriceId}`);
+        }
+        
+        fastify.log.info(`✅ Price ID valide: ${priceValidation.id} - ${priceValidation.unit_amount}${priceValidation.currency}`);
+      } catch (priceError: any) {
+        fastify.log.error('❌ Erreur validation Price ID:', priceError.message);
+        return reply.status(500).send({ 
+          error: 'Prix Stripe invalide',
+          details: priceError.message,
+          priceId: plan.stripePriceId
+        });
+      }
+
+      // ✅ CRÉATION/RÉCUPÉRATION CUSTOMER STRIPE
+      let customer;
+      try {
+        fastify.log.info(`🔍 Recherche customer Stripe: ${shop.email}`);
+        
         const existingCustomers = await stripe.customers.list({
           email: shop.email,
           limit: 1
@@ -312,9 +327,9 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
         if (existingCustomers.data.length > 0) {
           customer = existingCustomers.data[0];
-          fastify.log.info(`✅ Customer Stripe existant trouvé: ${customer.id}`);
+          fastify.log.info(`✅ Customer existant: ${customer.id}`);
         } else {
-          fastify.log.info(`🏗️ Création nouveau customer Stripe pour: ${shop.email}`);
+          fastify.log.info(`🏗️ Création nouveau customer`);
           customer = await stripe.customers.create({
             email: shop.email,
             name: shop.name,
@@ -323,34 +338,16 @@ export default async function billingRoutes(fastify: FastifyInstance) {
               shopName: shop.name
             }
           });
-          fastify.log.info(`✅ Nouveau customer Stripe créé: ${customer.id}`);
+          fastify.log.info(`✅ Customer créé: ${customer.id}`);
         }
-      } catch (stripeCustomerError: any) {
-        fastify.log.error('❌ Erreur customer Stripe:', stripeCustomerError);
-        throw stripeCustomerError;
+      } catch (customerError: any) {
+        fastify.log.error('❌ Erreur customer Stripe:', customerError);
+        throw new Error(`Erreur customer: ${customerError.message}`);
       }
 
-      // ✅ VÉRIFIER LE PRICE ID AVANT CRÉATION
+      // ✅ CRÉATION SESSION CHECKOUT AVEC GESTION D'ERREURS DÉTAILLÉE
       try {
-        fastify.log.info(`🧪 Vérification du Price ID: ${plan.stripePriceId}`);
-        const priceCheck = await stripe.prices.retrieve(plan.stripePriceId);
-        fastify.log.info(`✅ Price ID valide: ${priceCheck.id} - ${priceCheck.unit_amount} ${priceCheck.currency}`);
-      } catch (priceError: any) {
-        fastify.log.error('❌ Price ID invalide:', priceError);
-        return reply.status(500).send({ error: 'Price ID Stripe invalide' });
-      }
-
-      // ✅ CRÉER LA SESSION DE CHECKOUT AVEC LOGS DÉTAILLÉS
-      try {
-        fastify.log.info('🏗️ Création session checkout Stripe...');
-        fastify.log.info(`📋 Paramètres session:`, {
-          customer: customer.id,
-          priceId: plan.stripePriceId,
-          successUrl: body.successUrl,
-          cancelUrl: body.cancelUrl,
-          userId: shop.id,
-          plan: body.plan
-        });
+        fastify.log.info('🏗️ Création session checkout...');
 
         const session = await stripe.checkout.sessions.create({
           customer: customer.id,
@@ -378,49 +375,59 @@ export default async function billingRoutes(fastify: FastifyInstance) {
           }
         });
 
-        fastify.log.info(`✅ Session checkout créée avec succès: ${session.id}`);
-        fastify.log.info(`🔗 URL de redirection: ${session.url}`);
+        fastify.log.info(`✅ Session créée avec succès: ${session.id}`);
+        fastify.log.info(`🔗 URL checkout: ${session.url}`);
 
         return { 
           success: true, 
           checkoutUrl: session.url,
-          sessionId: session.id 
+          sessionId: session.id,
+          message: 'Session de paiement créée avec succès'
         };
 
       } catch (sessionError: any) {
-        fastify.log.error('❌ Erreur création session checkout:');
-        fastify.log.error('📋 Type:', sessionError.constructor.name);
-        fastify.log.error('📋 Message:', sessionError.message);
-        fastify.log.error('📋 Code:', sessionError.code);
-        fastify.log.error('📋 Type Stripe:', sessionError.type);
-        fastify.log.error('📋 Détails complets:', JSON.stringify(sessionError, null, 2));
+        fastify.log.error('❌ ERREUR CRÉATION SESSION:');
+        fastify.log.error(`📋 Type: ${sessionError.constructor.name}`);
+        fastify.log.error(`📋 Message: ${sessionError.message}`);
+        fastify.log.error(`📋 Code: ${sessionError.code}`);
+        fastify.log.error(`📋 Type Stripe: ${sessionError.type}`);
         
-        throw sessionError;
+        // ✅ GESTION SPÉCIFIQUE DES ERREURS STRIPE
+        if (sessionError.type === 'StripeInvalidRequestError') {
+          return reply.status(400).send({
+            error: 'Requête Stripe invalide',
+            details: sessionError.message,
+            stripeCode: sessionError.code
+          });
+        }
+        
+        throw new Error(`Session checkout: ${sessionError.message}`);
       }
 
     } catch (error: any) {
-      fastify.log.error('❌ Create checkout session error GLOBAL:', error);
+      fastify.log.error('❌ ERREUR GLOBALE CHECKOUT:', error);
       
+      // ✅ GESTION GRANULAIRE DES ERREURS
       if (error.name === 'ZodError') {
         return reply.status(400).send({
-          error: 'Données invalides',
+          error: 'Données de requête invalides',
           details: error.errors
         });
       }
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ error: 'Authentification requise' });
       }
       
       return reply.status(500).send({
         error: 'Erreur lors de la création de la session de paiement',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-        stripeError: error.type || undefined
+        details: process.env.NODE_ENV === 'development' ? error.message : 'Erreur interne du serveur',
+        timestamp: new Date().toISOString()
       });
     }
   });
 
-  // ✅ ROUTE : OBTENIR LE STATUT DE L'ABONNEMENT (CORRIGÉE)
+  // ✅ ROUTE : OBTENIR LE STATUT DE L'ABONNEMENT
   fastify.get('/subscription-status', async (request, reply) => {
     try {
       fastify.log.info('🔍 Récupération statut abonnement');
@@ -429,11 +436,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        fastify.log.error('❌ Shop non trouvé pour le statut');
         return reply.status(404).send({ error: 'Shop non trouvé' });
       }
-
-      fastify.log.info(`✅ Statut récupéré - Plan: ${shop.subscription_plan}, Actif: ${shop.is_active}`);
 
       return {
         success: true,
@@ -460,7 +464,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ WEBHOOK STRIPE (CORRIGÉ)
+  // ✅ WEBHOOK STRIPE (INCHANGÉ MAIS AVEC MEILLEURS LOGS)
   fastify.post('/webhook', async (request, reply) => {
     try {
       const signature = request.headers['stripe-signature'] as string;
@@ -479,7 +483,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'Webhook signature verification failed' });
       }
 
-      fastify.log.info(`📧 Stripe webhook reçu: ${event.type}`);
+      fastify.log.info(`📧 Stripe webhook reçu: ${event.type} - ID: ${event.id}`);
 
       switch (event.type) {
         case 'checkout.session.completed':
@@ -506,10 +510,12 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ FONCTIONS WEBHOOK CORRIGÉES
+  // ✅ FONCTIONS WEBHOOK AVEC MEILLEURS LOGS
   async function handleCheckoutCompleted(session: Stripe.Checkout.Session, fastify: FastifyInstance) {
     const userId = session.metadata?.userId;
     const plan = session.metadata?.plan;
+
+    fastify.log.info(`🎉 Checkout completed: userId=${userId}, plan=${plan}`);
 
     if (!userId || !plan) {
       fastify.log.error('❌ Missing metadata in checkout session:', { userId, plan });
@@ -537,6 +543,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
   async function handleSubscriptionCanceled(subscription: Stripe.Subscription, fastify: FastifyInstance) {
     const userId = subscription.metadata?.userId;
 
+    fastify.log.info(`🚫 Subscription canceled: userId=${userId}`);
+
     if (!userId) {
       fastify.log.error('❌ Missing userId in subscription metadata');
       return;
@@ -562,6 +570,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
   async function handleSubscriptionUpdated(subscription: Stripe.Subscription, fastify: FastifyInstance) {
     const userId = subscription.metadata?.userId;
+
+    fastify.log.info(`🔄 Subscription updated: userId=${userId}, status=${subscription.status}`);
 
     if (!userId) {
       fastify.log.error('❌ Missing userId in subscription metadata');
