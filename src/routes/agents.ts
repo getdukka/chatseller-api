@@ -1,7 +1,7 @@
 // src/routes/agents.ts - ENDPOINTS API AGENTS COMPLETS
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { PrismaClient, AgentType, AgentPersonality } from '@prisma/client';
+import { PrismaClient, AgentType, AgentPersonality, Prisma } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 
 // ✅ CRÉER UNE INSTANCE PRISMA
@@ -43,7 +43,7 @@ const createAgentSchema = z.object({
   fallbackMessage: z.string().optional(),
   avatar: z.string().url().optional(),
   isActive: z.boolean().default(true),
-  config: z.record(z.any()).optional()
+  config: z.record(z.any()).optional().transform(val => val as Prisma.InputJsonObject | undefined)
 });
 
 const updateAgentSchema = createAgentSchema.partial();
@@ -274,7 +274,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           fallbackMessage: body.fallbackMessage || "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
           avatar: body.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(body.name)}&background=3B82F6&color=fff`,
           isActive: body.isActive,
-          config: body.config || {}
+          config: (body.config || {}) as Prisma.InputJsonObject
         }
       });
 
@@ -361,7 +361,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           ...(body.fallbackMessage !== undefined && { fallbackMessage: body.fallbackMessage }),
           ...(body.avatar !== undefined && { avatar: body.avatar }),
           ...(body.isActive !== undefined && { isActive: body.isActive }),
-          ...(body.config !== undefined && { config: body.config })
+          ...(body.config !== undefined && { config: body.config as Prisma.InputJsonObject })
         }
       });
 
@@ -580,7 +580,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           fallbackMessage: originalAgent.fallbackMessage,
           avatar: originalAgent.avatar,
           isActive: false, // Désactivé par défaut
-          config: originalAgent.config
+          config: (originalAgent.config || {}) as Prisma.InputJsonObject
         }
       });
 

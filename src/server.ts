@@ -1,4 +1,4 @@
-// src/server.ts - VERSION CORRIGÉE AVEC CHAMPS PRISMA
+// src/server.ts - VERSION CORRIGÉE AVEC ROUTES AGENTS
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -7,8 +7,9 @@ import { PrismaClient } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 
-// ✅ IMPORT DES ROUTES BILLING
+// ✅ IMPORT DES ROUTES
 import billingRoutes from './routes/billing';
+import agentsRoutes from './routes/agents';  // 🆕 NOUVEAU
 
 // Load environment variables
 dotenv.config();
@@ -68,8 +69,11 @@ async function registerRoutes() {
   // API routes
   fastify.register(async function (fastify) {
     
-    // ✅ ROUTES BILLING (CORRIGÉ)
+    // ✅ ROUTES BILLING (EXISTANTES)
     fastify.register(billingRoutes, { prefix: '/billing' });
+    
+    // ✅ ROUTES AGENTS (NOUVELLES) - 🆕
+    fastify.register(agentsRoutes, { prefix: '/agents' });
     
     // Shops routes
     fastify.register(async function (fastify) {
@@ -643,6 +647,7 @@ async function start() {
     fastify.log.info(`🚀 ChatSeller API server running on http://${host}:${port}`);
     fastify.log.info(`📖 Health check: http://${host}:${port}/health`);
     fastify.log.info(`💳 Billing routes: http://${host}:${port}/api/v1/billing/*`);
+    fastify.log.info(`🤖 Agents routes: http://${host}:${port}/api/v1/agents/*`);  // 🆕 NOUVEAU
     
   } catch (error) {
     fastify.log.error(error);
