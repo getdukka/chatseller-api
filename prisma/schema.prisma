@@ -7,6 +7,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ✅ ENUMS POUR LES AGENTS
+enum AgentType {
+  general
+  product_specialist
+  support
+  upsell
+
+  @@map("agent_type")
+}
+
+enum AgentPersonality {
+  professional
+  friendly
+  expert
+  casual
+
+  @@map("agent_personality")
+}
+
 model Shop {
   id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   name              String    @db.VarChar(255)
@@ -19,7 +38,71 @@ model Shop {
   updatedAt         DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   is_active         Boolean?  @default(true)
 
+  // ✅ RELATIONS
+  agents            Agent[]
+  knowledgeBase     KnowledgeBase[]
+  conversations     Conversation[]
+  orders            Order[]
+  upsellRules       UpsellRule[]
+  analyticsEvents   AnalyticsEvent[]
+  subscriptions     Subscription[]
+  invoices          Invoice[]
+
   @@map("shops")
+}
+
+// ✅ NOUVELLE TABLE AGENT - COEUR DU SYSTÈME
+model Agent {
+  id                String            @id @default(uuid()) @db.Uuid
+  shopId            String            @map("shop_id") @db.Uuid
+  name              String            @db.VarChar(255)
+  type              AgentType         @default(general)
+  personality       AgentPersonality  @default(professional)
+  description       String?
+  welcomeMessage    String?           @map("welcome_message") @default("Bonjour ! Comment puis-je vous aider aujourd'hui ?")
+  fallbackMessage   String?           @map("fallback_message") @default("Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.")
+  avatar            String?           @default("https://ui-avatars.com/api/?name=Agent&background=3B82F6&color=fff")
+  isActive          Boolean           @default(true) @map("is_active")
+  config            Json?             @default("{}")  // Configuration avancée personnalisée
+  
+  // ✅ STATISTIQUES
+  totalConversations Int              @default(0) @map("total_conversations")
+  totalConversions   Int              @default(0) @map("total_conversions")
+  
+  // ✅ TIMESTAMPS
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  // ✅ RELATIONS
+  shop              Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  conversations     Conversation[]
+  knowledgeBase     AgentKnowledgeBase[]
+
+  // ✅ INDICES OPTIMISÉS
+  @@index([shopId], map: "idx_agents_shop_id")
+  @@index([isActive], map: "idx_agents_active")
+  @@index([type], map: "idx_agents_type")
+  @@map("agents")
+}
+
+// ✅ TABLE DE LIAISON AGENT ↔ KNOWLEDGE BASE (Many-to-Many)
+model AgentKnowledgeBase {
+  id              String        @id @default(uuid()) @db.Uuid
+  agentId         String        @map("agent_id") @db.Uuid
+  knowledgeBaseId String        @map("knowledge_base_id") @db.Uuid
+  isActive        Boolean       @default(true) @map("is_active")
+  priority        Int           @default(0)  // Ordre de priorité des documents
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  // ✅ RELATIONS
+  agent           Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  // ✅ CONTRAINTES
+  @@unique([agentId, knowledgeBaseId])
+  @@index([agentId], map: "idx_agent_kb_agent")
+  @@index([knowledgeBaseId], map: "idx_agent_kb_knowledge")
+  @@map("agent_knowledge_base")
 }
 
 model KnowledgeBase {
@@ -34,6 +117,10 @@ model KnowledgeBase {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  // ✅ RELATIONS MISES À JOUR
+  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  agents      AgentKnowledgeBase[]
+
   @@index([shopId], map: "idx_knowledge_shop_id")
   @@map("knowledge_base")
 }
@@ -41,6 +128,7 @@ model KnowledgeBase {
 model Conversation {
   id                  String    @id @default(uuid()) @db.Uuid
   shopId              String    @map("shop_id") @db.Uuid
+  agentId             String?   @map("agent_id") @db.Uuid  // ✅ NOUVEAU: Lien vers l'agent utilisé
   visitorId           String?   @map("visitor_id") @db.VarChar(100)
   visitorIp           String?   @map("visitor_ip") @db.Inet
   visitorUserAgent    String?   @map("visitor_user_agent")
@@ -57,24 +145,34 @@ model Conversation {
   messageCount        Int       @default(0) @map("message_count")
   conversionCompleted Boolean   @default(false) @map("conversion_completed")
 
+  // ✅ RELATIONS MISES À JOUR
+  shop                Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  agent               Agent?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  messages            Message[]
+  orders              Order[]
+
   @@index([shopId], map: "idx_conversations_shop_id")
+  @@index([agentId], map: "idx_conversations_agent_id")  // ✅ NOUVEAU
   @@index([status], map: "idx_conversations_status")
   @@index([visitorId], map: "idx_conversations_visitor")
   @@map("conversations")
 }
 
 model Message {
-  id             String   @id @default(uuid()) @db.Uuid
-  conversationId String   @map("conversation_id") @db.Uuid
-  role           String   @db.VarChar(20)
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  role           String       @db.VarChar(20)
   content        String
-  contentType    String   @default("text") @map("content_type") @db.VarChar(20)
-  tokensUsed     Int?     @map("tokens_used")
-  responseTimeMs Int?     @map("response_time_ms")
-  modelUsed      String?  @map("model_used") @db.VarChar(50)
-  actionTaken    String?  @map("action_taken") @db.VarChar(100)
-  actionData     Json?    @map("action_data")
-  createdAt      DateTime @default(now()) @map("created_at")
+  contentType    String       @default("text") @map("content_type") @db.VarChar(20)
+  tokensUsed     Int?         @map("tokens_used")
+  responseTimeMs Int?         @map("response_time_ms")
+  modelUsed      String?      @map("model_used") @db.VarChar(50)
+  actionTaken    String?      @map("action_taken") @db.VarChar(100)
+  actionData     Json?        @map("action_data")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  // ✅ RELATIONS
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId], map: "idx_messages_conversation")
   @@index([createdAt], map: "idx_messages_created")
@@ -82,26 +180,30 @@ model Message {
 }
 
 model Order {
-  id              String    @id @default(uuid()) @db.Uuid
-  shopId          String    @map("shop_id") @db.Uuid
-  conversationId  String    @map("conversation_id") @db.Uuid
-  customerName    String?   @map("customer_name") @db.VarChar(255)
-  customerPhone   String?   @map("customer_phone") @db.VarChar(50)
-  customerEmail   String?   @map("customer_email") @db.VarChar(255)
-  customerAddress String?   @map("customer_address")
-  productItems    Json      @map("product_items")
-  totalAmount     Decimal?  @map("total_amount") @db.Decimal(10, 2)
-  currency        String    @default("XOF") @db.VarChar(10)
-  paymentMethod   String?   @map("payment_method") @db.VarChar(100)
-  upsellItems     Json      @default("[]") @map("upsell_items")
-  upsellAmount    Decimal   @default(0) @map("upsell_amount") @db.Decimal(10, 2)
-  status          String    @default("pending") @db.VarChar(50)
+  id              String       @id @default(uuid()) @db.Uuid
+  shopId          String       @map("shop_id") @db.Uuid
+  conversationId  String       @map("conversation_id") @db.Uuid
+  customerName    String?      @map("customer_name") @db.VarChar(255)
+  customerPhone   String?      @map("customer_phone") @db.VarChar(50)
+  customerEmail   String?      @map("customer_email") @db.VarChar(255)
+  customerAddress String?      @map("customer_address")
+  productItems    Json         @map("product_items")
+  totalAmount     Decimal?     @map("total_amount") @db.Decimal(10, 2)
+  currency        String       @default("XOF") @db.VarChar(10)
+  paymentMethod   String?      @map("payment_method") @db.VarChar(100)
+  upsellItems     Json         @default("[]") @map("upsell_items")
+  upsellAmount    Decimal      @default(0) @map("upsell_amount") @db.Decimal(10, 2)
+  status          String       @default("pending") @db.VarChar(50)
   notes           String?
-  exportedAt      DateTime? @map("exported_at")
-  externalOrderId String?   @map("external_order_id") @db.VarChar(255)
-  webhookSentAt   DateTime? @map("webhook_sent_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  exportedAt      DateTime?    @map("exported_at")
+  externalOrderId String?      @map("external_order_id") @db.VarChar(255)
+  webhookSentAt   DateTime?    @map("webhook_sent_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  // ✅ RELATIONS
+  shop            Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([shopId], map: "idx_orders_shop_id")
   @@index([status], map: "idx_orders_status")
@@ -121,20 +223,26 @@ model UpsellRule {
   priority               Int?      @default(0)
   createdAt              DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  // ✅ RELATIONS
+  shop                   Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
   @@map("upsell_rules")
 }
 
 model AnalyticsEvent {
-  id             String   @id @default(uuid()) @db.Uuid
-  shopId         String   @map("shop_id") @db.Uuid
-  conversationId String?  @map("conversation_id") @db.Uuid
-  eventType      String   @map("event_type") @db.VarChar(100)
-  eventData      Json     @default("{}") @map("event_data")
-  userAgent      String?  @map("user_agent")
-  ipAddress      String?  @map("ip_address") @db.Inet
+  id             String       @id @default(uuid()) @db.Uuid
+  shopId         String       @map("shop_id") @db.Uuid
+  conversationId String?      @map("conversation_id") @db.Uuid
+  eventType      String       @map("event_type") @db.VarChar(100)
+  eventData      Json         @default("{}") @map("event_data")
+  userAgent      String?      @map("user_agent")
+  ipAddress      String?      @map("ip_address") @db.Inet
   referrer       String?
-  pageUrl        String?  @map("page_url")
-  createdAt      DateTime @default(now()) @map("created_at")
+  pageUrl        String?      @map("page_url")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  // ✅ RELATIONS
+  shop           Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@index([createdAt], map: "idx_analytics_created")
   @@index([shopId], map: "idx_analytics_shop_id")
@@ -161,27 +269,33 @@ model Subscription {
   createdAt            DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  // ✅ RELATIONS
+  shop                 Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
   @@map("subscriptions")
 }
 
 model Invoice {
-  id                    String    @id @default(uuid()) @db.Uuid
-  shopId                String    @map("shop_id") @db.Uuid
-  subscriptionId        String    @map("subscription_id") @db.Uuid
-  stripeInvoiceId       String    @unique @map("stripe_invoice_id") @db.VarChar(255)
-  stripePaymentIntentId String?   @map("stripe_payment_intent_id") @db.VarChar(255)
-  amountPaid            Decimal   @map("amount_paid") @db.Decimal(10, 2)
-  currency              String    @default("eur") @db.VarChar(10)
-  status                String    @db.VarChar(50)
-  invoicePdf            String?   @map("invoice_pdf")
-  hostedInvoiceUrl      String?   @map("hosted_invoice_url")
-  periodStart           DateTime  @map("period_start")
-  periodEnd             DateTime  @map("period_end")
-  dueDate               DateTime? @map("due_date")
-  paidAt                DateTime? @map("paid_at")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
-  amountDue             Decimal   @map("amount_due") @db.Decimal(10, 2)
+  id                    String       @id @default(uuid()) @db.Uuid
+  shopId                String       @map("shop_id") @db.Uuid
+  subscriptionId        String       @map("subscription_id") @db.Uuid
+  stripeInvoiceId       String       @unique @map("stripe_invoice_id") @db.VarChar(255)
+  stripePaymentIntentId String?      @map("stripe_payment_intent_id") @db.VarChar(255)
+  amountPaid            Decimal      @map("amount_paid") @db.Decimal(10, 2)
+  currency              String       @default("eur") @db.VarChar(10)
+  status                String       @db.VarChar(50)
+  invoicePdf            String?      @map("invoice_pdf")
+  hostedInvoiceUrl      String?      @map("hosted_invoice_url")
+  periodStart           DateTime     @map("period_start")
+  periodEnd             DateTime     @map("period_end")
+  dueDate               DateTime?    @map("due_date")
+  paidAt                DateTime?    @map("paid_at")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  amountDue             Decimal      @map("amount_due") @db.Decimal(10, 2)
+
+  // ✅ RELATIONS
+  shop                  Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@map("invoices")
 }
