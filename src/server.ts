@@ -1,4 +1,4 @@
-// src/server.ts - VERSION SANS JWT (TEMPORAIRE)
+// src/server.ts - CORRECTION ERREUR CORS
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -10,7 +10,8 @@ import dotenv from 'dotenv';
 // ✅ IMPORT DES ROUTES
 import billingRoutes from './routes/billing';
 import agentsRoutes from './routes/agents'; 
-import productsRoutes from './routes/products'
+import productsRoutes from './routes/products';
+import publicRoutes from './routes/public'; // ✅ NOUVELLE ROUTE PUBLIQUE
 
 // Load environment variables
 dotenv.config();
@@ -79,9 +80,12 @@ async function registerPlugins() {
     contentSecurityPolicy: false
   });
 
-  // CORS
+  // ✅ CORS GLOBAL UNE SEULE FOIS
   await fastify.register(cors, {
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+    origin: (origin, callback) => {
+      // Autoriser tous les domaines pour le widget
+      callback(null, true);
+    },
     credentials: true
   });
 
@@ -103,6 +107,21 @@ async function registerRoutes() {
       environment: process.env.NODE_ENV
     };
   });
+
+  // ✅ ROUTES PUBLIQUES (SANS AUTH) - SANS CORS SUPPLÉMENTAIRE
+  fastify.register(async function (fastify) {
+    // ✅ SUPPRIMER LE CORS ICI POUR ÉVITER LE CONFLIT
+    await fastify.register(rateLimit, {
+      max: 200, // Limite plus élevée pour le widget
+      timeWindow: '1 minute'
+    });
+
+    // Routes publiques pour le widget
+    fastify.register(publicRoutes);
+    
+    fastify.log.info('✅ Routes publiques enregistrées: /api/v1/public/*');
+    
+  }, { prefix: '/api/v1/public' });
 
   // API routes avec authentification
   fastify.register(async function (fastify) {
@@ -325,7 +344,7 @@ async function registerRoutes() {
 
   }, { prefix: '/api/v1' });
 
-  // ✅ ROUTES PUBLIQUES (sans authentification)
+  // ✅ ROUTES PUBLIQUES D'AUTHENTIFICATION (sans authentification)
   fastify.register(async function (fastify) {
     // Route de login
     fastify.post('/auth/login', async (request, reply) => {
@@ -407,6 +426,7 @@ async function start() {
     
     fastify.log.info(`🚀 ChatSeller API server running on http://${host}:${port}`);
     fastify.log.info(`📖 Health check: http://${host}:${port}/health`);
+    fastify.log.info(`🌐 Public routes: http://${host}:${port}/api/v1/public/*`);
     fastify.log.info(`💳 Billing routes: http://${host}:${port}/api/v1/billing/*`);
     fastify.log.info(`🤖 Agents routes: http://${host}:${port}/api/v1/agents/*`);
     fastify.log.info(`📦 Products routes: http://${host}:${port}/api/v1/products/*`);
