@@ -1,4 +1,4 @@
-// src/server.ts - VERSION CORRIGÉE AVEC ROUTES AGENTS
+// src/server.ts - VERSION SANS JWT (TEMPORAIRE)
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -9,7 +9,8 @@ import dotenv from 'dotenv';
 
 // ✅ IMPORT DES ROUTES
 import billingRoutes from './routes/billing';
-import agentsRoutes from './routes/agents';  // 🆕 NOUVEAU
+import agentsRoutes from './routes/agents'; 
+import productsRoutes from './routes/products'
 
 // Load environment variables
 dotenv.config();
@@ -33,6 +34,43 @@ const fastify = Fastify({
     } : undefined
   }
 });
+
+// ✅ MIDDLEWARE D'AUTHENTIFICATION SIMPLE
+async function authenticate(request: any, reply: any) {
+  try {
+    const token = request.headers.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+      return reply.status(401).send({
+        success: false,
+        error: 'Token d\'authentification manquant'
+      });
+    }
+
+    // Vérifier le token avec Supabase
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      return reply.status(401).send({
+        success: false,
+        error: 'Token d\'authentification invalide'
+      });
+    }
+
+    // Ajouter l'utilisateur à la requête
+    request.user = {
+      id: user.id,
+      email: user.email,
+      ...user.user_metadata
+    };
+
+  } catch (error) {
+    return reply.status(401).send({
+      success: false,
+      error: 'Erreur d\'authentification'
+    });
+  }
+}
 
 // Register plugins
 async function registerPlugins() {
@@ -66,14 +104,20 @@ async function registerRoutes() {
     };
   });
 
-  // API routes
+  // API routes avec authentification
   fastify.register(async function (fastify) {
+    
+    // ✅ AJOUTER LE MIDDLEWARE D'AUTH POUR TOUTES LES ROUTES API
+    fastify.addHook('preHandler', authenticate);
     
     // ✅ ROUTES BILLING (EXISTANTES)
     fastify.register(billingRoutes, { prefix: '/billing' });
     
-    // ✅ ROUTES AGENTS (NOUVELLES) - 🆕
+    // ✅ ROUTES AGENTS (NOUVELLES)
     fastify.register(agentsRoutes, { prefix: '/agents' });
+
+    // ✅ ROUTES PRODUITS (NOUVELLES) - CORRECTEMENT INTÉGRÉES
+    fastify.register(productsRoutes, { prefix: '/products' });
     
     // Shops routes
     fastify.register(async function (fastify) {
@@ -87,10 +131,10 @@ async function registerRoutes() {
             select: {
               id: true,
               name: true,
-              widget_config: true, // ✅ SNAKE_CASE
-              agent_config: true,  // ✅ SNAKE_CASE
-              is_active: true,     // ✅ SNAKE_CASE
-              subscription_plan: true // ✅ SNAKE_CASE
+              widget_config: true,
+              agent_config: true,
+              is_active: true,
+              subscription_plan: true
             }
           });
 
@@ -114,51 +158,13 @@ async function registerRoutes() {
           const shop = await prisma.shop.update({
             where: { id: shopId },
             data: {
-              widget_config: widgetConfig,  // ✅ SNAKE_CASE
-              agent_config: agentConfig,    // ✅ SNAKE_CASE
+              widget_config: widgetConfig,
+              agent_config: agentConfig,
               updatedAt: new Date()
             }
           });
 
           return shop;
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Internal server error' });
-        }
-      });
-
-      // Get shop with subscription details
-      fastify.get('/shops/:shopId/full', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        
-        try {
-          // Récupérer le shop
-          const shop = await prisma.shop.findUnique({
-            where: { id: shopId }
-          });
-
-          if (!shop) {
-            return reply.status(404).send({ error: 'Shop not found' });
-          }
-
-          // Récupérer les données associées
-          const subscription = await prisma.subscription.findFirst({
-            where: { shopId: shopId }
-          });
-          
-          const invoices = await prisma.invoice.findMany({
-            where: { shopId: shopId },
-            orderBy: { createdAt: 'desc' },
-            take: 5
-          });
-
-          // Combiner les résultats
-          return {
-            ...shop,
-            subscription,
-            invoices
-          };
-          
         } catch (error) {
           fastify.log.error(error);
           return reply.status(500).send({ error: 'Internal server error' });
@@ -200,7 +206,7 @@ async function registerRoutes() {
         }
       });
 
-      // Get conversation (CORRIGÉ)
+      // Get conversation
       fastify.get('/conversations/:conversationId', async (request, reply) => {
         const { conversationId } = request.params as { conversationId: string };
 
@@ -213,18 +219,16 @@ async function registerRoutes() {
             return reply.status(404).send({ error: 'Conversation not found' });
           }
 
-          // ✅ RÉCUPÉRER LES MESSAGES SÉPARÉMENT
           const messages = await prisma.message.findMany({
             where: { conversationId },
             orderBy: { createdAt: 'asc' }
           });
 
-          // ✅ RÉCUPÉRER LE SHOP SÉPARÉMENT  
           const shop = await prisma.shop.findUnique({
             where: { id: conversation.shopId },
             select: {
               name: true,
-              agent_config: true // ✅ SNAKE_CASE
+              agent_config: true
             }
           });
 
@@ -238,110 +242,9 @@ async function registerRoutes() {
           return reply.status(500).send({ error: 'Internal server error' });
         }
       });
-
-      // Get conversations for shop (with pagination)
-      fastify.get('/shops/:shopId/conversations', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        const { page = 1, limit = 10, status } = request.query as any;
-        
-        try {
-          const skip = (parseInt(page) - 1) * parseInt(limit);
-          const where: any = { shopId };
-          
-          if (status) {
-            where.status = status;
-          }
-
-          const [conversations, total] = await Promise.all([
-            prisma.conversation.findMany({
-              where,
-              orderBy: { startedAt: 'desc' },
-              skip,
-              take: parseInt(limit)
-            }),
-            prisma.conversation.count({ where })
-          ]);
-
-          // ✅ RÉCUPÉRER LES MESSAGES SÉPARÉMENT
-          const conversationsWithMessages = await Promise.all(
-            conversations.map(async (conv) => {
-              const lastMessage = await prisma.message.findFirst({
-                where: { conversationId: conv.id },
-                orderBy: { createdAt: 'desc' }
-              });
-              return {
-                ...conv,
-                lastMessage
-              };
-            })
-          );
-
-          return {
-            conversations: conversationsWithMessages,
-            pagination: {
-              page: parseInt(page),
-              limit: parseInt(limit),
-              total,
-              pages: Math.ceil(total / parseInt(limit))
-            }
-          };
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Internal server error' });
-        }
-      });
-
-      // Add message to conversation
-      fastify.post('/conversations/:conversationId/messages', async (request, reply) => {
-        const { conversationId } = request.params as { conversationId: string };
-        const { role, content, contentType } = request.body as any;
-
-        try {
-          // Save message to database
-          const message = await prisma.message.create({
-            data: {
-              conversationId,
-              role,
-              content,
-              contentType: contentType || 'text'
-            }
-          });
-
-          // Update conversation activity
-          await prisma.conversation.update({
-            where: { id: conversationId },
-            data: { 
-              lastActivity: new Date(),
-              messageCount: { increment: 1 }
-            }
-          });
-
-          return message;
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Failed to add message' });
-        }
-      });
-
-      // Get messages for conversation
-      fastify.get('/conversations/:conversationId/messages', async (request, reply) => {
-        const { conversationId } = request.params as { conversationId: string };
-
-        try {
-          const messages = await prisma.message.findMany({
-            where: { conversationId },
-            orderBy: { createdAt: 'asc' }
-          });
-
-          return messages;
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Failed to get messages' });
-        }
-      });
     });
 
-    // Orders routes (CORRIGÉ)
+    // Orders routes
     fastify.register(async function (fastify) {
       // Create order
       fastify.post('/orders', async (request, reply) => {
@@ -372,7 +275,6 @@ async function registerRoutes() {
             }
           });
 
-          // Mark conversation as converted
           await prisma.conversation.update({
             where: { id: conversationId },
             data: { conversionCompleted: true }
@@ -382,62 +284,6 @@ async function registerRoutes() {
         } catch (error) {
           fastify.log.error(error);
           return reply.status(500).send({ error: 'Failed to create order' });
-        }
-      });
-
-      // Get orders for shop (CORRIGÉ)
-      fastify.get('/shops/:shopId/orders', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        const { page = 1, limit = 10, status } = request.query as any;
-
-        try {
-          const skip = (parseInt(page) - 1) * parseInt(limit);
-          const where: any = { shopId };
-          
-          if (status) {
-            where.status = status;
-          }
-
-          const [orders, total] = await Promise.all([
-            prisma.order.findMany({
-              where,
-              orderBy: { createdAt: 'desc' },
-              skip,
-              take: parseInt(limit)
-            }),
-            prisma.order.count({ where })
-          ]);
-
-          // ✅ RÉCUPÉRER LES CONVERSATIONS SÉPARÉMENT
-          const ordersWithConversations = await Promise.all(
-            orders.map(async (order) => {
-              const conversation = await prisma.conversation.findUnique({
-                where: { id: order.conversationId },
-                select: {
-                  id: true,
-                  startedAt: true,
-                  productName: true
-                }
-              });
-              return {
-                ...order,
-                conversation
-              };
-            })
-          );
-
-          return {
-            orders: ordersWithConversations,
-            pagination: {
-              page: parseInt(page),
-              limit: parseInt(limit),
-              total,
-              pages: Math.ceil(total / parseInt(limit))
-            }
-          };
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Internal server error' });
         }
       });
     });
@@ -475,149 +321,64 @@ async function registerRoutes() {
           return reply.status(500).send({ error: 'Failed to track event' });
         }
       });
+    });
 
-      // Get analytics for shop
-      fastify.get('/shops/:shopId/analytics', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        const { period = '30d' } = request.query as any;
+  }, { prefix: '/api/v1' });
 
-        try {
-          // Calculer la date de début selon la période
-          const now = new Date();
-          let startDate = new Date();
-          
-          switch (period) {
-            case '7d':
-              startDate.setDate(now.getDate() - 7);
-              break;
-            case '30d':
-              startDate.setDate(now.getDate() - 30);
-              break;
-            case '90d':
-              startDate.setDate(now.getDate() - 90);
-              break;
-            default:
-              startDate.setDate(now.getDate() - 30);
+  // ✅ ROUTES PUBLIQUES (sans authentification)
+  fastify.register(async function (fastify) {
+    // Route de login
+    fastify.post('/auth/login', async (request, reply) => {
+      const { email, password } = request.body as any;
+      
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) throw error;
+
+        return {
+          success: true,
+          user: data.user,
+          session: data.session
+        };
+      } catch (error: any) {
+        return reply.status(401).send({
+          success: false,
+          error: error.message || 'Erreur de connexion'
+        });
+      }
+    });
+
+    // Route de signup
+    fastify.post('/auth/signup', async (request, reply) => {
+      const { email, password, metadata } = request.body as any;
+      
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: metadata
           }
+        });
 
-          // Statistiques de base
-          const [
-            totalConversations,
-            convertedConversations,
-            totalOrders,
-            totalRevenue,
-            activeConversations
-          ] = await Promise.all([
-            prisma.conversation.count({
-              where: { 
-                shopId,
-                startedAt: { gte: startDate }
-              }
-            }),
-            prisma.conversation.count({
-              where: { 
-                shopId, 
-                conversionCompleted: true,
-                startedAt: { gte: startDate }
-              }
-            }),
-            prisma.order.count({
-              where: { 
-                shopId,
-                createdAt: { gte: startDate }
-              }
-            }),
-            prisma.order.aggregate({
-              where: { 
-                shopId,
-                createdAt: { gte: startDate }
-              },
-              _sum: { totalAmount: true }
-            }),
-            prisma.conversation.count({
-              where: { 
-                shopId,
-                status: 'active'
-              }
-            })
-          ]);
+        if (error) throw error;
 
-          // Évolution des conversations par jour
-          const conversationTrends = await prisma.$queryRaw`
-            SELECT 
-              DATE_TRUNC('day', started_at) as date,
-              COUNT(*) as count
-            FROM conversations 
-            WHERE shop_id = ${shopId} 
-              AND started_at >= ${startDate}
-            GROUP BY DATE_TRUNC('day', started_at)
-            ORDER BY date ASC
-          `;
-
-          return {
-            overview: {
-              totalConversations,
-              convertedConversations,
-              conversionRate: totalConversations > 0 ? (convertedConversations / totalConversations) * 100 : 0,
-              totalOrders,
-              totalRevenue: totalRevenue._sum.totalAmount || 0,
-              activeConversations
-            },
-            trends: {
-              conversations: conversationTrends
-            },
-            period
-          };
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Internal server error' });
-        }
-      });
+        return {
+          success: true,
+          user: data.user,
+          session: data.session
+        };
+      } catch (error: any) {
+        return reply.status(400).send({
+          success: false,
+          error: error.message || 'Erreur lors de l\'inscription'
+        });
+      }
     });
-
-    // Knowledge Base routes
-    fastify.register(async function (fastify) {
-      // Get knowledge base for shop
-      fastify.get('/shops/:shopId/knowledge-base', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        
-        try {
-          const knowledgeBase = await prisma.knowledgeBase.findMany({
-            where: { shopId, isActive: true },
-            orderBy: { createdAt: 'desc' }
-          });
-
-          return knowledgeBase;
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Internal server error' });
-        }
-      });
-
-      // Add knowledge base entry
-      fastify.post('/shops/:shopId/knowledge-base', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        const { title, content, contentType, tags } = request.body as any;
-
-        try {
-          const entry = await prisma.knowledgeBase.create({
-            data: {
-              shopId,
-              title,
-              content,
-              contentType: contentType || 'manual',
-              tags: tags || []
-            }
-          });
-
-          return entry;
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Failed to create knowledge base entry' });
-        }
-      });
-    });
-
   }, { prefix: '/api/v1' });
 }
 
@@ -647,7 +408,8 @@ async function start() {
     fastify.log.info(`🚀 ChatSeller API server running on http://${host}:${port}`);
     fastify.log.info(`📖 Health check: http://${host}:${port}/health`);
     fastify.log.info(`💳 Billing routes: http://${host}:${port}/api/v1/billing/*`);
-    fastify.log.info(`🤖 Agents routes: http://${host}:${port}/api/v1/agents/*`);  // 🆕 NOUVEAU
+    fastify.log.info(`🤖 Agents routes: http://${host}:${port}/api/v1/agents/*`);
+    fastify.log.info(`📦 Products routes: http://${host}:${port}/api/v1/products/*`);
     
   } catch (error) {
     fastify.log.error(error);

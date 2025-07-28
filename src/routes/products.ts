@@ -1,6 +1,17 @@
-// src/routes/products.ts - ENDPOINT PRODUITS COMPLET
-import { FastifyPluginAsync, FastifyRequest } from 'fastify'
+// src/routes/products.ts - ENDPOINT PRODUITS CORRIGÉ AVEC TYPAGE FASTIFY
+import { FastifyPluginAsync } from 'fastify'
 import { createClient } from '@supabase/supabase-js'
+
+// ✅ EXTENSION DES TYPES FASTIFY
+declare module 'fastify' {
+  interface FastifyRequest {
+    user?: {
+      id: string
+      email?: string
+      [key: string]: any
+    }
+  }
+}
 
 // ✅ TYPES
 interface Product {
@@ -63,26 +74,6 @@ interface CreateProductData {
   is_active?: boolean
   is_visible?: boolean
   available_for_sale?: boolean
-}
-
-interface SyncConnectionData {
-  platform: 'shopify' | 'woocommerce'
-  credentials: Record<string, any>
-  config?: Record<string, any>
-}
-
-// ✅ INTERFACE POUR L'UTILISATEUR AUTHENTIFIÉ
-interface AuthenticatedUser {
-  id: string
-  email: string
-  [key: string]: any
-}
-
-// ✅ EXTENSION DE FASTIFY REQUEST
-declare module 'fastify' {
-  interface FastifyRequest {
-    user?: AuthenticatedUser
-  }
 }
 
 // ✅ PLUGIN PRINCIPAL
@@ -429,7 +420,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
       const sourceStats = (products || []).reduce((acc: Record<string, number>, product) => {
         acc[product.source] = (acc[product.source] || 0) + 1
         return acc
-      }, { manual: 0, shopify: 0, woocommerce: 0 })
+      }, { manual: 0, shopify: 0, woocommerce: 0, api: 0 })
 
       // ✅ STATS PAR CATÉGORIE
       const categoryStats = (products || [])
@@ -512,12 +503,6 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
       // ✅ TODO: DÉCLENCHER JOB DE SYNCHRONISATION ASYNCHRONE
       // Pour l'instant, on simule un job ID
       const jobId = `sync_${source}_${Date.now()}`
-
-      // ✅ TODO: Implémenter la vraie logique de sync
-      // - Shopify: utiliser Admin API
-      // - WooCommerce: utiliser REST API
-      // - Traiter par batches pour éviter les timeouts
-      // - Gérer les erreurs et retry logic
 
       return reply.send({
         success: true,
