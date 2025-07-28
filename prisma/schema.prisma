@@ -26,6 +26,178 @@ enum AgentPersonality {
   @@map("agent_personality")
 }
 
+// ✅ ENUM POUR LES SOURCES DE PRODUITS
+enum ProductSource {
+  manual
+  shopify
+  woocommerce
+  api
+
+  @@map("product_source")
+}
+
+// ✅ MODÈLE PRODUCT COMPLET
+model Product {
+  id                String        @id @default(uuid()) @db.Uuid
+  shopId            String        @map("shop_id") @db.Uuid
+  
+  // ✅ INFORMATIONS DE BASE
+  name              String        @db.VarChar(500)
+  description       String?
+  shortDescription  String?       @map("short_description") @db.VarChar(255)
+  
+  // ✅ PRIX ET INVENTAIRE
+  price             Decimal       @db.Decimal(10, 2)
+  compareAtPrice    Decimal?      @map("compare_at_price") @db.Decimal(10, 2)
+  costPrice         Decimal?      @map("cost_price") @db.Decimal(10, 2)
+  currency          String        @default("EUR") @db.VarChar(3)
+  
+  // ✅ INVENTAIRE
+  sku               String?       @db.VarChar(100)
+  barcode           String?       @db.VarChar(100)
+  inventoryQuantity Int?          @default(0) @map("inventory_quantity")
+  trackInventory    Boolean       @default(false) @map("track_inventory")
+  allowBackorder    Boolean       @default(false) @map("allow_backorder")
+  
+  // ✅ CATÉGORISATION
+  category          String?       @db.VarChar(255)
+  tags              String[]      @default([])
+  productType       String?       @map("product_type") @db.VarChar(100)
+  vendor            String?       @db.VarChar(255)
+  
+  // ✅ MÉDIAS
+  images            Json          @default("[]") // Array d'URLs d'images
+  featuredImage     String?       @map("featured_image")
+  
+  // ✅ SEO & METADATA
+  seoTitle          String?       @map("seo_title") @db.VarChar(255)
+  seoDescription    String?       @map("seo_description")
+  handle            String?       @db.VarChar(255) // URL slug
+  
+  // ✅ CARACTÉRISTIQUES
+  features          String[]      @default([])
+  specifications    Json?         @default("{}") // Specs techniques
+  weight            Decimal?      @db.Decimal(8, 3)
+  dimensions        Json?         @default("{}") // {length, width, height}
+  
+  // ✅ SYNCHRONISATION EXTERNE
+  source            ProductSource @default(manual)
+  externalId        String?       @map("external_id") @db.VarChar(255)
+  externalHandle    String?       @map("external_handle") @db.VarChar(255)
+  lastSyncAt        DateTime?     @map("last_sync_at")
+  syncData          Json?         @default("{}") @map("sync_data")
+  
+  // ✅ STATUT
+  isActive          Boolean       @default(true) @map("is_active")
+  isVisible         Boolean       @default(true) @map("is_visible")
+  availableForSale  Boolean       @default(true) @map("available_for_sale")
+  
+  // ✅ TIMESTAMPS
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  publishedAt       DateTime?     @map("published_at")
+
+  // ✅ RELATIONS
+  shop              Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  variants          ProductVariant[]
+  collections       ProductCollection[]
+  orderItems        OrderItem[]
+
+  // ✅ INDICES OPTIMISÉS
+  @@index([shopId], map: "idx_products_shop_id")
+  @@index([source], map: "idx_products_source")
+  @@index([isActive], map: "idx_products_active")
+  @@index([category], map: "idx_products_category")
+  @@index([sku], map: "idx_products_sku")
+  @@index([externalId], map: "idx_products_external_id")
+  @@unique([shopId, sku], map: "unique_shop_sku")
+  @@unique([shopId, handle], map: "unique_shop_handle")
+  @@map("products")
+}
+
+// ✅ MODÈLE VARIANTS (pour tailles, couleurs, etc.)
+model ProductVariant {
+  id                String        @id @default(uuid()) @db.Uuid
+  productId         String        @map("product_id") @db.Uuid
+  
+  title             String        @db.VarChar(255)
+  price             Decimal       @db.Decimal(10, 2)
+  compareAtPrice    Decimal?      @map("compare_at_price") @db.Decimal(10, 2)
+  sku               String?       @db.VarChar(100)
+  barcode           String?       @db.VarChar(100)
+  
+  inventoryQuantity Int           @default(0) @map("inventory_quantity")
+  weight            Decimal?      @db.Decimal(8, 3)
+  image             String?
+  
+  option1           String?       @db.VarChar(100) // ex: "Couleur"
+  option2           String?       @db.VarChar(100) // ex: "Taille"  
+  option3           String?       @db.VarChar(100) // ex: "Matériau"
+  
+  externalId        String?       @map("external_id") @db.VarChar(255)
+  isActive          Boolean       @default(true) @map("is_active")
+  
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  // ✅ RELATIONS
+  product           Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId], map: "idx_variants_product_id")
+  @@unique([productId, sku], map: "unique_product_variant_sku")
+  @@map("product_variants")
+}
+
+// ✅ MODÈLE COLLECTIONS (optionnel)
+model ProductCollection {
+  id          String    @id @default(uuid()) @db.Uuid
+  shopId      String    @map("shop_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  
+  name        String    @db.VarChar(255)
+  handle      String    @db.VarChar(255)
+  description String?
+  image       String?
+  
+  isActive    Boolean   @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // ✅ RELATIONS
+  shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([shopId], map: "idx_collections_shop_id")
+  @@map("product_collections")
+}
+
+// ✅ MODÈLE ORDER ITEMS (pour les commandes)
+model OrderItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  orderId     String    @map("order_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  variantId   String?   @map("variant_id") @db.Uuid
+  
+  quantity    Int       @default(1)
+  price       Decimal   @db.Decimal(10, 2)
+  totalPrice  Decimal   @map("total_price") @db.Decimal(10, 2)
+  
+  productName String    @map("product_name") @db.VarChar(500)
+  productSku  String?   @map("product_sku") @db.VarChar(100)
+  
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  // ✅ RELATIONS
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([orderId], map: "idx_order_items_order_id")
+  @@index([productId], map: "idx_order_items_product_id")
+  @@map("order_items")
+}
+
 model Shop {
   id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   name              String    @db.VarChar(255)
@@ -47,6 +219,8 @@ model Shop {
   analyticsEvents   AnalyticsEvent[]
   subscriptions     Subscription[]
   invoices          Invoice[]
+  products          Product[]
+  productCollections ProductCollection[]
 
   @@map("shops")
 }
@@ -200,6 +374,7 @@ model Order {
   webhookSentAt   DateTime?    @map("webhook_sent_at")
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
+  items           OrderItem[]
 
   // ✅ RELATIONS
   shop            Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
