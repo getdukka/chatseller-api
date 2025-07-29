@@ -230,63 +230,59 @@ async function registerRoutes() {
     
   }, { prefix: '/api/v1/public' });
 
-  // ✅ ROUTES BILLING (AVEC DIAGNOSTIC PUBLIC)
-  fastify.register(async function (fastify) {
-    // ✅ DIAGNOSTIC PUBLIC (SANS AUTH)
-    fastify.get('/diagnostic', async (request, reply) => {
+  // ✅ ROUTE DIAGNOSTIC PUBLIQUE (SANS AUTH) - SÉPARÉE
+  fastify.get('/api/v1/billing/diagnostic', async (request, reply) => {
+    try {
+      const healthData = {
+        success: true,
+        timestamp: new Date().toISOString(),
+        services: {
+          database: 'checking...',
+          stripe: 'checking...',
+          supabase: 'checking...'
+        },
+        environment: {
+          DATABASE_URL: !!process.env.DATABASE_URL,
+          STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY,
+          STRIPE_PRICE_ID_STARTER: !!process.env.STRIPE_PRICE_ID_STARTER,
+          STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO,
+          SUPABASE_URL: !!process.env.SUPABASE_URL
+        }
+      };
+
+      // Test Prisma
       try {
-        const healthData = {
-          success: true,
-          timestamp: new Date().toISOString(),
-          services: {
-            database: 'checking...',
-            stripe: 'checking...',
-            supabase: 'checking...'
-          },
-          environment: {
-            DATABASE_URL: !!process.env.DATABASE_URL,
-            STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY,
-            STRIPE_PRICE_ID_STARTER: !!process.env.STRIPE_PRICE_ID_STARTER,
-            STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO,
-            SUPABASE_URL: !!process.env.SUPABASE_URL
-          }
-        };
-
-        // Test Prisma
-        try {
-          await prisma.$queryRaw`SELECT 1`;
-          healthData.services.database = 'ok';
-        } catch (error) {
-          healthData.services.database = 'error';
-        }
-
-        // Test Stripe
-        if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRICE_ID_STARTER) {
-          healthData.services.stripe = 'configured';
-        } else {
-          healthData.services.stripe = 'not_configured';
-        }
-
-        // Test Supabase
-        try {
-          const { error } = await supabase.from('shops').select('count').limit(1);
-          healthData.services.supabase = error ? 'error' : 'ok';
-        } catch (error) {
-          healthData.services.supabase = 'error';
-        }
-
-        return healthData;
+        await prisma.$queryRaw`SELECT 1`;
+        healthData.services.database = 'ok';
       } catch (error) {
-        return reply.status(500).send({ success: false, error: 'Diagnostic failed' });
+        healthData.services.database = 'error';
       }
-    });
 
-    // ✅ ROUTES BILLING AVEC AUTH
-    fastify.register(async function (fastify) {
-      fastify.addHook('preHandler', authenticate);
-      fastify.register(billingRoutes);
-    });
-    
+      // Test Stripe
+      if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRICE_ID_STARTER) {
+        healthData.services.stripe = 'configured';
+      } else {
+        healthData.services.stripe = 'not_configured';
+      }
+
+      // Test Supabase
+      try {
+        const { error } = await supabase.from('shops').select('count').limit(1);
+        healthData.services.supabase = error ? 'error' : 'ok';
+      } catch (error) {
+        healthData.services.supabase = 'error';
+      }
+
+      return healthData;
+    } catch (error) {
+      return reply.status(500).send({ success: false, error: 'Diagnostic failed' });
+    }
+  });
+
+  // ✅ ROUTES BILLING AVEC AUTH
+  fastify.register(async function (fastify) {
+    fastify.addHook('preHandler', authenticate);
+    fastify.register(billingRoutes);
   }, { prefix: '/api/v1/billing' });
 
   // ✅ ROUTES D'AUTHENTIFICATION PUBLIQUES (sans authentification)
