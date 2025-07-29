@@ -1,4 +1,4 @@
-// src/server.ts - CORRECTION ERREUR CORS
+// src/server.ts - SERVEUR BACKEND AVEC ROUTES - CORRIGÉ
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -11,10 +11,28 @@ import dotenv from 'dotenv';
 import billingRoutes from './routes/billing';
 import agentsRoutes from './routes/agents'; 
 import productsRoutes from './routes/products';
-import publicRoutes from './routes/public'; // ✅ NOUVELLE ROUTE PUBLIQUE
+import publicRoutes from './routes/public'; 
+import ordersRoutes from './routes/orders'; // ✅ NOUVELLE ROUTE
 
 // Load environment variables
 dotenv.config();
+
+// ✅ VALIDATION DES VARIABLES D'ENVIRONNEMENT REQUISES
+const requiredEnvVars = {
+  DATABASE_URL: process.env.DATABASE_URL,
+  SUPABASE_URL: process.env.SUPABASE_URL,
+  SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY // ✅ NOUVEAU REQUIS
+};
+
+for (const [key, value] of Object.entries(requiredEnvVars)) {
+  if (!value) {
+    console.error(`❌ Variable d'environnement manquante: ${key}`);
+    process.exit(1);
+  }
+}
+
+console.log('✅ Variables d\'environnement validées');
 
 // Initialize clients
 const prisma = new PrismaClient();
@@ -22,6 +40,20 @@ const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
+
+// ✅ INTERFACE POUR L'UTILISATEUR AUTHENTIFIÉ
+interface AuthenticatedUser {
+  id: string;
+  email?: string;
+  [key: string]: any;
+}
+
+// ✅ EXTENSION DU TYPE FASTIFY REQUEST
+declare module 'fastify' {
+  interface FastifyRequest {
+    user?: AuthenticatedUser;
+  }
+}
 
 // Create Fastify instance
 const fastify = Fastify({
@@ -36,7 +68,7 @@ const fastify = Fastify({
   }
 });
 
-// ✅ MIDDLEWARE D'AUTHENTIFICATION SIMPLE
+// ✅ MIDDLEWARE D'AUTHENTIFICATION SIMPLE - CORRIGÉ
 async function authenticate(request: any, reply: any) {
   try {
     const token = request.headers.authorization?.replace('Bearer ', '');
@@ -58,12 +90,12 @@ async function authenticate(request: any, reply: any) {
       });
     }
 
-    // Ajouter l'utilisateur à la requête
+    // ✅ AJOUTER L'UTILISATEUR À LA REQUÊTE AVEC TYPE SÉCURISÉ
     request.user = {
       id: user.id,
       email: user.email,
       ...user.user_metadata
-    };
+    } as AuthenticatedUser;
 
   } catch (error) {
     return reply.status(401).send({
@@ -80,50 +112,91 @@ async function registerPlugins() {
     contentSecurityPolicy: false
   });
 
-  // ✅ CORS GLOBAL UNE SEULE FOIS
+  // ✅ CORS OPTIMISÉ POUR LE WIDGET
   await fastify.register(cors, {
     origin: (origin, callback) => {
-      // Autoriser tous les domaines pour le widget
+      // ✅ IMPORTANT: Autoriser tous les domaines pour le widget embeddable
       callback(null, true);
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
   });
 
-  // Rate limiting
+  // ✅ RATE LIMITING ADAPTÉ AU WIDGET - CORRIGÉ
   await fastify.register(rateLimit, {
-    max: parseInt(process.env.RATE_LIMIT_MAX || '100'),
-    timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '60000')
+    max: parseInt(process.env.RATE_LIMIT_MAX || '200'), // Plus élevé pour les widgets
+    timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '60000'),
+    keyGenerator: (request) => {
+      // Rate limit par IP + User-Agent pour éviter les abus
+      return `${request.ip}-${request.headers['user-agent']?.slice(0, 50) || 'unknown'}`
+    }
   });
 }
 
 // Routes
 async function registerRoutes() {
-  // Health check
+  // ✅ HEALTH CHECK AMÉLIORÉ
   fastify.get('/health', async (request, reply) => {
-    return { 
-      status: 'ok', 
+    const healthData = {
+      status: 'ok',
       timestamp: new Date().toISOString(),
-      version: '1.0.0',
-      environment: process.env.NODE_ENV
+      version: process.env.npm_package_version || '1.0.0',
+      environment: process.env.NODE_ENV || 'development',
+      services: {
+        database: 'checking...',
+        openai: 'checking...',
+        supabase: 'checking...'
+      }
     };
+
+    // Test rapide de la base de données
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      healthData.services.database = 'ok';
+    } catch (error) {
+      healthData.services.database = 'error';
+      healthData.status = 'degraded';
+    }
+
+    // Test OpenAI (optionnel pour ne pas consommer de tokens)
+    if (process.env.OPENAI_API_KEY) {
+      healthData.services.openai = 'configured';
+    } else {
+      healthData.services.openai = 'not_configured';
+    }
+
+    // Test Supabase
+    try {
+      const { error } = await supabase.from('shops').select('count').limit(1);
+      healthData.services.supabase = error ? 'error' : 'ok';
+    } catch (error) {
+      healthData.services.supabase = 'error';
+      healthData.status = 'degraded';
+    }
+
+    return healthData;
   });
 
-  // ✅ ROUTES PUBLIQUES (SANS AUTH) - SANS CORS SUPPLÉMENTAIRE
+  // ✅ ROUTES PUBLIQUES (SANS AUTH) - WIDGET & API PUBLIQUE
   fastify.register(async function (fastify) {
-    // ✅ SUPPRIMER LE CORS ICI POUR ÉVITER LE CONFLIT
+    // ✅ RATE LIMITING SPÉCIFIQUE POUR LE WIDGET - CORRIGÉ
     await fastify.register(rateLimit, {
-      max: 200, // Limite plus élevée pour le widget
+      max: 300, // Limite plus élevée pour les widgets
       timeWindow: '1 minute'
     });
 
     // Routes publiques pour le widget
     fastify.register(publicRoutes);
     
+    // ✅ ROUTES DE COMMANDES PUBLIQUES
+    fastify.register(ordersRoutes, { prefix: '/orders' });
+    
     fastify.log.info('✅ Routes publiques enregistrées: /api/v1/public/*');
     
   }, { prefix: '/api/v1/public' });
 
-  // API routes avec authentification
+  // ✅ ROUTES API AVEC AUTHENTIFICATION
   fastify.register(async function (fastify) {
     
     // ✅ AJOUTER LE MIDDLEWARE D'AUTH POUR TOUTES LES ROUTES API
@@ -135,8 +208,11 @@ async function registerRoutes() {
     // ✅ ROUTES AGENTS (NOUVELLES)
     fastify.register(agentsRoutes, { prefix: '/agents' });
 
-    // ✅ ROUTES PRODUITS (NOUVELLES) - CORRECTEMENT INTÉGRÉES
+    // ✅ ROUTES PRODUITS (NOUVELLES) 
     fastify.register(productsRoutes, { prefix: '/products' });
+    
+    // ✅ ROUTES COMMANDES AUTHENTIFIÉES (dashboard)
+    fastify.register(ordersRoutes, { prefix: '/orders' });
     
     // Shops routes
     fastify.register(async function (fastify) {
@@ -261,53 +337,56 @@ async function registerRoutes() {
           return reply.status(500).send({ error: 'Internal server error' });
         }
       });
-    });
 
-    // Orders routes
-    fastify.register(async function (fastify) {
-      // Create order
-      fastify.post('/orders', async (request, reply) => {
-        const {
-          shopId,
-          conversationId,
-          customerName,
-          customerPhone,
-          customerEmail,
-          customerAddress,
-          productItems,
-          totalAmount,
-          paymentMethod
-        } = request.body as any;
-
+      // ✅ NOUVELLE ROUTE: Lister toutes les conversations d'un shop - CORRIGÉE
+      fastify.get('/conversations', async (request, reply) => {
+        const { page = 1, limit = 20, shopId } = request.query as any;
+        
         try {
-          const order = await prisma.order.create({
-            data: {
-              shopId,
-              conversationId,
-              customerName,
-              customerPhone,
-              customerEmail,
-              customerAddress,
-              productItems,
-              totalAmount,
-              paymentMethod
+          // ✅ VÉRIFICATION DE L'UTILISATEUR AUTHENTIFIÉ
+          if (!request.user) {
+            return reply.status(401).send({ error: 'User not authenticated' });
+          }
+
+          const conversations = await prisma.conversation.findMany({
+            where: {
+              shopId: shopId || request.user.id
+            },
+            include: {
+              messages: {
+                orderBy: { createdAt: 'desc' },
+                take: 1
+              }
+            },
+            orderBy: { startedAt: 'desc' },
+            skip: (page - 1) * limit,
+            take: parseInt(limit)
+          });
+
+          const total = await prisma.conversation.count({
+            where: {
+              shopId: shopId || request.user.id
             }
           });
 
-          await prisma.conversation.update({
-            where: { id: conversationId },
-            data: { conversionCompleted: true }
-          });
+          return {
+            conversations,
+            pagination: {
+              page: parseInt(page),
+              limit: parseInt(limit),
+              total,
+              pages: Math.ceil(total / limit)
+            }
+          };
 
-          return order;
         } catch (error) {
           fastify.log.error(error);
-          return reply.status(500).send({ error: 'Failed to create order' });
+          return reply.status(500).send({ error: 'Internal server error' });
         }
       });
     });
 
-    // Analytics routes
+    // ✅ ROUTES D'ANALYTICS AMÉLIORÉES
     fastify.register(async function (fastify) {
       // Track event
       fastify.post('/analytics/events', async (request, reply) => {
@@ -338,6 +417,60 @@ async function registerRoutes() {
         } catch (error) {
           fastify.log.error(error);
           return reply.status(500).send({ error: 'Failed to track event' });
+        }
+      });
+
+      // ✅ NOUVELLE ROUTE: Récupérer les analytics d'un shop
+      fastify.get('/analytics/:shopId', async (request, reply) => {
+        const { shopId } = request.params as { shopId: string };
+        const { startDate, endDate, eventType } = request.query as any;
+
+        try {
+          const whereClause: any = { shopId };
+          
+          if (startDate && endDate) {
+            whereClause.createdAt = {
+              gte: new Date(startDate),
+              lte: new Date(endDate)
+            };
+          }
+          
+          if (eventType) {
+            whereClause.eventType = eventType;
+          }
+
+          const events = await prisma.analyticsEvent.findMany({
+            where: whereClause,
+            orderBy: { createdAt: 'desc' },
+            take: 1000
+          });
+
+          // Agrégation des données
+          const summary = {
+            totalEvents: events.length,
+            uniqueVisitors: new Set(events.map(e => e.ipAddress)).size,
+            eventsByType: events.reduce((acc, event) => {
+              acc[event.eventType] = (acc[event.eventType] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>),
+            topPages: Object.entries(
+              events.reduce((acc, event) => {
+                if (event.pageUrl) {
+                  acc[event.pageUrl] = (acc[event.pageUrl] || 0) + 1;
+                }
+                return acc;
+              }, {} as Record<string, number>)
+            ).sort(([,a], [,b]) => b - a).slice(0, 10)
+          };
+
+          return {
+            events: events.slice(0, 100), // Limiter les événements retournés
+            summary
+          };
+
+        } catch (error) {
+          fastify.log.error(error);
+          return reply.status(500).send({ error: 'Internal server error' });
         }
       });
     });
@@ -430,6 +563,7 @@ async function start() {
     fastify.log.info(`💳 Billing routes: http://${host}:${port}/api/v1/billing/*`);
     fastify.log.info(`🤖 Agents routes: http://${host}:${port}/api/v1/agents/*`);
     fastify.log.info(`📦 Products routes: http://${host}:${port}/api/v1/products/*`);
+    fastify.log.info(`🛒 Orders routes: http://${host}:${port}/api/v1/orders/* & /api/v1/public/orders/*`);
     
   } catch (error) {
     fastify.log.error(error);

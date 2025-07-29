@@ -27,39 +27,39 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// ✅ VERSION STRIPE CORRIGÉE - API VERSION ATTENDUE PAR TYPESCRIPT
+// ✅ VERSION STRIPE CORRIGÉE
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-06-30.basil' // ✅ Version attendue par TypeScript
+  apiVersion: '2025-06-30.basil'
 });
 
-// ✅ CONFIGURATION DES PLANS
+// ✅ CONFIGURATION DES PLANS CORRIGÉE - MAPPING SIMPLIFIÉ
 const STRIPE_PLANS = {
+  free: {
+    name: 'Free Trial',
+    price: 0,
+    stripePriceId: null,
+    features: ['7 jours gratuit', '1 agent IA', 'Conversations illimitées'],
+    limits: { conversations: -1, agents: 1, documents: 50 }
+  },
   starter: {
-    name: 'Starter',
-    price: 0,
-    stripePriceId: null,
-    features: ['3 jours gratuit', '1 agent IA', '10 documents'],
-    limits: { conversations: 100, agents: 1, documents: 10 }
-  },
-  professional: {
-    name: 'Professional', 
+    name: 'Starter', 
     price: 1400, // 14€ en centimes
-    stripePriceId: process.env.STRIPE_PRICE_ID_PRO!,
-    features: ['Conversations illimitées', '3 agents IA', 'Base illimitée'],
-    limits: { conversations: -1, agents: 3, documents: -1 }
+    stripePriceId: process.env.STRIPE_PRICE_ID_STARTER!, // ✅ Nouvelle variable env
+    features: ['1 Vendeur IA spécialisé', '1000 conversations/mois', '50 documents max'],
+    limits: { conversations: 1000, agents: 1, documents: 50 }
   },
-  enterprise: {
-    name: 'Enterprise',
-    price: 0,
-    stripePriceId: null,
-    features: ['Tout du Pro', 'Agents illimités', 'White-label'],
-    limits: { conversations: -1, agents: -1, documents: -1 }
+  pro: {
+    name: 'Pro',
+    price: 2900, // 29€ en centimes  
+    stripePriceId: process.env.STRIPE_PRICE_ID_PRO!,
+    features: ['3 Vendeurs IA', 'Conversations illimitées', 'Base illimitée'],
+    limits: { conversations: -1, agents: 3, documents: -1 }
   }
 };
 
-// ✅ SCHÉMAS DE VALIDATION
+// ✅ SCHÉMAS DE VALIDATION CORRIGÉS
 const createSubscriptionSchema = z.object({
-  plan: z.enum(['professional']),
+  plan: z.enum(['starter', 'pro']), // ✅ Plus de mapping complexe
   successUrl: z.string().url(),
   cancelUrl: z.string().url()
 });
@@ -169,6 +169,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         SUPABASE_URL: !!process.env.SUPABASE_URL,
         SUPABASE_SERVICE_KEY: !!process.env.SUPABASE_SERVICE_KEY,
         STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith('sk_'),
+        STRIPE_PRICE_ID_STARTER: !!process.env.STRIPE_PRICE_ID_STARTER && process.env.STRIPE_PRICE_ID_STARTER.startsWith('price_'), // ✅ NOUVEAU
         STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO && process.env.STRIPE_PRICE_ID_PRO.startsWith('price_'),
         STRIPE_WEBHOOK_SECRET: !!process.env.STRIPE_WEBHOOK_SECRET
       };
@@ -194,27 +195,44 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         supabaseTest.error = error.message;
       }
       
-      // ✅ TEST STRIPE AMÉLIORÉ
+      // ✅ TEST STRIPE AMÉLIORÉ AVEC LES DEUX PRICE IDS
       let stripeTest: { success: boolean; error: string | null; priceValidation?: any } = { success: false, error: null };
       try {
         // Test 1: Connexion de base
         const prices = await stripe.prices.list({ limit: 1 });
         
-        // Test 2: Validation du Price ID spécifique
-        if (process.env.STRIPE_PRICE_ID_PRO) {
+        // Test 2: Validation des Price IDs spécifiques
+        const priceValidations: any = {};
+        
+        if (process.env.STRIPE_PRICE_ID_STARTER) {
           try {
-            const priceCheck = await stripe.prices.retrieve(process.env.STRIPE_PRICE_ID_PRO);
-            stripeTest.priceValidation = {
-              id: priceCheck.id,
-              amount: priceCheck.unit_amount,
-              currency: priceCheck.currency,
-              active: priceCheck.active
+            const starterPrice = await stripe.prices.retrieve(process.env.STRIPE_PRICE_ID_STARTER);
+            priceValidations.starter = {
+              id: starterPrice.id,
+              amount: starterPrice.unit_amount,
+              currency: starterPrice.currency,
+              active: starterPrice.active
             };
           } catch (priceError: any) {
-            stripeTest.priceValidation = { error: priceError.message };
+            priceValidations.starter = { error: priceError.message };
+          }
+        }
+
+        if (process.env.STRIPE_PRICE_ID_PRO) {
+          try {
+            const proPrice = await stripe.prices.retrieve(process.env.STRIPE_PRICE_ID_PRO);
+            priceValidations.pro = {
+              id: proPrice.id,
+              amount: proPrice.unit_amount,
+              currency: proPrice.currency,
+              active: proPrice.active
+            };
+          } catch (priceError: any) {
+            priceValidations.pro = { error: priceError.message };
           }
         }
         
+        stripeTest.priceValidation = priceValidations;
         stripeTest.success = true;
       } catch (error: any) {
         stripeTest.error = error.message;
@@ -227,7 +245,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
           prisma: prismaTest,
           supabase: supabaseTest,
           stripe: stripeTest,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          plansConfig: STRIPE_PLANS
         }
       };
       
@@ -278,23 +297,24 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         throw new Error('Impossible de créer ou récupérer le shop');
       }
 
-      // ✅ VÉRIFICATION SI DÉJÀ ABONNÉ
-      if (shop.subscription_plan === 'professional') {
+      // ✅ VÉRIFICATION SI DÉJÀ ABONNÉ - MAPPING SIMPLIFIÉ
+      if (shop.subscription_plan === body.plan || 
+          (shop.subscription_plan === 'pro' && body.plan === 'starter')) {
         fastify.log.warn(`⚠️ Utilisateur déjà abonné: ${shop.subscription_plan}`);
         return reply.status(400).send({ 
-          error: 'Vous avez déjà un abonnement actif',
+          error: 'Vous avez déjà un abonnement actif ou supérieur',
           currentPlan: shop.subscription_plan 
         });
       }
 
       // Récupération du plan
-      const plan = STRIPE_PLANS[body.plan];
+      const plan = STRIPE_PLANS[body.plan as keyof typeof STRIPE_PLANS];
       if (!plan.stripePriceId) {
         fastify.log.error(`❌ Plan non disponible: ${body.plan}`);
         return reply.status(400).send({ error: 'Plan non disponible pour l\'achat' });
       }
 
-      fastify.log.info(`📋 Plan sélectionné: ${plan.name} - Prix: ${plan.price}€ - Price ID: ${plan.stripePriceId}`);
+      fastify.log.info(`📋 Plan sélectionné: ${plan.name} - Prix: ${plan.price/100}€ - Price ID: ${plan.stripePriceId}`);
 
       // ✅ VALIDATION PRÉALABLE DU PRICE ID
       try {
@@ -363,13 +383,13 @@ export default async function billingRoutes(fastify: FastifyInstance) {
           cancel_url: body.cancelUrl,
           metadata: {
             userId: shop.id,
-            plan: body.plan,
+            plan: body.plan, // ✅ Garder le plan frontend
             shopEmail: shop.email
           },
           subscription_data: {
             metadata: {
               userId: shop.id,
-              plan: body.plan,
+              plan: body.plan, // ✅ Garder le plan frontend
               shopEmail: shop.email
             }
           }
@@ -527,7 +547,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       await prisma.shop.update({
         where: { id: userId },
         data: {
-          subscription_plan: plan,
+          subscription_plan: plan, // ✅ Pas de mapping - direct
           is_active: true,
           updatedAt: new Date()
         }

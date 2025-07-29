@@ -1,7 +1,8 @@
-// src/routes/public.ts - VERSION CORRIGÉE AVEC FALLBACK
+// src/routes/public.ts - INTÉGRATION GPT-4O-MINI COMPLÈTE - CORRIGÉE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import OpenAI from 'openai';
 
 let prisma: PrismaClient;
 
@@ -18,6 +19,11 @@ try {
   console.error('❌ ERREUR lors de l\'initialisation de Prisma:', error);
   throw error;
 }
+
+// ✅ INITIALISATION OPENAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 interface ShopParamsType {
   shopId: string;
@@ -98,6 +104,111 @@ Livraison gratuite dès 20 000 FCFA d'achat.`,
   };
 }
 
+// ✅ NOUVELLE FONCTION : Générer le prompt système pour l'agent
+function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any) {
+  const basePrompt = `Tu es ${agent.name}, un vendeur IA commercial ${agent.personality === 'friendly' ? 'amical et bienveillant' : 'professionnel'}.
+
+RÔLE: Assistant d'achat spécialisé dans la conversion de visiteurs en clients.
+
+PERSONNALITÉ: ${agent.personality}
+- ${agent.personality === 'friendly' ? 'Chaleureux, empathique, à l\'écoute' : 'Professionnel, expert, efficace'}
+- Toujours positif et orienté solution
+- Expert en techniques de vente consultative
+
+OBJECTIFS PRINCIPAUX:
+1. Accueillir chaleureusement les visiteurs
+2. Identifier leurs besoins et motivations d'achat
+3. Répondre à leurs questions avec précision
+4. Lever leurs objections et rassurer
+5. Collecter leurs informations de commande
+6. Proposer des ventes additionnelles pertinentes
+
+DONNÉES PRODUIT ACTUEL:
+${productInfo ? `
+- Nom: ${productInfo.name || 'Produit non spécifié'}
+- Prix: ${productInfo.price ? productInfo.price + ' FCFA' : 'Prix non spécifié'}
+- URL: ${productInfo.url || 'Non spécifiée'}
+` : 'Aucune information produit fournie'}
+
+BASE DE CONNAISSANCE:
+${knowledgeBase}
+
+INSTRUCTIONS DE CONVERSATION:
+1. Commence toujours par un accueil chaleureux
+2. Pose des questions pour comprendre les besoins
+3. Utilise les informations de ta base de connaissance
+4. Sois proactif pour collecter les commandes
+5. Propose des upsells intelligents si pertinent
+6. Reste toujours dans ton rôle de vendeur
+
+COLLECTE DE COMMANDE:
+Quand un client veut acheter, collecte dans l'ordre:
+1. Confirmation du produit et quantité
+2. Nom complet
+3. Numéro de téléphone
+4. Adresse de livraison (si nécessaire)
+5. Mode de paiement préféré
+
+RÉPONSES:
+- Maximum 150 mots par réponse
+- Ton conversationnel et naturel
+- Utilise des émojis avec parcimonie
+- Pose toujours une question pour relancer la conversation`;
+
+  return basePrompt;
+}
+
+// ✅ INTERFACE pour le résultat OpenAI
+interface OpenAIResult {
+  success: boolean;
+  message?: string;
+  tokensUsed?: number;
+  error?: string;
+  fallbackMessage?: string;
+}
+
+// ✅ NOUVELLE FONCTION : Appeler GPT-4o-mini - CORRIGÉE
+async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, productInfo?: any): Promise<OpenAIResult> {
+  try {
+    const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, productInfo);
+    
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...messages
+      ],
+      max_tokens: 300,
+      temperature: 0.7,
+      presence_penalty: 0.3,
+      frequency_penalty: 0.3
+    });
+
+    return {
+      success: true,
+      message: completion.choices[0]?.message?.content || "Je n'ai pas pu générer de réponse.",
+      tokensUsed: completion.usage?.total_tokens || 0
+    };
+
+  } catch (error: any) {
+    console.error('❌ Erreur OpenAI:', error);
+    
+    if (error.code === 'insufficient_quota') {
+      return {
+        success: false,
+        error: 'Quota OpenAI dépassé',
+        fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt."
+      };
+    }
+    
+    return {
+      success: false,
+      error: error.message || 'Erreur IA',
+      fallbackMessage: "Désolé, je rencontre un problème technique. Un conseiller vous recontactera bientôt."
+    };
+  }
+}
+
 export default async function publicRoutes(fastify: FastifyInstance) {
   
   // ✅ ROUTE : Récupérer la configuration publique d'un shop et de son agent principal
@@ -106,7 +217,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       const { shopId } = request.params;
       fastify.log.info(`🔍 Récupération config publique pour shop: ${shopId}`);
       
-      // ✅ NOUVEAU : Vérification UUID et gestion fallback
       if (!isValidUUID(shopId)) {
         fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
         return getFallbackShopConfig(shopId);
@@ -114,7 +224,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       
       await prisma.$connect();
       
-      // Récupérer le shop et ses informations publiques
       const shop = await prisma.shop.findUnique({
         where: { id: shopId },
         select: {
@@ -132,7 +241,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return getFallbackShopConfig(shopId);
       }
 
-      // Récupérer l'agent principal actif du shop
       const agent = await prisma.agent.findFirst({
         where: { 
           shopId: shopId,
@@ -163,7 +271,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
 
       await prisma.$disconnect();
 
-      // Si pas d'agent, utiliser la config par défaut du shop
       if (!agent) {
         return {
           success: true,
@@ -184,12 +291,10 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         };
       }
 
-      // Préparer la base de connaissance
       const knowledgeContent = agent.knowledgeBase
         .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
         .join('\n\n---\n\n');
 
-      // Réponse complète avec agent
       return {
         success: true,
         data: {
@@ -225,14 +330,12 @@ export default async function publicRoutes(fastify: FastifyInstance) {
 
     } catch (error: any) {
       fastify.log.error('❌ Get public shop config error:', error);
-      
-      // ✅ NOUVEAU : Fallback en cas d'erreur
       fastify.log.warn(`⚠️ Erreur API pour shop ${request.params.shopId}, utilisation configuration fallback`);
       return getFallbackShopConfig(request.params.shopId);
     }
   });
 
-  // ✅ ROUTE : Endpoint de chat public pour les conversations avec l'IA
+  // ✅ ROUTE : Endpoint de chat public AVEC GPT-4O-MINI - CORRIGÉ
   fastify.post<{ 
     Body: { 
       shopId: string; 
@@ -242,16 +345,17 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       visitorId?: string;
     } 
   }>('/chat', async (request, reply) => {
+    const startTime = Date.now();
+    
     try {
       const { shopId, message, conversationId, productInfo, visitorId } = request.body;
       
       fastify.log.info(`💬 Nouveau message chat pour shop: ${shopId}`);
       
-      // ✅ NOUVEAU : Gestion des shops non-UUID (mode test)
+      // Mode test pour shops non-UUID
       if (!isValidUUID(shopId)) {
         fastify.log.info(`💬 Mode test détecté pour shop: ${shopId}`);
         
-        // Simulation d'une réponse IA pour les tests
         const simulatedResponse = getSimulatedAIResponse(message, productInfo);
         
         return {
@@ -262,14 +366,15 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             agent: {
               name: "Rose",
               avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
-            }
+            },
+            responseTime: Date.now() - startTime
           }
         };
       }
       
       await prisma.$connect();
       
-      // Récupérer la configuration de l'agent (pour les vrais shops)
+      // Récupérer la configuration de l'agent
       const shopConfig = await prisma.shop.findUnique({
         where: { id: shopId },
         select: {
@@ -312,7 +417,13 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       let conversation;
       if (conversationId) {
         conversation = await prisma.conversation.findUnique({
-          where: { id: conversationId }
+          where: { id: conversationId },
+          include: {
+            messages: {
+              orderBy: { createdAt: 'asc' },
+              take: 10 // Limiter l'historique pour l'IA
+            }
+          }
         });
       }
 
@@ -328,6 +439,9 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             productUrl: productInfo?.url,
             visitorIp: request.ip,
             visitorUserAgent: request.headers['user-agent']
+          },
+          include: {
+            messages: true
           }
         });
       }
@@ -341,15 +455,43 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         }
       });
 
-      // PLACEHOLDER pour OpenAI - Phase 2
-      const aiResponse = getSimulatedAIResponse(message, productInfo, agent);
+      // Préparer la base de connaissance
+      const knowledgeContent = agent.knowledgeBase
+        .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
+        .join('\n\n---\n\n');
+
+      // Préparer l'historique des messages pour l'IA
+      const messageHistory = conversation.messages.map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      }));
+
+      // Ajouter le nouveau message
+      messageHistory.push({ role: 'user', content: message });
+
+      // ✅ APPELER GPT-4O-MINI - CORRIGÉ
+      const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo);
+      
+      // ✅ VARIABLES AVEC VALEURS PAR DÉFAUT
+      let aiResponse: string = aiResult.fallbackMessage || agent.fallbackMessage || "Je transmets votre question à notre équipe.";
+      let tokensUsed: number = 0;
+
+      if (aiResult.success && aiResult.message) {
+        aiResponse = aiResult.message;
+        tokensUsed = aiResult.tokensUsed || 0;
+      } else {
+        fastify.log.error('❌ Erreur IA:', aiResult.error);
+      }
 
       // Sauvegarder la réponse de l'IA
       await prisma.message.create({
         data: {
           conversationId: conversation.id,
           role: 'assistant',
-          content: aiResponse
+          content: aiResponse,
+          tokensUsed: tokensUsed,
+          responseTimeMs: Date.now() - startTime,
+          modelUsed: 'gpt-4o-mini'
         }
       });
 
@@ -363,14 +505,16 @@ export default async function publicRoutes(fastify: FastifyInstance) {
           agent: {
             name: agent.name,
             avatar: agent.avatar
-          }
+          },
+          responseTime: Date.now() - startTime,
+          tokensUsed
         }
       };
 
     } catch (error: any) {
       fastify.log.error('❌ Chat error:', error);
       
-      // ✅ FALLBACK en cas d'erreur
+      // Fallback en cas d'erreur
       const fallbackResponse = request.body.message.toLowerCase().includes('bonjour') || request.body.message.toLowerCase().includes('salut')
         ? "Bonjour ! Je suis Rose, votre assistante d'achat. Comment puis-je vous aider avec ce produit ?"
         : "Merci pour votre message ! Comment puis-je vous aider davantage ?";
@@ -383,14 +527,15 @@ export default async function publicRoutes(fastify: FastifyInstance) {
           agent: {
             name: "Rose",
             avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
-          }
+          },
+          responseTime: Date.now() - startTime
         }
       };
     }
   });
 }
 
-// ✅ FONCTION pour simuler l'IA (en attendant OpenAI Phase 2)
+// ✅ FONCTION pour simuler l'IA (fallback pour les tests)
 function getSimulatedAIResponse(message: string, productInfo: any, agent?: any): string {
   const msg = message.toLowerCase();
   const agentName = agent?.name || "Rose";
@@ -401,7 +546,7 @@ function getSimulatedAIResponse(message: string, productInfo: any, agent?: any):
   
   if (msg.includes('prix') || msg.includes('coût') || msg.includes('tarif')) {
     if (productInfo?.price) {
-      return `Le prix de "${productInfo.name}" est de ${productInfo.price}. C'est un excellent rapport qualité-prix ! Voulez-vous que je vous aide à passer commande ?`;
+      return `Le prix de "${productInfo.name}" est de ${productInfo.price} FCFA. C'est un excellent rapport qualité-prix ! Voulez-vous que je vous aide à passer commande ?`;
     }
     return "Je vais vérifier le prix pour vous. Un instant...";
   }
@@ -422,6 +567,5 @@ function getSimulatedAIResponse(message: string, productInfo: any, agent?: any):
     return "Je serais ravi de vous en dire plus ! Ce produit a d'excellentes caractéristiques. Qu'est-ce qui vous intéresse le plus : les fonctionnalités, la qualité, ou autre chose ?";
   }
   
-  // Réponse par défaut
   return agent?.fallbackMessage || "Merci pour votre message ! Comment puis-je vous aider davantage avec ce produit ?";
 }
