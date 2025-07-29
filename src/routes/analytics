@@ -1,0 +1,347 @@
+// routes/analytics/usage-stats.js - ROUTE API POUR LES STATISTIQUES D'UTILISATION
+
+const { PrismaClient } = require('@prisma/client')
+const prisma = new PrismaClient()
+
+/**
+ * GET /api/v1/analytics/usage-stats
+ * Récupère les statistiques d'utilisation du shop authentifié
+ */
+async function getUsageStatsHandler(request, reply) {
+  try {
+    const shopId = request.user.shopId || request.user.id
+    const forceRefresh = request.query.forceRefresh === 'true'
+    
+    console.log('📊 Récupération usage stats pour shop:', shopId)
+
+    // ✅ 1. RÉCUPÉRER LES CONVERSATIONS CE MOIS
+    const startOfMonth = new Date()
+    startOfMonth.setDate(1)
+    startOfMonth.setHours(0, 0, 0, 0)
+    
+    const conversationsCount = await prisma.conversation.count({
+      where: {
+        shopId: shopId,
+        createdAt: {
+          gte: startOfMonth
+        }
+      }
+    })
+
+    // ✅ 2. RÉCUPÉRER LES DOCUMENTS DE LA BASE DE CONNAISSANCE
+    const documentsCount = await prisma.knowledgeBase.count({
+      where: {
+        shopId: shopId
+      }
+    })
+
+    // ✅ 3. RÉCUPÉRER LE NOMBRE D'AGENTS IA CRÉÉS
+    const agentsCount = await prisma.agent.count({
+      where: {
+        shopId: shopId
+      }
+    })
+
+    // ✅ 4. RÉCUPÉRER LES COMMANDES CE MOIS
+    const ordersCount = await prisma.order.count({
+      where: {
+        shopId: shopId,
+        createdAt: {
+          gte: startOfMonth
+        }
+      }
+    })
+
+    // ✅ 5. CALCULER LE CHIFFRE D'AFFAIRES CE MOIS
+    const revenueResult = await prisma.order.aggregate({
+      where: {
+        shopId: shopId,
+        createdAt: {
+          gte: startOfMonth
+        },
+        status: {
+          in: ['completed', 'paid']
+        }
+      },
+      _sum: {
+        totalAmount: true
+      }
+    })
+
+    const totalRevenue = revenueResult._sum.totalAmount || 0
+
+    // ✅ 6. CALCULER LE TAUX DE CONVERSION
+    let conversionRate = 0
+    if (conversationsCount > 0) {
+      conversionRate = (ordersCount / conversationsCount) * 100
+    }
+
+    // ✅ 7. RÉCUPÉRER DES MÉTRIQUES SUPPLÉMENTAIRES
+    const [
+      totalConversations,
+      activeConversations,
+      averageResponseTime,
+      customerSatisfaction
+    ] = await Promise.all([
+      // Total conversations toutes périodes
+      prisma.conversation.count({
+        where: { shopId: shopId }
+      }),
+      
+      // Conversations actives (dernières 24h)
+      prisma.conversation.count({
+        where: {
+          shopId: shopId,
+          updatedAt: {
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
+          }
+        }
+      }),
+
+      // Temps de réponse moyen (mock pour l'instant)
+      Promise.resolve(2.3),
+
+      // Satisfaction client moyenne (mock pour l'instant)
+      Promise.resolve(4.7)
+    ])
+
+    // ✅ 8. CONSTRUIRE LA RÉPONSE
+    const usageStats = {
+      // Métriques principales
+      conversations: conversationsCount,
+      documents: documentsCount,
+      agents: agentsCount,
+      orders: ordersCount,
+      totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+      conversionRate: parseFloat(conversionRate.toFixed(2)),
+      
+      // Métriques supplémentaires
+      totalConversations,
+      activeConversations,
+      averageResponseTime,
+      customerSatisfaction,
+      
+      // Métadonnées
+      period: 'current_month',
+      lastUpdated: new Date().toISOString(),
+      shopId: shopId
+    }
+
+    console.log('✅ Usage stats calculées:', usageStats)
+
+    return reply.code(200).send({
+      success: true,
+      data: usageStats,
+      meta: {
+        period: 'current_month',
+        generatedAt: new Date().toISOString(),
+        cacheEnabled: !forceRefresh
+      }
+    })
+
+  } catch (error) {
+    console.error('❌ Erreur lors de la récupération des usage stats:', error)
+    
+    return reply.code(500).send({
+      success: false,
+      error: 'Erreur serveur lors de la récupération des statistiques',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    })
+  }
+}
+
+/**
+ * GET /api/v1/analytics/usage-stats/detailed
+ * Récupère des statistiques détaillées avec historique
+ */
+async function getDetailedUsageStatsHandler(request, reply) {
+  try {
+    const shopId = request.user.shopId || request.user.id
+    const { period = '30d', metric = 'all' } = request.query
+    
+    console.log('📊 Récupération usage stats détaillées pour shop:', shopId)
+
+    // Calculer la période
+    let startDate = new Date()
+    switch (period) {
+      case '7d':
+        startDate.setDate(startDate.getDate() - 7)
+        break
+      case '30d':
+        startDate.setDate(startDate.getDate() - 30)
+        break
+      case '90d':
+        startDate.setDate(startDate.getDate() - 90)
+        break
+      case '1y':
+        startDate.setFullYear(startDate.getFullYear() - 1)
+        break
+      default:
+        startDate.setDate(startDate.getDate() - 30)
+    }
+
+    // ✅ RÉCUPÉRER L'HISTORIQUE DES CONVERSATIONS PAR JOUR
+    const conversationHistory = await prisma.conversation.groupBy({
+      by: ['createdAt'],
+      where: {
+        shopId: shopId,
+        createdAt: {
+          gte: startDate
+        }
+      },
+      _count: {
+        id: true
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    })
+
+    // ✅ RÉCUPÉRER L'HISTORIQUE DES COMMANDES PAR JOUR
+    const orderHistory = await prisma.order.groupBy({
+      by: ['createdAt'],
+      where: {
+        shopId: shopId,
+        createdAt: {
+          gte: startDate
+        }
+      },
+      _count: {
+        id: true
+      },
+      _sum: {
+        totalAmount: true
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    })
+
+    // ✅ RÉCUPÉRER LES TOP PRODUITS
+    const topProducts = await prisma.orderItem.groupBy({
+      by: ['productId'],
+      where: {
+        order: {
+          shopId: shopId,
+          createdAt: {
+            gte: startDate
+          }
+        }
+      },
+      _count: {
+        id: true
+      },
+      _sum: {
+        quantity: true,
+        price: true
+      },
+      orderBy: {
+        _count: {
+          id: 'desc'
+        }
+      },
+      take: 10
+    })
+
+    const detailedStats = {
+      period: period,
+      startDate: startDate.toISOString(),
+      endDate: new Date().toISOString(),
+      
+      // Historiques
+      conversationHistory: conversationHistory.map(item => ({
+        date: item.createdAt.toISOString().split('T')[0],
+        count: item._count.id
+      })),
+      
+      orderHistory: orderHistory.map(item => ({
+        date: item.createdAt.toISOString().split('T')[0],
+        count: item._count.id,
+        revenue: parseFloat((item._sum.totalAmount || 0).toFixed(2))
+      })),
+      
+      topProducts: topProducts.map((item, index) => ({
+        rank: index + 1,
+        productId: item.productId,
+        orders: item._count.id,
+        quantity: item._sum.quantity || 0,
+        revenue: parseFloat((item._sum.price || 0).toFixed(2))
+      })),
+      
+      // Métriques de performance
+      performance: {
+        totalConversations: conversationHistory.reduce((sum, item) => sum + item._count.id, 0),
+        totalOrders: orderHistory.reduce((sum, item) => sum + item._count.id, 0),
+        totalRevenue: orderHistory.reduce((sum, item) => sum + (item._sum.totalAmount || 0), 0),
+        averageOrderValue: orderHistory.length > 0 
+          ? (orderHistory.reduce((sum, item) => sum + (item._sum.totalAmount || 0), 0) / orderHistory.reduce((sum, item) => sum + item._count.id, 0))
+          : 0
+      }
+    }
+
+    return reply.code(200).send({
+      success: true,
+      data: detailedStats,
+      meta: {
+        period,
+        metric,
+        generatedAt: new Date().toISOString()
+      }
+    })
+
+  } catch (error) {
+    console.error('❌ Erreur lors de la récupération des stats détaillées:', error)
+    
+    return reply.code(500).send({
+      success: false,
+      error: 'Erreur serveur lors de la récupération des statistiques détaillées',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    })
+  }
+}
+
+// ✅ EXPORT DES HANDLERS
+module.exports = {
+  getUsageStatsHandler,
+  getDetailedUsageStatsHandler
+}
+
+// ✅ CONFIGURATION DES ROUTES FASTIFY
+// À ajouter dans votre fichier de routes principal
+
+/*
+// Dans routes/analytics.js ou app.js :
+
+const { 
+  getUsageStatsHandler, 
+  getDetailedUsageStatsHandler 
+} = require('./analytics/usage-stats')
+
+// Routes protégées (nécessitent authentification)
+app.register(async function (app) {
+  // Middleware d'authentification
+  app.addHook('preHandler', async (request, reply) => {
+    try {
+      // Vérifier le token d'authentification
+      const authHeader = request.headers.authorization
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        throw new Error('Token manquant')
+      }
+      
+      const token = authHeader.substring(7)
+      const user = await verifyAuthToken(token) // Votre fonction de vérification
+      
+      request.user = user
+    } catch (error) {
+      reply.code(401).send({ 
+        success: false, 
+        error: 'Non authentifié' 
+      })
+    }
+  })
+
+  // Routes analytics
+  app.get('/api/v1/analytics/usage-stats', getUsageStatsHandler)
+  app.get('/api/v1/analytics/usage-stats/detailed', getDetailedUsageStatsHandler)
+})
+*/
