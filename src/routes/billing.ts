@@ -459,12 +459,27 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Shop non trouvé' });
       }
 
+      // ✅ CALCUL JOURS D'ESSAI POUR PLAN FREE
+      let trialDaysLeft = 0;
+      if (shop.subscription_plan === 'free') {
+        const creationDate = new Date(shop.createdAt || Date.now());
+        const daysSinceCreation = Math.floor((Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24));
+        trialDaysLeft = Math.max(0, 7 - daysSinceCreation);
+      }
+
       return {
         success: true,
         subscription: {
           plan: shop.subscription_plan,
           status: shop.is_active ? 'active' : 'inactive',
           isActive: shop.is_active,
+          trialDaysLeft: trialDaysLeft,
+          trialEndDate: shop.subscription_plan === 'free' 
+            ? new Date(new Date(shop.createdAt || Date.now()).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+            : null,
+          nextBillingDate: shop.subscription_plan !== 'free' 
+            ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            : null,
           shopId: shop.id,
           shopName: shop.name
         }
@@ -530,35 +545,92 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // ✅ ROUTE DE DIAGNOSTIC POUR DEBUG
+  fastify.get('/debug-shop/:userId', async (request, reply) => {
+    try {
+      const { userId } = request.params as { userId: string }
+      
+      await prisma.$connect()
+      const shop = await prisma.shop.findUnique({
+        where: { id: userId }
+      })
+      await prisma.$disconnect()
+      
+      if (!shop) {
+        return reply.status(404).send({ error: 'Shop not found' })
+      }
+      
+      return {
+        success: true,
+        shop: {
+          id: shop.id,
+          email: shop.email,
+          plan: shop.subscription_plan,
+          isActive: shop.is_active,
+          createdAt: shop.createdAt,
+          updatedAt: shop.updatedAt
+        }
+      }
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message })
+    }
+  })
+
   // ✅ FONCTIONS WEBHOOK AVEC MEILLEURS LOGS
   async function handleCheckoutCompleted(session: Stripe.Checkout.Session, fastify: FastifyInstance) {
-    const userId = session.metadata?.userId;
-    const plan = session.metadata?.plan;
+  const userId = session.metadata?.userId;
+  const plan = session.metadata?.plan;
 
-    fastify.log.info(`🎉 Checkout completed: userId=${userId}, plan=${plan}`);
+  fastify.log.info(`🎉 === CHECKOUT COMPLETED ===`);
+  fastify.log.info(`👤 UserId: ${userId}`);
+  fastify.log.info(`📋 Plan: ${plan}`);
+  fastify.log.info(`📧 Session ID: ${session.id}`);
+  fastify.log.info(`💰 Amount: ${session.amount_total}`);
 
-    if (!userId || !plan) {
-      fastify.log.error('❌ Missing metadata in checkout session:', { userId, plan });
+  if (!userId || !plan) {
+    fastify.log.error('❌ Metadata manquante:', { userId, plan, allMetadata: session.metadata });
+    return;
+  }
+
+  try {
+    await prisma.$connect();
+    
+    // ✅ VÉRIFIER D'ABORD SI LE SHOP EXISTE
+    const existingShop = await prisma.shop.findUnique({
+      where: { id: userId }
+    });
+
+    if (!existingShop) {
+      fastify.log.error(`❌ Shop introuvable pour userId: ${userId}`);
       return;
     }
 
-    try {
-      await prisma.$connect();
-      await prisma.shop.update({
-        where: { id: userId },
-        data: {
-          subscription_plan: plan, // ✅ Pas de mapping - direct
-          is_active: true,
-          updatedAt: new Date()
-        }
-      });
-      await prisma.$disconnect();
+    fastify.log.info(`🏪 Shop trouvé: ${existingShop.name} (${existingShop.email})`);
+    fastify.log.info(`📋 Plan actuel: ${existingShop.subscription_plan} -> ${plan}`);
 
-      fastify.log.info(`✅ Subscription activated for user ${userId}, plan: ${plan}`);
-    } catch (error) {
-      fastify.log.error('❌ Error updating shop subscription:', error);
-    }
+    // ✅ MISE À JOUR DU SHOP
+    const updatedShop = await prisma.shop.update({
+      where: { id: userId },
+      data: {
+        subscription_plan: plan as string,
+        is_active: true,
+        updatedAt: new Date()
+      }
+    });
+
+    fastify.log.info(`✅ Shop mis à jour avec succès:`);
+    fastify.log.info(`   - Plan: ${updatedShop.subscription_plan}`);
+    fastify.log.info(`   - Actif: ${updatedShop.is_active}`);
+    fastify.log.info(`   - Mis à jour: ${updatedShop.updatedAt}`);
+
+  } catch (error: any) {
+    fastify.log.error('❌ ERREUR mise à jour shop:', error);
+    fastify.log.error('   - Message:', error.message);
+    fastify.log.error('   - Code:', error.code);
+  } finally {
+    await prisma.$disconnect();
   }
+}
 
   async function handleSubscriptionCanceled(subscription: Stripe.Subscription, fastify: FastifyInstance) {
     const userId = subscription.metadata?.userId;
