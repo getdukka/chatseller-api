@@ -1,4 +1,4 @@
-// src/routes/public.ts - INTÉGRATION GPT-4O-MINI COMPLÈTE - CORRIGÉE
+// src/routes/public.ts - INTÉGRATION GPT-4O-MINI COMPLÈTE - CORRIGÉE TYPESCRIPT
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
@@ -25,8 +25,26 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// ✅ INTERFACES TYPESCRIPT CORRIGÉES
 interface ShopParamsType {
   shopId: string;
+}
+
+interface ChatRequestBody {
+  shopId: string;
+  message: string;
+  conversationId?: string;
+  productInfo?: any;
+  visitorId?: string;
+}
+
+// ✅ INTERFACE pour le résultat OpenAI - CORRIGÉE
+interface OpenAIResult {
+  success: boolean;
+  message?: string;
+  tokensUsed?: number;
+  error?: string;
+  fallbackMessage?: string;
 }
 
 // ✅ HELPER : Vérifier si une string est un UUID valide
@@ -158,16 +176,7 @@ RÉPONSES:
   return basePrompt;
 }
 
-// ✅ INTERFACE pour le résultat OpenAI
-interface OpenAIResult {
-  success: boolean;
-  message?: string;
-  tokensUsed?: number;
-  error?: string;
-  fallbackMessage?: string;
-}
-
-// ✅ NOUVELLE FONCTION : Appeler GPT-4o-mini - CORRIGÉE
+// ✅ NOUVELLE FONCTION : Appeler GPT-4o-mini - CORRIGÉE TYPESCRIPT
 async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, productInfo?: any): Promise<OpenAIResult> {
   try {
     const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, productInfo);
@@ -335,16 +344,8 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Endpoint de chat public AVEC GPT-4O-MINI - CORRIGÉ
-  fastify.post<{ 
-    Body: { 
-      shopId: string; 
-      message: string; 
-      conversationId?: string;
-      productInfo?: any;
-      visitorId?: string;
-    } 
-  }>('/chat', async (request, reply) => {
+  // ✅ ROUTE : Endpoint de chat public AVEC GPT-4O-MINI - CORRIGÉ TYPESCRIPT
+  fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
     
     try {
