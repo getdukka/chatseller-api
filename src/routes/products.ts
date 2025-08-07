@@ -1,17 +1,6 @@
-// src/routes/products.ts - ENDPOINT PRODUITS CORRIGÉ AVEC TYPAGE FASTIFY
+// src/routes/products.ts - ENDPOINT PRODUITS CORRIGÉ SANS CONFLIT DE TYPES
 import { FastifyPluginAsync } from 'fastify'
 import { createClient } from '@supabase/supabase-js'
-
-// ✅ EXTENSION DES TYPES FASTIFY
-declare module 'fastify' {
-  interface FastifyRequest {
-    user?: {
-      id: string
-      email?: string
-      [key: string]: any
-    }
-  }
-}
 
 // ✅ TYPES
 interface Product {
