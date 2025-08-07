@@ -1,4 +1,4 @@
-// src/routes/analytics.ts - ROUTES ANALYTICS TYPESCRIPT
+// src/routes/analytics.ts - ROUTES ANALYTICS CORRIGÉES
 import { FastifyPluginAsync } from 'fastify'
 import { PrismaClient } from '@prisma/client'
 
@@ -27,7 +27,7 @@ interface UsageStats {
   shopId: string
 }
 
-// ✅ PLUGIN ANALYTICS
+// ✅ PLUGIN ANALYTICS CORRIGÉ
 const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
   
   // ✅ GET /api/v1/analytics - Dashboard Analytics
@@ -39,7 +39,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const shopId = request.user.shopId
 
-      // ✅ STATS BASIQUES - 30 derniers jours
+      // ✅ STATS BASIQUES - 30 derniers jours (NOMS COLONNES CORRIGÉS)
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - 30)
 
@@ -47,13 +47,13 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         prisma.conversation.count({
           where: {
             shopId,
-            createdAt: { gte: startDate }
+            startedAt: { gte: startDate } // ✅ CORRIGÉ: startedAt au lieu de createdAt
           }
         }),
         prisma.order.count({
           where: {
             shopId,
-            createdAt: { gte: startDate }
+            createdAt: { gte: startDate } // ✅ OK: createdAt existe pour orders
           }
         }),
         prisma.agent.count({
@@ -64,8 +64,8 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       ])
 
-      // ✅ REVENUS TOTAUX
-      const { _sum: revenueSum } = await prisma.order.aggregate({
+      // ✅ REVENUS TOTAUX (CONVERSION DECIMAL CORRIGÉE)
+      const revenueResult = await prisma.order.aggregate({
         _sum: { totalAmount: true },
         where: {
           shopId,
@@ -74,14 +74,17 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         }
       })
 
-      const totalRevenue = revenueSum.totalAmount || 0
+      // ✅ CONVERSION DECIMAL → NUMBER
+      const totalRevenue = revenueResult._sum.totalAmount ? 
+        parseFloat(revenueResult._sum.totalAmount.toString()) : 0
+      
       const conversionRate = conversationsCount > 0 ? (ordersCount / conversationsCount) * 100 : 0
-      const averageOrderValue = ordersCount > 0 ? parseFloat(totalRevenue.toString()) / ordersCount : 0
+      const averageOrderValue = ordersCount > 0 ? totalRevenue / ordersCount : 0
 
       const analytics = {
         totalConversations: conversationsCount,
         totalOrders: ordersCount,
-        totalRevenue: parseFloat(totalRevenue.toString()),
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
         conversionRate: Math.round(conversionRate * 100) / 100,
         averageOrderValue: Math.round(averageOrderValue * 100) / 100,
         activeAgents: agentsCount,
@@ -103,7 +106,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/usage-stats - Usage Stats (pour billing)
+  // ✅ GET /api/v1/analytics/usage-stats - Usage Stats (CORRIGÉ)
   fastify.get<{
     Querystring: AnalyticsQuery
   }>('/usage-stats', async (request, reply) => {
@@ -131,11 +134,11 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         totalConversations,
         activeConversations
       ] = await Promise.all([
-        // Conversations ce mois
+        // Conversations ce mois (CORRIGÉ: startedAt)
         prisma.conversation.count({
           where: {
             shopId,
-            createdAt: { gte: startOfMonth }
+            startedAt: { gte: startOfMonth }
           }
         }),
         // Documents total
@@ -166,18 +169,21 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         prisma.conversation.count({
           where: { shopId }
         }),
-        // Conversations actives (dernières 24h)
+        // Conversations actives (dernières 24h) - CORRIGÉ: lastActivity
         prisma.conversation.count({
           where: {
             shopId,
-            updatedAt: {
+            lastActivity: {
               gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
             }
           }
         })
       ])
 
-      const totalRevenue = revenueResult._sum.totalAmount || 0
+      // ✅ CONVERSION DECIMAL → NUMBER CORRIGÉE
+      const totalRevenue = revenueResult._sum.totalAmount ? 
+        parseFloat(revenueResult._sum.totalAmount.toString()) : 0
+        
       const conversionRate = conversationsCount > 0 ? (ordersCount / conversationsCount) * 100 : 0
 
       const usageStats: UsageStats = {
@@ -185,8 +191,8 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         documents: documentsCount,
         agents: agentsCount,
         orders: ordersCount,
-        totalRevenue: parseFloat(totalRevenue.toString()),
-        conversionRate: parseFloat(conversionRate.toFixed(2)),
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        conversionRate: Math.round(conversionRate * 100) / 100,
         totalConversations,
         activeConversations,
         averageResponseTime: 2.3, // Mock pour l'instant
@@ -219,7 +225,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/detailed - Stats détaillées avec historique
+  // ✅ GET /api/v1/analytics/detailed - Stats détaillées (CORRIGÉ)
   fastify.get<{
     Querystring: AnalyticsQuery
   }>('/detailed', async (request, reply) => {
@@ -252,17 +258,17 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
           startDate.setDate(startDate.getDate() - 30)
       }
 
-      // ✅ RÉCUPÉRER L'HISTORIQUE DES CONVERSATIONS PAR JOUR
+      // ✅ RÉCUPÉRER L'HISTORIQUE DES CONVERSATIONS PAR JOUR (CORRIGÉ)
       const conversations = await prisma.conversation.findMany({
         where: {
           shopId,
-          createdAt: { gte: startDate }
+          startedAt: { gte: startDate } // ✅ CORRIGÉ: startedAt
         },
         select: {
-          createdAt: true,
+          startedAt: true, // ✅ CORRIGÉ: startedAt
           id: true
         },
-        orderBy: { createdAt: 'asc' }
+        orderBy: { startedAt: 'asc' } // ✅ CORRIGÉ: startedAt
       })
 
       // ✅ RÉCUPÉRER L'HISTORIQUE DES COMMANDES PAR JOUR  
@@ -279,9 +285,9 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         orderBy: { createdAt: 'asc' }
       })
 
-      // ✅ GROUPER PAR JOUR
+      // ✅ GROUPER PAR JOUR (CORRIGÉ)
       const conversationsByDay = conversations.reduce((acc: any, conv) => {
-        const date = conv.createdAt.toISOString().split('T')[0]
+        const date = conv.startedAt.toISOString().split('T')[0] // ✅ CORRIGÉ: startedAt
         acc[date] = (acc[date] || 0) + 1
         return acc
       }, {})
@@ -292,9 +298,15 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
           acc[date] = { count: 0, revenue: 0 }
         }
         acc[date].count += 1
-        acc[date].revenue += parseFloat(order.totalAmount?.toString() || '0')
+        // ✅ CONVERSION DECIMAL CORRIGÉE
+        acc[date].revenue += order.totalAmount ? parseFloat(order.totalAmount.toString()) : 0
         return acc
       }, {})
+
+      // ✅ CALCUL REVENUS TOTAL CORRIGÉ
+      const totalRevenue = orders.reduce((sum, order) => {
+        return sum + (order.totalAmount ? parseFloat(order.totalAmount.toString()) : 0)
+      }, 0)
 
       const detailedStats = {
         period,
@@ -315,10 +327,8 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         performance: {
           totalConversations: conversations.length,
           totalOrders: orders.length,
-          totalRevenue: orders.reduce((sum, order) => sum + parseFloat(order.totalAmount?.toString() || '0'), 0),
-          averageOrderValue: orders.length > 0 
-            ? orders.reduce((sum, order) => sum + parseFloat(order.totalAmount?.toString() || '0'), 0) / orders.length
-            : 0
+          totalRevenue: Math.round(totalRevenue * 100) / 100,
+          averageOrderValue: orders.length > 0 ? Math.round((totalRevenue / orders.length) * 100) / 100 : 0
         }
       }
 
@@ -343,7 +353,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/dashboard - Analytics pour la page dashboard
+  // ✅ GET /api/v1/analytics/dashboard - Analytics dashboard (CORRIGÉ)
   fastify.get('/dashboard', async (request, reply) => {
     try {
       if (!request.user) {
@@ -358,10 +368,10 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const previous30Days = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
 
       const [currentStats, previousStats] = await Promise.all([
-        // Stats période actuelle
+        // Stats période actuelle (CORRIGÉ)
         Promise.all([
           prisma.conversation.count({
-            where: { shopId, createdAt: { gte: last30Days } }
+            where: { shopId, startedAt: { gte: last30Days } } // ✅ CORRIGÉ: startedAt
           }),
           prisma.order.count({
             where: { shopId, createdAt: { gte: last30Days } }
@@ -375,12 +385,12 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
             _sum: { totalAmount: true }
           })
         ]),
-        // Stats période précédente
+        // Stats période précédente (CORRIGÉ)
         Promise.all([
           prisma.conversation.count({
             where: { 
               shopId, 
-              createdAt: { 
+              startedAt: { // ✅ CORRIGÉ: startedAt
                 gte: previous30Days,
                 lt: last30Days
               }
@@ -412,8 +422,11 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const [currentConv, currentOrders, currentRevenue] = currentStats
       const [previousConv, previousOrders, previousRevenue] = previousStats
 
-      const currentRevenueAmount = currentRevenue._sum.totalAmount || 0
-      const previousRevenueAmount = previousRevenue._sum.totalAmount || 0
+      // ✅ CONVERSION DECIMAL → NUMBER CORRIGÉE
+      const currentRevenueAmount = currentRevenue._sum.totalAmount ? 
+        parseFloat(currentRevenue._sum.totalAmount.toString()) : 0
+      const previousRevenueAmount = previousRevenue._sum.totalAmount ? 
+        parseFloat(previousRevenue._sum.totalAmount.toString()) : 0
 
       // ✅ CALCULER LES VARIATIONS
       const conversionGrowth = previousConv > 0 
@@ -425,7 +438,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         : currentOrders > 0 ? 100 : 0
 
       const revenueGrowth = previousRevenueAmount > 0
-        ? ((parseFloat(currentRevenueAmount.toString()) - parseFloat(previousRevenueAmount.toString())) / parseFloat(previousRevenueAmount.toString())) * 100
+        ? ((currentRevenueAmount - previousRevenueAmount) / previousRevenueAmount) * 100
         : currentRevenueAmount > 0 ? 100 : 0
 
       const dashboardStats = {
@@ -440,8 +453,8 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
           growth: Math.round(ordersGrowth * 100) / 100
         },
         revenue: {
-          current: parseFloat(currentRevenueAmount.toString()),
-          previous: parseFloat(previousRevenueAmount.toString()),
+          current: Math.round(currentRevenueAmount * 100) / 100,
+          previous: Math.round(previousRevenueAmount * 100) / 100,
           growth: Math.round(revenueGrowth * 100) / 100
         },
         conversionRate: {
