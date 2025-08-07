@@ -1,4 +1,4 @@
-// src/routes/billing.ts - VERSION STRIPE CORRIGÉE ✅
+// src/routes/billing.ts
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Stripe from 'stripe';

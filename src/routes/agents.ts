@@ -1,4 +1,4 @@
-// src/routes/agents.ts - ENDPOINTS API AGENTS COMPLETS
+// src/routes/agents.ts
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, AgentType, AgentPersonality, Prisma } from '@prisma/client';

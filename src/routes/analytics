@@ -1,4 +1,4 @@
-// routes/analytics/usage-stats.js - ROUTE API POUR LES STATISTIQUES D'UTILISATION
+// routes/analytics/usage-stats.js 
 
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()

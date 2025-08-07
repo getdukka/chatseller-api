@@ -1,4 +1,4 @@
-// src/routes/knowledge-base.ts - VERSION PRODUCTION CORRIGÉE SANS DÉPENDANCES COMPLEXES
+// src/routes/knowledge-base.ts
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, Prisma } from '@prisma/client';

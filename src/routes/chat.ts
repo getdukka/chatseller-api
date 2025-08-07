@@ -1,4 +1,4 @@
-// src/routes/chat.ts - ROUTES API CHAT AVEC SUPPORT CLAUDE AI - VERSION CORRIGÉE
+// src/routes/chat.ts 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
