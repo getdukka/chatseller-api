@@ -26,7 +26,6 @@ enum AgentPersonality {
   @@map("agent_personality")
 }
 
-// ✅ ENUM POUR LES SOURCES DE PRODUITS
 enum ProductSource {
   manual
   shopify
@@ -279,6 +278,7 @@ model AgentKnowledgeBase {
   @@map("agent_knowledge_base")
 }
 
+// ✅ KNOWLEDGE BASE AVEC LES NOUVEAUX CHAMPS
 model KnowledgeBase {
   id          String   @id @default(uuid()) @db.Uuid
   shopId      String   @map("shop_id") @db.Uuid
@@ -286,12 +286,14 @@ model KnowledgeBase {
   content     String
   contentType String   @default("manual") @map("content_type") @db.VarChar(50)
   sourceFile  String?  @map("source_file") @db.VarChar(255)
+  sourceUrl   String?  @map("source_url") @db.VarChar(500)  
+  metadata    Json?    @default("{}")                        
   tags        String[]
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  // ✅ RELATIONS MISES À JOUR
+  // Relations
   shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
   agents      AgentKnowledgeBase[]
 
@@ -326,7 +328,7 @@ model Conversation {
   orders              Order[]
 
   @@index([shopId], map: "idx_conversations_shop_id")
-  @@index([agentId], map: "idx_conversations_agent_id")  // ✅ NOUVEAU
+  @@index([agentId], map: "idx_conversations_agent_id")  
   @@index([status], map: "idx_conversations_status")
   @@index([visitorId], map: "idx_conversations_visitor")
   @@map("conversations")
@@ -473,36 +475,4 @@ model Invoice {
   shop                  Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@map("invoices")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model user_settings {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id               String?   @db.Uuid
-  agent_name            String?   @default("Agent IA") @db.VarChar(100)
-  welcome_message       String?   @default("Bonjour ! Comment puis-je vous aider ?")
-  agent_tone            String?   @default("friendly") @db.VarChar(50)
-  custom_instructions   String?
-  widget_config         Json?     @default("{}")
-  notification_settings Json?     @default("{}")
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model users {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email          String    @unique @db.VarChar(255)
-  password_hash  String    @db.VarChar(255)
-  first_name     String    @db.VarChar(100)
-  last_name      String    @db.VarChar(100)
-  company        String    @db.VarChar(255)
-  role           String?   @default("user") @db.VarChar(50)
-  email_verified Boolean?  @default(false)
-  newsletter     Boolean?  @default(false)
-  created_at     DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
-  last_login_at  DateTime? @db.Timestamptz(6)
-
-  @@index([email], map: "idx_users_email")
 }

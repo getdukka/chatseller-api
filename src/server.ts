@@ -1,4 +1,4 @@
-// src/server.ts - SERVEUR BACKEND AVEC ROUTES - VERSION CORRIGÉE COMPLÈTE (ERREURS TYPESCRIPT FIXÉES)
+// src/server.ts - SERVEUR BACKEND AVEC ROUTES - VERSION CORRIGÉE (SANS DUPLICATIONS)
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -13,23 +13,11 @@ import agentsRoutes from './routes/agents';
 import productsRoutes from './routes/products';
 import publicRoutes from './routes/public'; 
 import ordersRoutes from './routes/orders';
+import shopsRoutes from './routes/shops';
+import knowledgeBaseRoutes from './routes/knowledge-base';
 
 // Load environment variables
 dotenv.config();
-
-// ✅ TYPES POUR TYPESCRIPT - CORRIGÉS POUR CORRESPONDRE À PRISMA
-interface AnalyticsEvent {
-  id: string;
-  shopId: string;
-  conversationId: string | null;
-  eventType: string;
-  eventData: any;
-  pageUrl: string | null;
-  referrer: string | null;
-  userAgent: string | null;
-  ipAddress: string | null;
-  createdAt: Date;
-}
 
 // ✅ VALIDATION DES VARIABLES D'ENVIRONNEMENT REQUISES
 const requiredEnvVars = {
@@ -230,7 +218,7 @@ async function registerRoutes() {
     
   }, { prefix: '/api/v1/public' });
 
-  // ✅ ROUTES BILLING (DIAGNOSTIC DÉJÀ DANS BILLING.TS)
+  // ✅ ROUTES BILLING
   fastify.register(billingRoutes, { prefix: '/api/v1/billing' });
 
   // ✅ ROUTES D'AUTHENTIFICATION PUBLIQUES (sans authentification)
@@ -304,54 +292,13 @@ async function registerRoutes() {
     // ✅ ROUTES COMMANDES AUTHENTIFIÉES
     fastify.register(ordersRoutes, { prefix: '/orders' });
 
-    // ✅ ROUTES KNOWLEDGE BASE
-    fastify.register(async function (fastify) {
-      // Liste des documents
-      fastify.get('/documents', async (request, reply) => {
-        try {
-          if (!request.user) {
-            return reply.status(401).send({ error: 'User not authenticated' });
-          }
+    // ✅ ROUTES SHOPS
+    fastify.register(shopsRoutes, { prefix: '/shops' });
 
-          // Mock data pour l'instant - remplacer par vraie logique plus tard
-          return {
-            success: true,
-            documents: [
-              {
-                id: 'kb_1',
-                title: 'Document de Test',
-                type: 'text',
-                status: 'active',
-                createdAt: new Date().toISOString(),
-                content: 'Contenu de test en cas d\'erreur API. Ce document permet de tester les fonctionnalités même sans connexion au serveur.'
-              }
-            ],
-            total: 1
-          };
-        } catch (error) {
-          fastify.log.error('❌ Erreur knowledge base:', error);
-          return reply.status(500).send({ error: 'Internal server error' });
-        }
-      });
-
-      // Upload de document
-      fastify.post('/upload', async (request, reply) => {
-        return { success: true, message: 'Upload functionality coming soon' };
-      });
-
-      // Supprimer un document
-      fastify.delete('/:documentId', async (request, reply) => {
-        return { success: true, message: 'Delete functionality coming soon' };
-      });
-
-      // Toggle fallback
-      fastify.patch('/fallback_kb_1/toggle', async (request, reply) => {
-        return { success: true, message: 'Toggle functionality working' };
-      });
-
-    }, { prefix: '/knowledge-base' });
+    // ✅ ROUTES KNOWLEDGE BASE - UNE SEULE DÉCLARATION
+    fastify.register(knowledgeBaseRoutes, { prefix: '/knowledge-base' });
     
-    // ✅ ROUTES ANALYTICS AVEC USAGE STATS - TYPESCRIPT CORRIGÉ
+    // ✅ ROUTES ANALYTICS AVEC USAGE STATS
     fastify.register(async function (fastify) {
       
       // Usage stats pour la page billing
@@ -373,76 +320,6 @@ async function registerRoutes() {
         } catch (error) {
           fastify.log.error('❌ Erreur usage stats:', error);
           return reply.status(500).send({ error: 'Internal server error' });
-        }
-      });
-
-      // Analytics d'un shop - ✅ TYPES CORRIGÉS
-      fastify.get('/:shopId', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        const { startDate, endDate, eventType } = request.query as any;
-
-        try {
-          // ✅ GESTION SÉCURISÉE DES ANALYTICS AVEC TYPES CORRECTS
-          let events: AnalyticsEvent[] = [];
-          try {
-            const whereClause: any = { shopId };
-            
-            if (startDate && endDate) {
-              whereClause.createdAt = {
-                gte: new Date(startDate),
-                lte: new Date(endDate)
-              };
-            }
-            
-            if (eventType) {
-              whereClause.eventType = eventType;
-            }
-
-            // Tentative de requête avec gestion d'erreur si table n'existe pas
-            events = await prisma.analyticsEvent.findMany({
-              where: whereClause,
-              orderBy: { createdAt: 'desc' },
-              take: 100
-            }).catch((error: any) => {
-              fastify.log.warn('⚠️ Table analyticsEvent non trouvée:', error.message);
-              return [];
-            });
-
-          } catch (dbError) {
-            fastify.log.warn('⚠️ Erreur base de données analytics:', dbError);
-            events = [];
-          }
-
-          // ✅ SUMMARY AVEC TYPES CORRECTS
-          const summary = {
-            totalEvents: events.length,
-            uniqueVisitors: events.length > 0 ? new Set(events.map(e => e.ipAddress || 'unknown')).size : 0,
-            eventsByType: events.reduce((acc, event) => {
-              acc[event.eventType] = (acc[event.eventType] || 0) + 1;
-              return acc;
-            }, {} as Record<string, number>),
-            topPages: events.length > 0 ? Object.entries(
-              events.reduce((acc, event) => {
-                if (event.pageUrl) {
-                  acc[event.pageUrl] = (acc[event.pageUrl] || 0) + 1;
-                }
-                return acc;
-              }, {} as Record<string, number>)
-            ).sort(([, a], [, b]) => (b as number) - (a as number)).slice(0, 10) : []
-          };
-
-          return {
-            success: true,
-            events: events.slice(0, 50),
-            summary
-          };
-
-        } catch (error) {
-          fastify.log.error('❌ Erreur analytics:', error);
-          return reply.status(500).send({ 
-            success: false,
-            error: 'Internal server error' 
-          });
         }
       });
 
@@ -486,59 +363,6 @@ async function registerRoutes() {
       });
 
     }, { prefix: '/analytics' });
-
-    // ✅ ROUTES SHOPS
-    fastify.register(async function (fastify) {
-      // Get shop configuration
-      fastify.get('/:shopId', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        
-        try {
-          const shop = await prisma.shop.findUnique({
-            where: { id: shopId },
-            select: {
-              id: true,
-              name: true,
-              widget_config: true,
-              agent_config: true,
-              is_active: true,
-              subscription_plan: true
-            }
-          });
-
-          if (!shop) {
-            return reply.status(404).send({ error: 'Shop not found' });
-          }
-
-          return shop;
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Internal server error' });
-        }
-      });
-
-      // Update shop configuration
-      fastify.put('/:shopId', async (request, reply) => {
-        const { shopId } = request.params as { shopId: string };
-        const { widgetConfig, agentConfig } = request.body as any;
-
-        try {
-          const shop = await prisma.shop.update({
-            where: { id: shopId },
-            data: {
-              widget_config: widgetConfig,
-              agent_config: agentConfig,
-              updatedAt: new Date()
-            }
-          });
-
-          return shop;
-        } catch (error) {
-          fastify.log.error(error);
-          return reply.status(500).send({ error: 'Internal server error' });
-        }
-      });
-    }, { prefix: '/shops' });
 
     // ✅ ROUTES CONVERSATIONS
     fastify.register(async function (fastify) {
@@ -678,7 +502,7 @@ async function registerRoutes() {
         'GET /api/v1/billing/subscription-status',
         'POST /api/v1/auth/login',
         'POST /api/v1/auth/signup',
-        'GET /api/v1/knowledge-base/documents',
+        'GET /api/v1/knowledge-base/*',
         'GET /api/v1/analytics/usage-stats',
         'GET /api/v1/public/*'
       ]
