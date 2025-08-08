@@ -1,8 +1,10 @@
-// src/routes/knowledge-base.ts
+// src/routes/knowledge-base.ts - VERSION COMPLÈTE AVEC UPLOAD ET WEBSITE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
+import * as path from 'path';
+import * as crypto from 'crypto';
 
 // ✅ CONFIGURATION DES LIMITES PAR PLAN
 const PLAN_LIMITS = {
@@ -10,6 +12,17 @@ const PLAN_LIMITS = {
   starter: { documents: 10, fileSize: 10 * 1024 * 1024 }, // 10MB
   pro: { documents: 50, fileSize: 25 * 1024 * 1024 }, // 25MB
   enterprise: { documents: -1, fileSize: 100 * 1024 * 1024 } // Illimité, 100MB par fichier
+};
+
+// ✅ TYPES DE FICHIERS AUTORISÉS
+const ALLOWED_MIME_TYPES = {
+  'application/pdf': '.pdf',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'text/csv': '.csv',
+  'text/plain': '.txt'
 };
 
 // ✅ INTERFACES COMPLÈTES
@@ -50,6 +63,8 @@ interface SafeMetadata {
   extractionMethod?: string;
   createdManually?: boolean;
   lastModified?: string;
+  storagePath?: string;
+  storageUrl?: string;
   [key: string]: any;
 }
 
@@ -90,6 +105,12 @@ const createKnowledgeBaseSchema = z.object({
 const extractUrlSchema = z.object({
   url: z.string().url('URL invalide'),
   title: z.string().optional()
+});
+
+const websiteProcessSchema = z.object({
+  url: z.string().url('URL invalide'),
+  title: z.string().optional(),
+  tags: z.array(z.string()).default([])
 });
 
 const updateKnowledgeBaseSchema = createKnowledgeBaseSchema.partial();
@@ -192,41 +213,174 @@ async function checkPlanLimits(shopId: string, plan: string): Promise<{
   };
 }
 
-// ✅ HELPER: Extraire contenu d'une URL (VERSION SIMPLIFIÉE)
+// ✅ HELPER: Extraire contenu d'une URL (VERSION AMÉLIORÉE)
 async function extractContentFromUrl(url: string): Promise<{ title: string; content: string; metadata: SafeMetadata }> {
   try {
-    // Version simplifiée - en production, utiliser un service robuste
-    const response = await fetch(url);
+    console.log('🌐 Extraction de contenu depuis:', url);
+    
+    // ✅ TIMEOUT VIA ABORTCONTROLLER
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'ChatSeller-Bot/1.0'
+      },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     
     const html = await response.text();
     
-    // Extraction basique du titre
+    // ✅ EXTRACTION AMÉLIORÉE DU TITRE
+    let title = 'Document extrait';
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title = titleMatch ? titleMatch[1].trim() : 'Document extrait';
+    if (titleMatch) {
+      title = titleMatch[1].trim().substring(0, 200);
+    }
     
-    // Extraction basique du contenu
-    const contentMatch = html
-      .replace(/<script[^>]*>.*?<\/script>/gi, '')
-      .replace(/<style[^>]*>.*?<\/style>/gi, '')
+    // ✅ EXTRACTION AMÉLIORÉE DU CONTENU
+    let cleanContent = html
+      // Supprimer scripts et styles
+      .replace(/<script[^>]*>.*?<\/script>/gis, '')
+      .replace(/<style[^>]*>.*?<\/style>/gis, '')
+      .replace(/<noscript[^>]*>.*?<\/noscript>/gis, '')
+      // Supprimer commentaires HTML
+      .replace(/<!--.*?-->/gis, '')
+      // Supprimer balises HTML mais garder le contenu
       .replace(/<[^>]*>/g, ' ')
+      // Nettoyer les espaces
       .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 5000);
+      .trim();
+    
+    // Limiter la taille du contenu
+    const maxContentLength = 10000;
+    if (cleanContent.length > maxContentLength) {
+      cleanContent = cleanContent.substring(0, maxContentLength) + '... [contenu tronqué]';
+    }
+    
+    const wordCount = cleanContent.split(' ').filter(word => word.length > 0).length;
     
     const metadata: SafeMetadata = {
       extractedAt: new Date().toISOString(),
       sourceUrl: url,
-      wordCount: contentMatch.split(' ').length,
-      extractionMethod: 'basic'
+      wordCount: wordCount,
+      extractionMethod: 'html-parse',
+      contentLength: cleanContent.length
     };
     
-    return { title, content: contentMatch, metadata };
+    console.log(`✅ Contenu extrait: ${wordCount} mots, ${cleanContent.length} caractères`);
+    
+    return { title, content: cleanContent, metadata };
     
   } catch (error: any) {
+    console.error('❌ Erreur extraction URL:', error);
     throw new Error(`Erreur lors de l'extraction du contenu: ${error.message}`);
+  }
+}
+
+// ✅ HELPER: Upload fichier vers Supabase Storage
+async function uploadFileToSupabase(fileData: any, shopId: string): Promise<{ path: string; url: string }> {
+  try {
+    // ✅ GÉNÉRER UN NOM UNIQUE POUR LE FICHIER
+    const timestamp = Date.now();
+    const randomSuffix = crypto.randomBytes(8).toString('hex');
+    const fileExtension = path.extname(fileData.filename || 'file.txt');
+    const fileName = `${shopId}_${timestamp}_${randomSuffix}${fileExtension}`;
+    const filePath = `knowledge-base/${shopId}/${fileName}`;
+    
+    console.log('📤 Upload vers Supabase Storage:', filePath);
+    
+    // ✅ LIRE LE CONTENU DU FICHIER
+    const fileBuffer = await fileData.toBuffer();
+    
+    // ✅ UPLOAD VERS SUPABASE STORAGE
+    const { data, error } = await supabase.storage
+      .from('chatseller-files')
+      .upload(filePath, fileBuffer, {
+        contentType: fileData.mimetype,
+        cacheControl: '3600',
+        upsert: false
+      });
+    
+    if (error) {
+      console.error('❌ Erreur upload Supabase:', error);
+      throw new Error(`Erreur upload: ${error.message}`);
+    }
+    
+    // ✅ OBTENIR L'URL PUBLIQUE
+    const { data: { publicUrl } } = supabase.storage
+      .from('chatseller-files')
+      .getPublicUrl(filePath);
+    
+    console.log('✅ Fichier uploadé avec succès:', publicUrl);
+    
+    return {
+      path: filePath,
+      url: publicUrl
+    };
+    
+  } catch (error: any) {
+    console.error('❌ Erreur upload fichier:', error);
+    throw new Error(`Erreur lors de l'upload: ${error.message}`);
+  }
+}
+
+// ✅ HELPER: Extraire texte d'un fichier (VERSION SIMPLIFIÉE)
+async function extractTextFromFile(fileData: any, mimeType: string): Promise<{ content: string; wordCount: number }> {
+  try {
+    console.log('📄 Extraction de texte du fichier:', fileData.filename, mimeType);
+    
+    // Pour cette version, on fait une extraction basique
+    // En production, utiliser des librairies spécialisées comme pdf-parse, mammoth, etc.
+    
+    let content = '';
+    
+    if (mimeType === 'text/plain' || mimeType === 'text/csv') {
+      // ✅ FICHIERS TEXTE SIMPLES
+      const buffer = await fileData.toBuffer();
+      content = buffer.toString('utf-8');
+      
+    } else if (mimeType === 'application/pdf') {
+      // ✅ PLACEHOLDER POUR PDF - En production, utiliser pdf-parse
+      content = `[Fichier PDF : ${fileData.filename}]\n\nContenu du fichier PDF non analysé dans cette version de démonstration. Le fichier a été sauvegardé et sera traité ultérieurement.`;
+      
+    } else if (mimeType.includes('word') || mimeType.includes('document')) {
+      // ✅ PLACEHOLDER POUR WORD - En production, utiliser mammoth
+      content = `[Document Word : ${fileData.filename}]\n\nContenu du document Word non analysé dans cette version de démonstration. Le fichier a été sauvegardé et sera traité ultérieurement.`;
+      
+    } else if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) {
+      // ✅ PLACEHOLDER POUR EXCEL - En production, utiliser xlsx
+      content = `[Fichier Excel : ${fileData.filename}]\n\nContenu du fichier Excel non analysé dans cette version de démonstration. Le fichier a été sauvegardé et sera traité ultérieurement.`;
+      
+    } else {
+      content = `[Fichier : ${fileData.filename}]\n\nType de fichier non supporté pour l'extraction automatique. Le fichier a été sauvegardé.`;
+    }
+    
+    // Limiter la taille du contenu
+    const maxLength = 15000;
+    if (content.length > maxLength) {
+      content = content.substring(0, maxLength) + '... [contenu tronqué]';
+    }
+    
+    const wordCount = content.split(' ').filter(word => word.length > 0).length;
+    
+    console.log(`✅ Texte extrait: ${wordCount} mots, ${content.length} caractères`);
+    
+    return { content, wordCount };
+    
+  } catch (error: any) {
+    console.error('❌ Erreur extraction texte:', error);
+    // En cas d'erreur, retourner un contenu par défaut
+    return {
+      content: `[Fichier : ${fileData.filename || 'fichier'}]\n\nErreur lors de l'extraction du contenu. Le fichier a été sauvegardé mais son contenu n'a pas pu être analysé automatiquement.`,
+      wordCount: 20
+    };
   }
 }
 
@@ -249,6 +403,9 @@ function mergeSafeMetadata(existing: Prisma.JsonValue, updates: SafeMetadata): P
 }
 
 export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
+  
+  // ✅ ENREGISTRER LE PLUGIN MULTIPART POUR LES UPLOADS (VERSION COMPATIBLE FASTIFY V4)
+  await fastify.register(require('fastify-multipart'));
   
   // ✅ ROUTE : LISTE DES DOCUMENTS AVEC RESTRICTIONS PLAN
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -339,6 +496,248 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ 
         success: false,
         error: 'Erreur lors de la récupération des documents',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
+  // ✅ NOUVELLE ROUTE : UPLOAD DE FICHIER VERS SUPABASE STORAGE
+  fastify.post('/upload', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      fastify.log.info('📤 Upload de fichier KB');
+      
+      const user = await verifySupabaseAuth(request);
+      const { shop, canAccess, reason } = await getShopWithPlanCheck(user);
+
+      if (!canAccess) {
+        return reply.status(403).send({ 
+          success: false, 
+          error: reason,
+          requiresUpgrade: true
+        });
+      }
+
+      // ✅ VÉRIFIER LES LIMITES DU PLAN
+      const planLimits = await checkPlanLimits(shop.id, shop.subscription_plan);
+      if (!planLimits.canAdd) {
+        return reply.status(403).send({
+          success: false,
+          error: planLimits.reason,
+          requiresUpgrade: true,
+          planLimits: {
+            current: planLimits.currentCount,
+            max: planLimits.limit
+          }
+        });
+      }
+
+      // ✅ RÉCUPÉRER LE FICHIER UPLOADÉ (SYNTAXE FASTIFY-MULTIPART V5)
+      const data = await (request as any).file();
+      
+      if (!data) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Aucun fichier fourni'
+        });
+      }
+
+      // ✅ VÉRIFIER LE TYPE DE FICHIER
+      if (!ALLOWED_MIME_TYPES[data.mimetype as keyof typeof ALLOWED_MIME_TYPES]) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Type de fichier non autorisé',
+          allowedTypes: Object.keys(ALLOWED_MIME_TYPES)
+        });
+      }
+
+      // ✅ LIRE LE CONTENU DU FICHIER EN BUFFER
+      const fileBuffer = await data.toBuffer();
+      const fileSize = fileBuffer.length;
+
+      // ✅ VÉRIFIER LA TAILLE DU FICHIER
+      const planConfig = PLAN_LIMITS[shop.subscription_plan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
+      
+      if (fileSize > planConfig.fileSize) {
+        return reply.status(400).send({
+          success: false,
+          error: `Fichier trop volumineux. Taille max pour votre plan: ${Math.round(planConfig.fileSize / 1024 / 1024)}MB`
+        });
+      }
+
+      // ✅ UPLOAD VERS SUPABASE STORAGE
+      const { path: storagePath, url: storageUrl } = await uploadFileToSupabase(data, shop.id);
+
+      // ✅ EXTRAIRE LE CONTENU DU FICHIER
+      const { content, wordCount } = await extractTextFromFile(data, data.mimetype);
+
+      // ✅ CRÉER LE DOCUMENT EN BASE
+      await prisma.$connect();
+
+      const metadata = createSafeMetadata({
+        originalFileName: data.filename,
+        fileSize: fileSize,
+        mimeType: data.mimetype,
+        wordCount: wordCount,
+        storagePath: storagePath,
+        storageUrl: storageUrl,
+        processedAt: new Date().toISOString()
+      });
+
+      const newDocument = await prisma.knowledgeBase.create({
+        data: {
+          shopId: shop.id,
+          title: data.filename || 'Fichier uploadé',
+          content: content,
+          contentType: 'file',
+          sourceFile: data.filename,
+          sourceUrl: storageUrl,
+          tags: ['fichier', 'upload'],
+          isActive: true,
+          metadata: metadata
+        },
+        include: {
+          agents: {
+            include: {
+              agent: {
+                select: {
+                  id: true,
+                  name: true,
+                  isActive: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      await prisma.$disconnect();
+
+      fastify.log.info(`✅ Fichier KB uploadé avec succès: ${newDocument.id}`);
+
+      return {
+        success: true,
+        data: {
+          id: newDocument.id,
+          title: newDocument.title,
+          content: newDocument.content,
+          contentType: newDocument.contentType,
+          sourceFile: newDocument.sourceFile,
+          sourceUrl: newDocument.sourceUrl,
+          tags: newDocument.tags,
+          isActive: newDocument.isActive,
+          metadata: newDocument.metadata,
+          linkedAgents: [],
+          createdAt: newDocument.createdAt.toISOString(),
+          updatedAt: newDocument.updatedAt.toISOString()
+        }
+      };
+
+    } catch (error: any) {
+      fastify.log.error('❌ Upload file error:', error);
+      
+      if (error.message === 'Token manquant' || error.message === 'Token invalide') {
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
+      }
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de l\'upload du fichier',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
+  // ✅ NOUVELLE ROUTE : TRAITEMENT D'UN SITE WEB
+  fastify.post('/website', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      fastify.log.info('🌐 Traitement d\'un site web');
+      
+      const user = await verifySupabaseAuth(request);
+      const { shop, canAccess, reason } = await getShopWithPlanCheck(user);
+      const body = websiteProcessSchema.parse(request.body);
+
+      if (!canAccess) {
+        return reply.status(403).send({ 
+          success: false, 
+          error: reason,
+          requiresUpgrade: true
+        });
+      }
+
+      // ✅ VÉRIFIER LES LIMITES DU PLAN
+      const planLimits = await checkPlanLimits(shop.id, shop.subscription_plan);
+      if (!planLimits.canAdd) {
+        return reply.status(403).send({
+          success: false,
+          error: planLimits.reason,
+          requiresUpgrade: true
+        });
+      }
+
+      // ✅ EXTRAIRE LE CONTENU DU SITE WEB
+      const { title, content, metadata } = await extractContentFromUrl(body.url);
+
+      await prisma.$connect();
+
+      const newDocument = await prisma.knowledgeBase.create({
+        data: {
+          shopId: shop.id,
+          title: body.title || title,
+          content: content,
+          contentType: 'website',
+          sourceFile: null,
+          sourceUrl: body.url,
+          tags: body.tags.length > 0 ? body.tags : ['website', 'automatique'],
+          isActive: true,
+          metadata: createSafeMetadata(metadata)
+        }
+      });
+
+      await prisma.$disconnect();
+
+      fastify.log.info(`✅ Site web traité et document créé: ${newDocument.id}`);
+
+      return {
+        success: true,
+        data: {
+          id: newDocument.id,
+          title: newDocument.title,
+          content: newDocument.content,
+          contentType: newDocument.contentType,
+          sourceFile: newDocument.sourceFile,
+          sourceUrl: newDocument.sourceUrl,
+          tags: newDocument.tags,
+          isActive: newDocument.isActive,
+          metadata: newDocument.metadata,
+          createdAt: newDocument.createdAt.toISOString(),
+          updatedAt: newDocument.updatedAt.toISOString()
+        }
+      };
+
+    } catch (error: any) {
+      fastify.log.error('❌ Process website error:', error);
+      
+      if (error.name === 'ZodError') {
+        return reply.status(400).send({
+          success: false,
+          error: 'URL invalide',
+          details: error.errors
+        });
+      }
+      
+      if (error.message === 'Token manquant' || error.message === 'Token invalide') {
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
+      }
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors du traitement du site web',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
@@ -458,7 +857,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : EXTRAIRE CONTENU D'UNE URL
+  // ✅ ROUTE : EXTRAIRE CONTENU D'UNE URL (GARDE POUR COMPATIBILITÉ)
   fastify.post('/extract-url', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = await verifySupabaseAuth(request);
@@ -732,6 +1131,26 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           success: false, 
           error: 'Document non trouvé' 
         });
+      }
+
+      // ✅ SUPPRIMER LE FICHIER DE SUPABASE STORAGE SI C'EST UN FICHIER
+      if (existingDocument.contentType === 'file' && existingDocument.metadata) {
+        try {
+          const metadata = existingDocument.metadata as SafeMetadata;
+          if (metadata.storagePath) {
+            const { error: deleteError } = await supabase.storage
+              .from('chatseller-files')
+              .remove([metadata.storagePath]);
+              
+            if (deleteError) {
+              fastify.log.warn('⚠️ Erreur suppression fichier storage:', deleteError);
+            } else {
+              fastify.log.info('✅ Fichier supprimé du storage:', metadata.storagePath);
+            }
+          }
+        } catch (storageError) {
+          fastify.log.warn('⚠️ Erreur lors de la suppression du fichier storage:', storageError);
+        }
       }
 
       await prisma.knowledgeBase.delete({
