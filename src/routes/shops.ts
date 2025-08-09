@@ -1,10 +1,10 @@
-// src/routes/shops.ts - ROUTES API SHOPS AVEC CONFIG PUBLIC ET GESTION WIDGET - VERSION CORRIGÉE
+// src/routes/shops.ts - VERSION CORRIGÉE SANS DUPLICATION
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ AJOUT: Interfaces pour les configurations JSON
+// ✅ INTERFACES INCHANGÉES
 interface WidgetConfig {
   theme?: string;
   language?: string;
@@ -33,7 +33,6 @@ interface AgentConfig {
   maxTokens?: number;
 }
 
-// ✅ AJOUT: Types pour les agents avec leurs relations
 interface AgentWithKnowledgeBase {
   id: string;
   name: string;
@@ -57,7 +56,6 @@ interface AgentWithKnowledgeBase {
   }>;
 }
 
-// ✅ AJOUT: Types pour les shops avec relations
 interface ShopWithAgents {
   id: string;
   name: string;
@@ -71,7 +69,7 @@ interface ShopWithAgents {
   agents: AgentWithKnowledgeBase[];
 }
 
-// ✅ CRÉER UNE INSTANCE PRISMA
+// ✅ PRISMA ET SUPABASE INCHANGÉS
 let prisma: PrismaClient;
 
 try {
@@ -93,11 +91,15 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// ✅ SCHÉMAS DE VALIDATION
+// ✅ SCHÉMAS DE VALIDATION ÉTENDUS
 const updateShopSchema = z.object({
   name: z.string().optional(),
-  domain: z.string().url().optional(),
-  subscription_plan: z.enum(['free', 'professional', 'enterprise']).optional(),
+  domain: z.string().nullable().optional(),
+  industry: z.string().optional(),
+  platform: z.string().optional(),
+  subscription_plan: z.enum(['free', 'starter', 'pro', 'professional', 'enterprise']).optional(),
+  onboarding_completed: z.boolean().optional(),
+  onboarding_completed_at: z.string().datetime().nullable().optional(),
   widget_config: z.object({
     primaryColor: z.string().optional(),
     buttonText: z.string().optional(),
@@ -123,7 +125,44 @@ const updateShopSchema = z.object({
   }).optional()
 });
 
-// ✅ HELPER: Vérifier l'auth Supabase
+// ✅ NOUVEAU : SCHÉMA POUR CRÉATION DE SHOP
+const createShopSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  email: z.string().email(),
+  domain: z.string().nullable().optional(),
+  industry: z.string().optional(),
+  platform: z.string().optional(),
+  subscription_plan: z.enum(['free', 'starter', 'pro', 'professional', 'enterprise']).default('free'),
+  is_active: z.boolean().default(true),
+  onboarding_completed: z.boolean().default(false),
+  onboarding_completed_at: z.string().datetime().nullable().optional(),
+  widget_config: z.object({
+    theme: z.string().optional(),
+    language: z.string().optional(),
+    position: z.string().optional(),
+    buttonText: z.string().optional(),
+    primaryColor: z.string().optional(),
+    borderRadius: z.string().optional(),
+    animation: z.string().optional(),
+    autoOpen: z.boolean().optional(),
+    showAvatar: z.boolean().optional(),
+    soundEnabled: z.boolean().optional(),
+    mobileOptimized: z.boolean().optional(),
+    offlineMessage: z.string().optional(),
+    isActive: z.boolean().optional()
+  }).optional(),
+  agent_config: z.object({
+    name: z.string().optional(),
+    avatar: z.string().optional(),
+    welcomeMessage: z.string().optional(),
+    fallbackMessage: z.string().optional(),
+    upsellEnabled: z.boolean().optional(),
+    collectPaymentMethod: z.boolean().optional()
+  }).optional()
+});
+
+// ✅ HELPER FUNCTIONS INCHANGÉES
 async function verifySupabaseAuth(request: FastifyRequest) {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -140,7 +179,6 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   return user;
 }
 
-// ✅ HELPER: Récupérer ou créer un shop
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   try {
     await prisma.$connect();
@@ -200,7 +238,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   }
 }
 
-// ✅ INTERFACES POUR LES TYPES DE REQUÊTE
+// ✅ TYPES POUR LES REQUÊTES INCHANGÉS
 interface ShopParamsType {
   id: string;
 }
@@ -211,7 +249,7 @@ interface ShopQueryType {
 
 export default async function shopsRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE : CONFIGURATION PUBLIQUE SHOP + AGENT (GET /api/public/shops/:id/config) - CORRIGÉE
+  // ✅ ROUTE PUBLIQUE CONFIG - INCHANGÉE
   fastify.get<{ Params: ShopParamsType; Querystring: ShopQueryType }>('/public/:id/config', async (request, reply) => {
     try {
       const { id: shopId } = request.params;
@@ -221,7 +259,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       await prisma.$connect();
 
-      // ✅ RÉCUPÉRER LE SHOP - CORRIGÉ
       const shop = await prisma.shop.findUnique({
         where: { id: shopId },
         include: {
@@ -231,7 +268,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
               knowledgeBase: {
                 include: {
                   knowledgeBase: {
-                    // ✅ CORRECTION: Enlever where dans select
                     select: {
                       id: true,
                       title: true,
@@ -242,7 +278,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
                     }
                   }
                 },
-                // ✅ CORRECTION: Mettre where au bon niveau
                 where: {
                   knowledgeBase: {
                     isActive: true
@@ -262,7 +297,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ SÉLECTIONNER L'AGENT (spécifique ou premier actif) - CORRIGÉ
       let selectedAgent: AgentWithKnowledgeBase | null = null;
       if (agentId) {
         selectedAgent = shop.agents.find((agent: AgentWithKnowledgeBase) => agent.id === agentId) || null;
@@ -277,7 +311,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CONSTRUIRE LA CONFIGURATION PUBLIQUE - CORRIGÉ
       const widgetConfig = shop.widget_config as WidgetConfig | null;
       const agentConfig = selectedAgent.config as AgentConfig | null;
 
@@ -341,7 +374,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : STATUT SHOP POUR POLLING (GET /api/public/shops/:id/status) - CORRIGÉE
+  // ✅ ROUTE PUBLIQUE STATUS - INCHANGÉE
   fastify.get<{ Params: ShopParamsType }>('/public/:id/status', async (request, reply) => {
     try {
       const { id: shopId } = request.params;
@@ -372,7 +405,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CALCULER LA DERNIÈRE MISE À JOUR - CORRIGÉ
       let lastUpdated: Date;
       if (shop.updatedAt && shop.agents.length > 0) {
         lastUpdated = new Date(Math.max(
@@ -384,7 +416,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       } else if (shop.updatedAt) {
         lastUpdated = shop.updatedAt;
       } else {
-        // ✅ Fallback sur createdAt si updatedAt est null
         lastUpdated = shop.createdAt || new Date();
       }
 
@@ -420,7 +451,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       await prisma.$connect();
 
-      // ✅ VÉRIFIER QUE LE SHOP APPARTIENT À L'UTILISATEUR
       const shop = await prisma.shop.findFirst({
         where: { 
           id,
@@ -481,18 +511,140 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : METTRE À JOUR UN SHOP (PUT /api/v1/shops/:id) - CORRIGÉE
+  // ✅ ROUTE : CRÉER UN SHOP (POST /api/v1/shops)
+  fastify.post('/', async (request, reply) => {
+    try {
+      const user = await verifySupabaseAuth(request);
+      
+      // ✅ SI AUCUN BODY OU BODY VIDE, UTILISER getOrCreateShop
+      if (!request.body || Object.keys(request.body as object).length === 0) {
+        fastify.log.info(`🏗️ Création automatique shop pour: ${user.email}`);
+        const shop = await getOrCreateShop(user, fastify);
+        return {
+          success: true,
+          data: shop,
+          message: 'Shop créé automatiquement avec succès'
+        };
+      }
+      
+      // ✅ VALIDATION AVEC NOUVEAU SCHÉMA
+      const body = createShopSchema.parse(request.body);
+      
+      fastify.log.info(`🏗️ Création shop custom pour: ${user.email}`);
+
+      await prisma.$connect();
+
+      // ✅ VÉRIFIER SI LE SHOP EXISTE DÉJÀ
+      const existingShop = await prisma.shop.findFirst({
+        where: {
+          OR: [
+            { id: body.id },
+            { id: user.id },
+            { email: body.email },
+            { email: user.email }
+          ]
+        }
+      });
+
+      if (existingShop) {
+        fastify.log.info(`✅ Shop existant retourné: ${existingShop.id}`);
+        
+        await prisma.$disconnect();
+        
+        return {
+          success: true,
+          data: existingShop,
+          message: 'Shop existant récupéré'
+        };
+      }
+
+      // ✅ CRÉER NOUVEAU SHOP AVEC TOUTES LES COLONNES
+      const newShop = await prisma.shop.create({
+        data: {
+          id: body.id,
+          name: body.name,
+          email: body.email,
+          domain: body.domain,
+          industry: body.industry, 
+          platform: body.platform,
+          subscription_plan: body.subscription_plan,
+          is_active: body.is_active,
+          onboarding_completed: body.onboarding_completed, 
+          onboarding_completed_at: body.onboarding_completed_at ? new Date(body.onboarding_completed_at) : null, 
+          widget_config: body.widget_config || {
+            theme: "modern",
+            language: "fr", 
+            position: "bottom-right",
+            buttonText: "Parler à un conseiller",
+            primaryColor: "#3B82F6",
+            borderRadius: "md",
+            animation: "fade",
+            autoOpen: false,
+            showAvatar: true,
+            soundEnabled: true,
+            mobileOptimized: true,
+            isActive: true
+          },
+          agent_config: body.agent_config || {
+            name: "Assistant ChatSeller",
+            avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
+            upsellEnabled: false,
+            welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
+            fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
+            collectPaymentMethod: true
+          }
+        }
+      });
+
+      await prisma.$disconnect();
+
+      fastify.log.info(`✅ Shop créé avec succès: ${newShop.id}`);
+
+      return {
+        success: true,
+        data: newShop,
+        message: 'Shop créé avec succès'
+      };
+
+    } catch (error: any) {
+      fastify.log.error('❌ Erreur création shop:', error);
+      
+      if (error.name === 'ZodError') {
+        return reply.status(400).send({
+          success: false,
+          error: 'Données invalides',
+          details: error.errors
+        });
+      }
+      
+      if (error.message === 'Token manquant' || error.message === 'Token invalide') {
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
+      }
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la création du shop',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
+  // ✅ ROUTE : METTRE À JOUR UN SHOP (PUT /api/v1/shops/:id) - VERSION UNIQUE
   fastify.put<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
+      
+      // ✅ VALIDATION AVEC NOUVEAU SCHÉMA
       const body = updateShopSchema.parse(request.body);
 
       fastify.log.info(`📝 Mise à jour shop: ${id}`);
 
       await prisma.$connect();
 
-      // ✅ VÉRIFIER QUE LE SHOP APPARTIENT À L'UTILISATEUR
       const existingShop = await prisma.shop.findFirst({
         where: { 
           id,
@@ -510,16 +662,22 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ PRÉPARER LES DONNÉES DE MISE À JOUR
+      // ✅ PRÉPARER LES DONNÉES DE MISE À JOUR AVEC NOUVEAUX CHAMPS
       const updateData: any = {
         updatedAt: new Date()
       };
 
-      if (body.name) updateData.name = body.name;
-      if (body.domain) updateData.domain = body.domain;
-      if (body.subscription_plan) updateData.subscription_plan = body.subscription_plan;
+      if (body.name !== undefined) updateData.name = body.name;
+      if (body.domain !== undefined) updateData.domain = body.domain;
+      if (body.industry !== undefined) updateData.industry = body.industry;
+      if (body.platform !== undefined) updateData.platform = body.platform;
+      if (body.subscription_plan !== undefined) updateData.subscription_plan = body.subscription_plan;
+      if (body.onboarding_completed !== undefined) updateData.onboarding_completed = body.onboarding_completed;
+      if (body.onboarding_completed_at !== undefined) {
+        updateData.onboarding_completed_at = body.onboarding_completed_at ? new Date(body.onboarding_completed_at) : null;
+      }
 
-      // ✅ FUSION INTELLIGENTE DES CONFIGURATIONS - CORRIGÉE
+      // ✅ FUSION INTELLIGENTE DES CONFIGURATIONS
       if (body.widget_config) {
         const existingWidgetConfig = existingShop.widget_config as WidgetConfig | null;
         updateData.widget_config = {
@@ -536,7 +694,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         } as Prisma.InputJsonObject;
       }
 
-      // ✅ METTRE À JOUR LE SHOP
       const updatedShop = await prisma.shop.update({
         where: { id },
         data: updateData,
@@ -596,42 +753,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UN SHOP (POST /api/v1/shops)
-  fastify.post('/', async (request, reply) => {
-    try {
-      const user = await verifySupabaseAuth(request);
-      
-      fastify.log.info(`🏗️ Création d'un nouveau shop pour: ${user.email}`);
-
-      const shop = await getOrCreateShop(user, fastify);
-
-      fastify.log.info(`✅ Shop créé/récupéré avec succès: ${shop.id}`);
-
-      return {
-        success: true,
-        data: shop,
-        message: 'Shop créé avec succès'
-      };
-
-    } catch (error: any) {
-      fastify.log.error('❌ Erreur création shop:', error);
-      
-      if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ 
-          success: false, 
-          error: error.message 
-        });
-      }
-      
-      return reply.status(500).send({
-        success: false,
-        error: 'Erreur lors de la création du shop',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  });
-
-  // ✅ ROUTE : OBTENIR LES STATISTIQUES D'UN SHOP (GET /api/v1/shops/:id/stats) - CORRIGÉE
+  // ✅ ROUTE : OBTENIR LES STATISTIQUES D'UN SHOP (GET /api/v1/shops/:id/stats)
   fastify.get<{ Params: ShopParamsType }>('/:id/stats', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -639,7 +761,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       await prisma.$connect();
 
-      // ✅ VÉRIFIER QUE LE SHOP APPARTIENT À L'UTILISATEUR
       const shop = await prisma.shop.findFirst({
         where: { 
           id,
@@ -657,7 +778,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CALCULER LES STATISTIQUES
       const [totalConversations, totalMessages, totalAgents, activeAgents] = await Promise.all([
         prisma.conversation.count({
           where: { shopId: id }
@@ -678,58 +798,31 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         })
       ]);
 
-      // ✅ STATISTIQUES DES DERNIERS 30 JOURS - VERSION FLEXIBLE
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      // Version robuste : essayer différents noms de champs ou pas de filtre date
       let conversationsLast30Days = 0;
       let messagesLast30Days = 0;
 
       try {
-        // Essayer avec createdAt d'abord
-        const [conversationsLast30Days, messagesLast30Days] = await Promise.all([
+        [conversationsLast30Days, messagesLast30Days] = await Promise.all([
           prisma.conversation.count({
             where: { 
               shopId: id,
-              // ✅ UTILISER startedAt au lieu de createdAt pour Conversation
               startedAt: { gte: thirtyDaysAgo }
             }
           }),
           prisma.message.count({
             where: { 
               conversation: { shopId: id },
-              // ✅ Message utilise bien createdAt
               createdAt: { gte: thirtyDaysAgo }
             }
           })
         ]);
       } catch (error) {
-        console.warn('Champ createdAt non trouvé, essai avec created_at...');
-        try {
-          // Essayer avec created_at (snake_case)
-          [conversationsLast30Days, messagesLast30Days] = await Promise.all([
-            prisma.conversation.count({
-              where: { 
-                shopId: id,
-                // @ts-ignore - Ignorer erreur TS si le champ existe vraiment
-                created_at: { gte: thirtyDaysAgo }
-              }
-            }),
-            prisma.message.count({
-              where: { 
-                conversation: { shopId: id },
-                // @ts-ignore - Ignorer erreur TS si le champ existe vraiment
-                created_at: { gte: thirtyDaysAgo }
-              }
-            })
-          ]);
-        } catch (error2) {
-          console.warn('Aucun champ de date trouvé, utilisation des totaux...');
-          // Fallback : utiliser les totaux (pas de filtre de 30 jours)
-          conversationsLast30Days = totalConversations;
-          messagesLast30Days = totalMessages;
-        }
+        console.warn('Champ de date non trouvé, utilisation des totaux...');
+        conversationsLast30Days = totalConversations;
+        messagesLast30Days = totalMessages;
       }
 
       await prisma.$disconnect();
@@ -748,7 +841,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         averageMessagesPerConversation: totalConversations > 0 
           ? Math.round(totalMessages / totalConversations * 100) / 100 
           : 0,
-        conversionRate: 0 // À calculer selon les métriques business
+        conversionRate: 0
       };
 
       return {
