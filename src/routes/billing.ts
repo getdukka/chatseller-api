@@ -1,11 +1,10 @@
-// src/routes/billing.ts
+// src/routes/billing.ts 
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import { PrismaClient } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ CRÉER UNE INSTANCE PRISMA AVEC GESTION D'ERREURS
 let prisma: PrismaClient;
 
 try {
@@ -32,20 +31,20 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-06-30.basil'
 });
 
-// ✅ CONFIGURATION DES PLANS CORRIGÉE - MAPPING SIMPLIFIÉ
+// ✅ CONFIGURATION DES PLANS CORRIGÉE
 const STRIPE_PLANS = {
   free: {
     name: 'Free Trial',
     price: 0,
     stripePriceId: null,
-    features: ['7 jours gratuit', '1 agent IA', 'Conversations illimitées'],
-    limits: { conversations: -1, agents: 1, documents: 50 }
+    features: ['7 jours gratuit', '1 Vendeur IA', '1000 messages/mois'],
+    limits: { conversations: 1000, agents: 1, documents: 50 }
   },
   starter: {
     name: 'Starter', 
     price: 1400, // 14€ en centimes
-    stripePriceId: process.env.STRIPE_PRICE_ID_STARTER!, // ✅ Nouvelle variable env
-    features: ['1 Vendeur IA spécialisé', '1000 conversations/mois', '50 documents max'],
+    stripePriceId: process.env.STRIPE_PRICE_ID_STARTER!,
+    features: ['1 Vendeur IA spécialisé', '1000 messages/mois', '50 documents max'],
     limits: { conversations: 1000, agents: 1, documents: 50 }
   },
   pro: {
@@ -57,14 +56,12 @@ const STRIPE_PLANS = {
   }
 };
 
-// ✅ SCHÉMAS DE VALIDATION CORRIGÉS
 const createSubscriptionSchema = z.object({
-  plan: z.enum(['starter', 'pro']), // ✅ Plus de mapping complexe
+  plan: z.enum(['starter', 'pro']),
   successUrl: z.string().url(),
   cancelUrl: z.string().url()
 });
 
-// ✅ HELPER: Vérifier l'auth Supabase
 async function verifySupabaseAuth(request: any) {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -81,17 +78,12 @@ async function verifySupabaseAuth(request: any) {
   return user;
 }
 
-// ✅ NOUVELLE FONCTION: Créer ou récupérer un shop AVEC DIAGNOSTIC
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   fastify.log.info(`🔍 Recherche du shop pour l'utilisateur: ${user.id} (${user.email})`);
   
   try {
-    // ✅ TEST CONNEXION DE BASE
     await prisma.$connect();
-    fastify.log.info('✅ Connexion Prisma OK');
     
-    // 1. Chercher d'abord par ID utilisateur
-    fastify.log.info('🔍 Recherche shop par ID...');
     let shop = await prisma.shop.findUnique({
       where: { id: user.id }
     });
@@ -101,8 +93,6 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
       return shop;
     }
 
-    // 2. Chercher par email
-    fastify.log.info('🔍 Recherche shop par email...');
     shop = await prisma.shop.findUnique({
       where: { email: user.email }
     });
@@ -112,7 +102,6 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
       return shop;
     }
 
-    // 3. Créer automatiquement le shop si il n'existe pas
     fastify.log.info(`🏗️ Création automatique du shop pour: ${user.email}`);
     
     const newShop = await prisma.shop.create({
@@ -147,7 +136,6 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
     fastify.log.error('❌ ERREUR GLOBALE dans getOrCreateShop:', error);
     throw new Error(`Impossible de créer ou récupérer le shop: ${error.message}`);
   } finally {
-    // ✅ FERMER LA CONNEXION PROPREMENT
     try {
       await prisma.$disconnect();
     } catch (disconnectError) {
@@ -158,23 +146,21 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
 
 export default async function billingRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE DE DIAGNOSTIC AMÉLIORÉE
+  // ✅ ROUTE DE DIAGNOSTIC COMPLÈTE
   fastify.get('/diagnostic', async (request, reply) => {
     try {
-      fastify.log.info('🧪 === DIAGNOSTIC COMPLET ===');
+      fastify.log.info('🧪 === DIAGNOSTIC BILLING COMPLET ===');
       
-      // Test variables d'environnement
       const envCheck = {
         DATABASE_URL: !!process.env.DATABASE_URL,
         SUPABASE_URL: !!process.env.SUPABASE_URL,
         SUPABASE_SERVICE_KEY: !!process.env.SUPABASE_SERVICE_KEY,
         STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith('sk_'),
-        STRIPE_PRICE_ID_STARTER: !!process.env.STRIPE_PRICE_ID_STARTER && process.env.STRIPE_PRICE_ID_STARTER.startsWith('price_'), // ✅ NOUVEAU
+        STRIPE_PRICE_ID_STARTER: !!process.env.STRIPE_PRICE_ID_STARTER && process.env.STRIPE_PRICE_ID_STARTER.startsWith('price_'),
         STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO && process.env.STRIPE_PRICE_ID_PRO.startsWith('price_'),
         STRIPE_WEBHOOK_SECRET: !!process.env.STRIPE_WEBHOOK_SECRET
       };
       
-      // Test connexion Prisma
       let prismaTest: { success: boolean; error: string | null } = { success: false, error: null };
       try {
         await prisma.$connect();
@@ -185,7 +171,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         prismaTest.error = error.message;
       }
       
-      // Test Supabase
       let supabaseTest: { success: boolean; error: string | null } = { success: false, error: null };
       try {
         const { data, error } = await supabase.auth.admin.listUsers();
@@ -195,13 +180,10 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         supabaseTest.error = error.message;
       }
       
-      // ✅ TEST STRIPE AMÉLIORÉ AVEC LES DEUX PRICE IDS
       let stripeTest: { success: boolean; error: string | null; priceValidation?: any } = { success: false, error: null };
       try {
-        // Test 1: Connexion de base
         const prices = await stripe.prices.list({ limit: 1 });
         
-        // Test 2: Validation des Price IDs spécifiques
         const priceValidations: any = {};
         
         if (process.env.STRIPE_PRICE_ID_STARTER) {
@@ -259,7 +241,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
   
-  // ✅ ROUTE : OBTENIR LES PLANS DISPONIBLES (PUBLIC)
   fastify.get('/plans', async (request, reply) => {
     try {
       const plans = Object.entries(STRIPE_PLANS).map(([key, plan]) => ({
@@ -278,26 +259,21 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UNE SESSION DE CHECKOUT STRIPE (VERSION COMPLÈTEMENT CORRIGÉE)
   fastify.post('/create-checkout-session', async (request, reply) => {
     try {
       fastify.log.info('🚀 === DÉBUT CRÉATION SESSION CHECKOUT ===');
       
-      // Validation des données d'entrée
       const body = createSubscriptionSchema.parse(request.body);
       fastify.log.info(`📝 Données validées: plan=${body.plan}`);
       
-      // Authentification utilisateur
       const user = await verifySupabaseAuth(request);
       fastify.log.info(`👤 Utilisateur authentifié: ${user.id} (${user.email})`);
       
-      // Récupération/création du shop
       const shop = await getOrCreateShop(user, fastify);
       if (!shop) {
         throw new Error('Impossible de créer ou récupérer le shop');
       }
 
-      // ✅ VÉRIFICATION SI DÉJÀ ABONNÉ - MAPPING SIMPLIFIÉ
       if (shop.subscription_plan === body.plan || 
           (shop.subscription_plan === 'pro' && body.plan === 'starter')) {
         fastify.log.warn(`⚠️ Utilisateur déjà abonné: ${shop.subscription_plan}`);
@@ -307,7 +283,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Récupération du plan
       const plan = STRIPE_PLANS[body.plan as keyof typeof STRIPE_PLANS];
       if (!plan.stripePriceId) {
         fastify.log.error(`❌ Plan non disponible: ${body.plan}`);
@@ -316,7 +291,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`📋 Plan sélectionné: ${plan.name} - Prix: ${plan.price/100}€ - Price ID: ${plan.stripePriceId}`);
 
-      // ✅ VALIDATION PRÉALABLE DU PRICE ID
       try {
         fastify.log.info(`🧪 Validation Price ID: ${plan.stripePriceId}`);
         const priceValidation = await stripe.prices.retrieve(plan.stripePriceId);
@@ -335,7 +309,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CRÉATION/RÉCUPÉRATION CUSTOMER STRIPE
       let customer;
       try {
         fastify.log.info(`🔍 Recherche customer Stripe: ${shop.email}`);
@@ -365,7 +338,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         throw new Error(`Erreur customer: ${customerError.message}`);
       }
 
-      // ✅ CRÉATION SESSION CHECKOUT AVEC GESTION D'ERREURS DÉTAILLÉE
       try {
         fastify.log.info('🏗️ Création session checkout...');
 
@@ -383,13 +355,13 @@ export default async function billingRoutes(fastify: FastifyInstance) {
           cancel_url: body.cancelUrl,
           metadata: {
             userId: shop.id,
-            plan: body.plan, // ✅ Garder le plan frontend
+            plan: body.plan,
             shopEmail: shop.email
           },
           subscription_data: {
             metadata: {
               userId: shop.id,
-              plan: body.plan, // ✅ Garder le plan frontend
+              plan: body.plan,
               shopEmail: shop.email
             }
           }
@@ -406,13 +378,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         };
 
       } catch (sessionError: any) {
-        fastify.log.error('❌ ERREUR CRÉATION SESSION:');
-        fastify.log.error(`📋 Type: ${sessionError.constructor.name}`);
-        fastify.log.error(`📋 Message: ${sessionError.message}`);
-        fastify.log.error(`📋 Code: ${sessionError.code}`);
-        fastify.log.error(`📋 Type Stripe: ${sessionError.type}`);
+        fastify.log.error('❌ ERREUR CRÉATION SESSION:', sessionError);
         
-        // ✅ GESTION SPÉCIFIQUE DES ERREURS STRIPE
         if (sessionError.type === 'StripeInvalidRequestError') {
           return reply.status(400).send({
             error: 'Requête Stripe invalide',
@@ -427,7 +394,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     } catch (error: any) {
       fastify.log.error('❌ ERREUR GLOBALE CHECKOUT:', error);
       
-      // ✅ GESTION GRANULAIRE DES ERREURS
       if (error.name === 'ZodError') {
         return reply.status(400).send({
           error: 'Données de requête invalides',
@@ -447,7 +413,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR LE STATUT DE L'ABONNEMENT
   fastify.get('/subscription-status', async (request, reply) => {
     try {
       fastify.log.info('🔍 Récupération statut abonnement');
@@ -459,7 +424,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Shop non trouvé' });
       }
 
-      // ✅ CALCUL JOURS D'ESSAI POUR PLAN FREE
       let trialDaysLeft = 0;
       if (shop.subscription_plan === 'free') {
         const creationDate = new Date(shop.createdAt || Date.now());
@@ -499,53 +463,85 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ WEBHOOK STRIPE (INCHANGÉ MAIS AVEC MEILLEURS LOGS)
+  // ✅ WEBHOOK STRIPE CRITIQUE - VERSION ULTRA ROBUSTE
   fastify.post('/webhook', async (request, reply) => {
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    
     try {
+      fastify.log.info(`📧 [${requestId}] === WEBHOOK STRIPE REÇU ===`);
+      
       const signature = request.headers['stripe-signature'] as string;
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+      if (!signature) {
+        fastify.log.error(`❌ [${requestId}] Signature Stripe manquante`);
+        return reply.status(400).send({ error: 'Signature manquante' });
+      }
+
+      if (!webhookSecret) {
+        fastify.log.error(`❌ [${requestId}] STRIPE_WEBHOOK_SECRET non configuré`);
+        return reply.status(500).send({ error: 'Webhook secret non configuré' });
+      }
 
       let event: Stripe.Event;
 
       try {
+        fastify.log.info(`🔐 [${requestId}] Vérification signature webhook...`);
         event = stripe.webhooks.constructEvent(
           request.body as string,
           signature,
           webhookSecret
         );
+        fastify.log.info(`✅ [${requestId}] Signature validée: ${event.type} - ID: ${event.id}`);
       } catch (err: any) {
-        fastify.log.error('❌ Webhook signature verification failed:', err.message);
-        return reply.status(400).send({ error: 'Webhook signature verification failed' });
+        fastify.log.error(`❌ [${requestId}] Erreur signature:`, err.message);
+        return reply.status(400).send({ error: 'Signature invalide' });
       }
 
-      fastify.log.info(`📧 Stripe webhook reçu: ${event.type} - ID: ${event.id}`);
-
+      // ✅ TRAITEMENT SELON LE TYPE D'ÉVÉNEMENT
       switch (event.type) {
         case 'checkout.session.completed':
-          await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, fastify);
+          fastify.log.info(`💳 [${requestId}] Traitement checkout.session.completed`);
+          await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, fastify, requestId);
           break;
 
         case 'customer.subscription.deleted':
-          await handleSubscriptionCanceled(event.data.object as Stripe.Subscription, fastify);
+          fastify.log.info(`🚫 [${requestId}] Traitement customer.subscription.deleted`);
+          await handleSubscriptionCanceled(event.data.object as Stripe.Subscription, fastify, requestId);
           break;
 
         case 'customer.subscription.updated':
-          await handleSubscriptionUpdated(event.data.object as Stripe.Subscription, fastify);
+          fastify.log.info(`🔄 [${requestId}] Traitement customer.subscription.updated`);
+          await handleSubscriptionUpdated(event.data.object as Stripe.Subscription, fastify, requestId);
+          break;
+
+        case 'invoice.payment_succeeded':
+          fastify.log.info(`💰 [${requestId}] Traitement invoice.payment_succeeded`);
+          await handleInvoicePaymentSucceeded(event.data.object as Stripe.Invoice, fastify, requestId);
+          break;
+
+        case 'invoice.payment_failed':
+          fastify.log.info(`💸 [${requestId}] Traitement invoice.payment_failed`);
+          await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice, fastify, requestId);
           break;
 
         default:
-          fastify.log.info(`ℹ️ Unhandled event type: ${event.type}`);
+          fastify.log.info(`ℹ️ [${requestId}] Événement non traité: ${event.type}`);
       }
 
-      return { received: true };
+      fastify.log.info(`✅ [${requestId}] Webhook traité avec succès`);
+      return { received: true, eventId: event.id, requestId };
 
-    } catch (error) {
-      fastify.log.error('❌ Webhook processing error:', error);
-      return reply.status(500).send({ error: 'Erreur lors du traitement du webhook' });
+    } catch (error: any) {
+      fastify.log.error(`❌ [${requestId}] ERREUR GLOBALE webhook:`, error);
+      return reply.status(500).send({ 
+        error: 'Erreur serveur',
+        requestId,
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 
-  // ✅ ROUTE DE DIAGNOSTIC POUR DEBUG
   fastify.get('/debug-shop/:userId', async (request, reply) => {
     try {
       const { userId } = request.params as { userId: string }
@@ -576,69 +572,163 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // ✅ FONCTIONS WEBHOOK AVEC MEILLEURS LOGS
-  async function handleCheckoutCompleted(session: Stripe.Checkout.Session, fastify: FastifyInstance) {
-  const userId = session.metadata?.userId;
-  const plan = session.metadata?.plan;
+  // ✅ FONCTIONS WEBHOOK ULTRA ROBUSTES
+  
+  async function handleCheckoutCompleted(session: Stripe.Checkout.Session, fastify: FastifyInstance, requestId: string) {
+    const userId = session.metadata?.userId;
+    const plan = session.metadata?.plan;
+    const shopEmail = session.metadata?.shopEmail;
 
-  fastify.log.info(`🎉 === CHECKOUT COMPLETED ===`);
-  fastify.log.info(`👤 UserId: ${userId}`);
-  fastify.log.info(`📋 Plan: ${plan}`);
-  fastify.log.info(`📧 Session ID: ${session.id}`);
-  fastify.log.info(`💰 Amount: ${session.amount_total}`);
+    fastify.log.info(`🎉 [${requestId}] === CHECKOUT COMPLETED ===`);
+    fastify.log.info(`👤 [${requestId}] UserId: ${userId}`);
+    fastify.log.info(`📋 [${requestId}] Plan: ${plan}`);
+    fastify.log.info(`📧 [${requestId}] Email: ${shopEmail}`);
+    fastify.log.info(`💰 [${requestId}] Montant: ${session.amount_total}`);
+    fastify.log.info(`📧 [${requestId}] Session ID: ${session.id}`);
 
-  if (!userId || !plan) {
-    fastify.log.error('❌ Metadata manquante:', { userId, plan, allMetadata: session.metadata });
-    return;
-  }
-
-  try {
-    await prisma.$connect();
-    
-    // ✅ VÉRIFIER D'ABORD SI LE SHOP EXISTE
-    const existingShop = await prisma.shop.findUnique({
-      where: { id: userId }
-    });
-
-    if (!existingShop) {
-      fastify.log.error(`❌ Shop introuvable pour userId: ${userId}`);
+    if (!userId || !plan) {
+      fastify.log.error(`❌ [${requestId}] Metadata critiques manquantes:`, { 
+        userId, 
+        plan, 
+        allMetadata: session.metadata 
+      });
       return;
     }
 
-    fastify.log.info(`🏪 Shop trouvé: ${existingShop.name} (${existingShop.email})`);
-    fastify.log.info(`📋 Plan actuel: ${existingShop.subscription_plan} -> ${plan}`);
+    const connectionId = `conn_${Date.now()}`;
+    
+    try {
+      fastify.log.info(`🔌 [${requestId}] Connexion Prisma: ${connectionId}`);
+      await prisma.$connect();
+      
+      // ✅ VÉRIFICATION EXISTENCE SHOP
+      fastify.log.info(`🔍 [${requestId}] Recherche shop: ${userId}`);
+      const existingShop = await prisma.shop.findUnique({
+        where: { id: userId }
+      });
 
-    // ✅ MISE À JOUR DU SHOP
-    const updatedShop = await prisma.shop.update({
-      where: { id: userId },
-      data: {
-        subscription_plan: plan as string,
-        is_active: true,
-        updatedAt: new Date()
+      if (!existingShop) {
+        fastify.log.error(`❌ [${requestId}] Shop introuvable: ${userId}`);
+        
+        // ✅ TENTATIVE DE RECHERCHE PAR EMAIL
+        if (shopEmail) {
+          fastify.log.info(`🔍 [${requestId}] Recherche par email: ${shopEmail}`);
+          const shopByEmail = await prisma.shop.findUnique({
+            where: { email: shopEmail }
+          });
+          
+          if (shopByEmail) {
+            fastify.log.info(`✅ [${requestId}] Shop trouvé par email: ${shopByEmail.id}`);
+            // Mettre à jour l'ID si nécessaire
+            if (shopByEmail.id !== userId) {
+              fastify.log.warn(`⚠️ [${requestId}] ID mismatch: DB=${shopByEmail.id}, Stripe=${userId}`);
+            }
+          }
+        }
+        
+        return;
       }
-    });
 
-    fastify.log.info(`✅ Shop mis à jour avec succès:`);
-    fastify.log.info(`   - Plan: ${updatedShop.subscription_plan}`);
-    fastify.log.info(`   - Actif: ${updatedShop.is_active}`);
-    fastify.log.info(`   - Mis à jour: ${updatedShop.updatedAt}`);
+      fastify.log.info(`🏪 [${requestId}] Shop trouvé:`, {
+        id: existingShop.id,
+        name: existingShop.name,
+        email: existingShop.email,
+        currentPlan: existingShop.subscription_plan,
+        isActive: existingShop.is_active
+      });
 
-  } catch (error: any) {
-    fastify.log.error('❌ ERREUR mise à jour shop:', error);
-    fastify.log.error('   - Message:', error.message);
-    fastify.log.error('   - Code:', error.code);
-  } finally {
-    await prisma.$disconnect();
+      // ✅ VÉRIFICATION PLAN ACTUEL
+      if (existingShop.subscription_plan === plan) {
+        fastify.log.warn(`⚠️ [${requestId}] Shop déjà sur le plan: ${plan}`);
+      }
+
+      // ✅ MISE À JOUR ATOMIQUE DU SHOP
+      fastify.log.info(`🔄 [${requestId}] Mise à jour du shop vers plan: ${plan}`);
+      
+      const updateResult = await prisma.shop.update({
+        where: { id: userId },
+        data: {
+          subscription_plan: plan as string,
+          is_active: true,
+          updatedAt: new Date()
+        }
+      });
+
+      fastify.log.info(`✅ [${requestId}] Shop mis à jour avec succès:`);
+      fastify.log.info(`   └─ ID: ${updateResult.id}`);
+      fastify.log.info(`   └─ Plan: ${existingShop.subscription_plan} → ${updateResult.subscription_plan}`);
+      fastify.log.info(`   └─ Actif: ${existingShop.is_active} → ${updateResult.is_active}`);
+      fastify.log.info(`   └─ Mis à jour: ${updateResult.updatedAt}`);
+
+      // ✅ CRÉATION LOG DE TRANSACTION
+      try {
+        const logData = {
+          shopId: userId,
+          eventType: 'checkout_completed',
+          eventData: {
+            sessionId: session.id,
+            planFrom: existingShop.subscription_plan,
+            planTo: plan,
+            amount: session.amount_total,
+            currency: session.currency,
+            customerEmail: shopEmail,
+            timestamp: new Date().toISOString()
+          }
+        };
+        
+        // Ne pas bloquer si la table analytics n'existe pas
+        await prisma.analyticsEvent.create({
+          data: {
+            shopId: userId,
+            eventType: 'payment_success',
+            eventData: logData.eventData
+          }
+        }).catch((analyticsError) => {
+          fastify.log.warn(`⚠️ [${requestId}] Impossible de créer l'événement analytics:`, analyticsError.message);
+        });
+        
+        fastify.log.info(`📊 [${requestId}] Événement analytics créé`);
+      } catch (analyticsError: any) {
+        fastify.log.warn(`⚠️ [${requestId}] Erreur création analytics (non bloquante):`, analyticsError.message);
+      }
+
+      // ✅ NOTIFICATION DE SUCCÈS (Optionnel)
+      try {
+        fastify.log.info(`🎉 [${requestId}] Paiement confirmé pour ${shopEmail} - Plan: ${plan}`);
+        
+        // TODO: Ici vous pouvez ajouter :
+        // - Envoi d'email de confirmation
+        // - Notification Slack/Discord
+        // - Webhook vers d'autres services
+        // - Activation de fonctionnalités spécifiques au plan
+        
+      } catch (notificationError: any) {
+        fastify.log.warn(`⚠️ [${requestId}] Erreur notification (non bloquante):`, notificationError.message);
+      }
+
+    } catch (error: any) {
+      fastify.log.error(`❌ [${requestId}] ERREUR MISE À JOUR SHOP:`, {
+        message: error.message,
+        code: error.code,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    } finally {
+      try {
+        await prisma.$disconnect();
+        fastify.log.info(`🔌 [${requestId}] Déconnexion Prisma: ${connectionId}`);
+      } catch (disconnectError: any) {
+        fastify.log.warn(`⚠️ [${requestId}] Erreur déconnexion Prisma:`, disconnectError.message);
+      }
+    }
   }
-}
 
-  async function handleSubscriptionCanceled(subscription: Stripe.Subscription, fastify: FastifyInstance) {
+  async function handleSubscriptionCanceled(subscription: Stripe.Subscription, fastify: FastifyInstance, requestId: string) {
     const userId = subscription.metadata?.userId;
 
-    fastify.log.info(`🚫 Subscription canceled: userId=${userId}`);
+    fastify.log.info(`🚫 [${requestId}] Subscription canceled: userId=${userId}`);
 
     if (!userId) {
-      fastify.log.error('❌ Missing userId in subscription metadata');
+      fastify.log.error(`❌ [${requestId}] Missing userId in subscription metadata`);
       return;
     }
 
@@ -654,19 +744,19 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       });
       await prisma.$disconnect();
 
-      fastify.log.info(`✅ Subscription canceled for user ${userId}`);
-    } catch (error) {
-      fastify.log.error('❌ Error canceling shop subscription:', error);
+      fastify.log.info(`✅ [${requestId}] Subscription canceled for user ${userId}`);
+    } catch (error: any) {
+      fastify.log.error(`❌ [${requestId}] Error canceling shop subscription:`, error);
     }
   }
 
-  async function handleSubscriptionUpdated(subscription: Stripe.Subscription, fastify: FastifyInstance) {
+  async function handleSubscriptionUpdated(subscription: Stripe.Subscription, fastify: FastifyInstance, requestId: string) {
     const userId = subscription.metadata?.userId;
 
-    fastify.log.info(`🔄 Subscription updated: userId=${userId}, status=${subscription.status}`);
+    fastify.log.info(`🔄 [${requestId}] Subscription updated: userId=${userId}, status=${subscription.status}`);
 
     if (!userId) {
-      fastify.log.error('❌ Missing userId in subscription metadata');
+      fastify.log.error(`❌ [${requestId}] Missing userId in subscription metadata`);
       return;
     }
 
@@ -683,9 +773,27 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       });
       await prisma.$disconnect();
 
-      fastify.log.info(`✅ Subscription updated for user ${userId}, status: ${subscription.status}`);
-    } catch (error) {
-      fastify.log.error('❌ Error updating shop subscription:', error);
+      fastify.log.info(`✅ [${requestId}] Subscription updated for user ${userId}, status: ${subscription.status}`);
+    } catch (error: any) {
+      fastify.log.error(`❌ [${requestId}] Error updating shop subscription:`, error);
     }
+  }
+
+  async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice, fastify: FastifyInstance, requestId: string) {
+    fastify.log.info(`💰 [${requestId}] Invoice payment succeeded: ${invoice.id}`);
+    
+    // TODO: Logique pour les paiements de facture récurrents
+    // - Enregistrer la facture
+    // - Confirmer le renouvellement
+    // - Envoyer notification
+  }
+
+  async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, fastify: FastifyInstance, requestId: string) {
+    fastify.log.info(`💸 [${requestId}] Invoice payment failed: ${invoice.id}`);
+    
+    // TODO: Logique pour les échecs de paiement
+    // - Notifier l'utilisateur
+    // - Suspendre le service si nécessaire
+    // - Planifier nouvelles tentatives
   }
 }

@@ -21,6 +21,7 @@ import publicRoutes from './routes/public'
 import ordersRoutes from './routes/orders'
 import shopsRoutes from './routes/shops'
 import knowledgeBaseRoutes from './routes/knowledge-base'
+import conversationsRoutes from './routes/conversations'
 import chatRoutes from './routes/chat'
 
 // Load environment variables
@@ -255,154 +256,13 @@ async function registerRoutes() {
     fastify.register(knowledgeBaseRoutes, { prefix: '/knowledge-base' })
     fastify.log.info('✅ Routes knowledge-base enregistrées: /api/v1/knowledge-base/*')
 
+    // ✅ ROUTES CONVERSATIONS
+    fastify.register(conversationsRoutes, { prefix: '/conversations' })
+    fastify.log.info('✅ Routes conversations enregistrées: /api/v1/conversations/*')
+
     // ✅ ROUTES CHAT
     fastify.register(chatRoutes, { prefix: '/chat' })
     fastify.log.info('✅ Routes chat enregistrées: /api/v1/chat/*')
-    
-    // ✅ ROUTES CONVERSATIONS INTÉGRÉES
-    fastify.register(async function (fastify) {
-      // Create conversation
-      fastify.post('/', async (request, reply) => {
-        const { 
-          shopId, 
-          visitorId, 
-          productId, 
-          productName, 
-          productPrice,
-          productUrl 
-        } = request.body as any
-
-        try {
-          const conversation = await prisma.conversation.create({
-            data: {
-              shopId,
-              visitorId,
-              productId,
-              productName,
-              productPrice,
-              productUrl,
-              visitorIp: request.ip,
-              visitorUserAgent: request.headers['user-agent']
-            }
-          })
-
-          return {
-            success: true,
-            data: conversation
-          }
-        } catch (error) {
-          fastify.log.error(error)
-          return reply.status(500).send({ 
-            success: false,
-            error: 'Failed to create conversation' 
-          })
-        }
-      })
-
-      // Get conversation
-      fastify.get('/:conversationId', async (request, reply) => {
-        const { conversationId } = request.params as { conversationId: string }
-
-        try {
-          const conversation = await prisma.conversation.findFirst({
-            where: { 
-              id: conversationId,
-              shopId: request.user!.shopId 
-            }
-          })
-
-          if (!conversation) {
-            return reply.status(404).send({ 
-              success: false,
-              error: 'Conversation not found' 
-            })
-          }
-
-          const messages = await prisma.message.findMany({
-            where: { conversationId },
-            orderBy: { createdAt: 'asc' }
-          })
-
-          const shop = await prisma.shop.findUnique({
-            where: { id: conversation.shopId },
-            select: {
-              name: true,
-              agent_config: true
-            }
-          })
-
-          return {
-            success: true,
-            data: {
-              ...conversation,
-              messages,
-              shop
-            }
-          }
-        } catch (error) {
-          fastify.log.error(error)
-          return reply.status(500).send({ 
-            success: false,
-            error: 'Internal server error' 
-          })
-        }
-      })
-
-      // Liste des conversations
-      fastify.get('/', async (request, reply) => {
-        const { page = 1, limit = 20 } = request.query as any
-        
-        try {
-          if (!request.user) {
-            return reply.status(401).send({ 
-              success: false,
-              error: 'User not authenticated' 
-            })
-          }
-
-          const conversations = await prisma.conversation.findMany({
-            where: {
-              shopId: request.user.shopId
-            },
-            include: {
-              messages: {
-                orderBy: { createdAt: 'desc' },
-                take: 1
-              }
-            },
-            orderBy: { startedAt: 'desc' },
-            skip: (page - 1) * limit,
-            take: parseInt(limit)
-          })
-
-          const total = await prisma.conversation.count({
-            where: {
-              shopId: request.user.shopId
-            }
-          })
-
-          return {
-            success: true,
-            data: conversations,
-            pagination: {
-              page: parseInt(page),
-              limit: parseInt(limit),
-              total,
-              pages: Math.ceil(total / limit)
-            }
-          }
-
-        } catch (error) {
-          fastify.log.error(error)
-          return reply.status(500).send({ 
-            success: false,
-            error: 'Internal server error' 
-          })
-        }
-      })
-    }, { prefix: '/conversations' })
-    
-    fastify.log.info('✅ Routes conversations enregistrées: /api/v1/conversations/*')
 
   }, { prefix: '/api/v1' })
 
