@@ -848,4 +848,83 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
     }
   });
+
+  // ✅ ROUTE : RÉCUPÉRER LA BASE DE CONNAISSANCE D'UN AGENT (GET /api/v1/agents/:id/knowledge)
+  fastify.get<{ Params: AgentParamsType }>('/:id/knowledge', async (request, reply) => {
+    try {
+      const { id } = request.params;
+      const user = await verifySupabaseAuth(request);
+      const shop = await getOrCreateShop(user, fastify);
+
+      if (!shop) {
+        return reply.status(404).send({ error: 'Shop non trouvé' });
+      }
+
+      await prisma.$connect();
+
+      // Vérifier que l'agent appartient au shop
+      const agent = await prisma.agent.findFirst({
+        where: { 
+          id,
+          shopId: shop.id 
+        },
+        include: {
+          knowledgeBase: {
+            include: {
+              knowledgeBase: {
+                select: {
+                  id: true,
+                  title: true,
+                  contentType: true,
+                  isActive: true,
+                  tags: true,
+                  content: true,
+                  createdAt: true,
+                  updatedAt: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!agent) {
+        return reply.status(404).send({ error: 'Agent non trouvé' });
+      }
+
+      await prisma.$disconnect();
+
+      const knowledgeBaseDocuments = agent.knowledgeBase.map(kb => ({
+        id: kb.knowledgeBase.id,
+        title: kb.knowledgeBase.title,
+        contentType: kb.knowledgeBase.contentType,
+        isActive: kb.knowledgeBase.isActive,
+        tags: kb.knowledgeBase.tags || [],
+        content: kb.knowledgeBase.content,
+        createdAt: kb.knowledgeBase.createdAt,
+        updatedAt: kb.knowledgeBase.updatedAt,
+        priority: kb.priority,
+        linkedAt: kb.createdAt
+      }));
+
+      fastify.log.info(`✅ Base de connaissance récupérée pour agent: ${id} (${knowledgeBaseDocuments.length} documents)`);
+
+      return {
+        success: true,
+        data: knowledgeBaseDocuments
+      };
+
+    } catch (error: any) {
+      fastify.log.error('❌ Get agent knowledge error:', error);
+      
+      if (error.message === 'Token manquant' || error.message === 'Token invalide') {
+        return reply.status(401).send({ error: error.message });
+      }
+      
+      return reply.status(500).send({
+        error: 'Erreur lors de la récupération de la base de connaissance',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
 }
