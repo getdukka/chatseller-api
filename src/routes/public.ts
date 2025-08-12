@@ -1,4 +1,4 @@
-// src/routes/public.ts - INTÉGRATION GPT-4O-MINI COMPLÈTE - CORRIGÉE TYPESCRIPT
+// src/routes/public.ts - VERSION CORRIGÉE AVEC CORRECTIONS TYPESCRIPT
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
@@ -34,17 +34,41 @@ interface ChatRequestBody {
   shopId: string;
   message: string;
   conversationId?: string;
-  productInfo?: any;
+  productInfo?: {
+    id?: string;
+    name?: string;
+    price?: number;
+    url?: string;
+  };
   visitorId?: string;
+  isFirstMessage?: boolean;
 }
 
-// ✅ INTERFACE pour le résultat OpenAI - CORRIGÉE
+// ✅ CORRECTION : Type step plus flexible et ajout étapes manquantes
+interface OrderCollectionState {
+  step: 'quantity' | 'phone' | 'name' | 'address' | 'payment' | 'confirmation' | 'completed';
+  data: {
+    productId?: string;
+    productName?: string;
+    productPrice?: number;
+    quantity?: number;
+    customerPhone?: string;
+    customerFirstName?: string;
+    customerLastName?: string;
+    customerEmail?: string;
+    customerAddress?: string;
+    paymentMethod?: string;
+  };
+}
+
 interface OpenAIResult {
   success: boolean;
   message?: string;
   tokensUsed?: number;
   error?: string;
   fallbackMessage?: string;
+  orderCollection?: OrderCollectionState;
+  isOrderIntent?: boolean;
 }
 
 // ✅ HELPER : Vérifier si une string est un UUID valide
@@ -72,7 +96,7 @@ function getFallbackShopConfig(shopId: string) {
           name: "Rose",
           avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff",
           upsellEnabled: false,
-          welcomeMessage: "Bonjour ! Je suis Rose, votre assistante d'achat. Comment puis-je vous aider aujourd'hui ?",
+          welcomeMessage: "Bonjour ! Je suis le Vendeur IA de Chatseller. Comment puis-je vous aider aujourd'hui ?",
           fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
           collectPaymentMethod: true
         }
@@ -83,7 +107,7 @@ function getFallbackShopConfig(shopId: string) {
         type: "general",
         personality: "friendly",
         description: "Assistante d'achat spécialisée dans l'accompagnement des clients",
-        welcomeMessage: "Bonjour ! Je suis Rose, votre assistante d'achat. Comment puis-je vous aider aujourd'hui ?",
+        welcomeMessage: "Bonjour ! Je suis le Vendeur IA de Chatseller. Comment puis-je vous aider aujourd'hui ?",
         fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
         avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff",
         config: {
@@ -96,18 +120,9 @@ function getFallbackShopConfig(shopId: string) {
       },
       knowledgeBase: {
         content: `## Informations Boutique
-Notre boutique propose des produits de qualité pour renforcer les liens entre couples.
+Notre boutique propose des produits de qualité qui améliorent votre quotidien.
 
-## Le Jeu Pour les Couples
-Un jeu révolutionnaire avec plus de 200 questions et défis pour mieux se connaître.
-Prix: 14 000 FCFA
-Contenu: 200+ cartes questions, Guide d'utilisation, Livret de conseils, Boîte premium
-
-## Politique de retour
-Retour gratuit sous 30 jours, satisfait ou remboursé.
-
-## Livraison
-Livraison gratuite dès 20 000 FCFA d'achat.`,
+Veuillez parcourir notre catalogue pour découvrir nos produits.`,
         documentsCount: 1,
         documents: [
           {
@@ -122,64 +137,289 @@ Livraison gratuite dès 20 000 FCFA d'achat.`,
   };
 }
 
-// ✅ NOUVELLE FONCTION : Générer le prompt système pour l'agent
-function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any) {
-  const basePrompt = `Tu es ${agent.name}, un vendeur IA commercial ${agent.personality === 'friendly' ? 'amical et bienveillant' : 'professionnel'}.
+// ✅ AMÉLIORATION : Générer le prompt système avec détection produit
+function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState) {
+  const basePrompt = `Tu es ${agent.name}, un vendeur IA commercial expert et ${agent.personality === 'friendly' ? 'chaleureux' : 'professionnel'}.
 
-RÔLE: Assistant d'achat spécialisé dans la conversion de visiteurs en clients.
+🎯 RÔLE: Vendeur commercial spécialisé dans la conversion et l'accompagnement client.
 
-PERSONNALITÉ: ${agent.personality}
-- ${agent.personality === 'friendly' ? 'Chaleureux, empathique, à l\'écoute' : 'Professionnel, expert, efficace'}
+💡 PERSONNALITÉ: ${agent.personality}
+- ${agent.personality === 'friendly' ? 'Bienveillant, empathique, à l\'écoute' : 'Professionnel, expert, efficace'}
 - Toujours positif et orienté solution
-- Expert en techniques de vente consultative
+- Expert en techniques de vente consultative et persuasion éthique
 
-OBJECTIFS PRINCIPAUX:
-1. Accueillir chaleureusement les visiteurs
-2. Identifier leurs besoins et motivations d'achat
-3. Répondre à leurs questions avec précision
-4. Lever leurs objections et rassurer
-5. Collecter leurs informations de commande
-6. Proposer des ventes additionnelles pertinentes
+🎯 OBJECTIFS PRINCIPAUX:
+1. **Accueil contextuel** : Saluer chaleureusement en mentionnant le produit consulté
+2. **Identification besoins** : Comprendre les motivations et attentes du client
+3. **Conseil expert** : Apporter des réponses précises et rassurantes
+4. **Lever objections** : Traiter les freins à l'achat avec empathie
+5. **Collecte commande** : Guider naturellement vers l'achat quand l'intérêt est manifesté
+6. **Upselling intelligent** : Proposer des produits complémentaires pertinents
 
-DONNÉES PRODUIT ACTUEL:
 ${productInfo ? `
-- Nom: ${productInfo.name || 'Produit non spécifié'}
-- Prix: ${productInfo.price ? productInfo.price + ' FCFA' : 'Prix non spécifié'}
-- URL: ${productInfo.url || 'Non spécifiée'}
-` : 'Aucune information produit fournie'}
+🛍️ PRODUIT ACTUELLEMENT CONSULTÉ:
+- **Nom**: ${productInfo.name || 'Produit non spécifié'}
+- **Prix**: ${productInfo.price ? productInfo.price + ' FCFA' : 'Prix sur demande'}
+- **URL**: ${productInfo.url || 'Page produit'}
 
-BASE DE CONNAISSANCE:
+⚠️ IMPORTANT: Dès le premier message, montre que tu sais quel produit l'intéresse !
+` : '🚨 AUCUNE INFORMATION PRODUIT - Demande quel produit l\'intéresse'}
+
+📚 BASE DE CONNAISSANCE:
 ${knowledgeBase}
 
-INSTRUCTIONS DE CONVERSATION:
-1. Commence toujours par un accueil chaleureux
-2. Pose des questions pour comprendre les besoins
-3. Utilise les informations de ta base de connaissance
-4. Sois proactif pour collecter les commandes
-5. Propose des upsells intelligents si pertinent
-6. Reste toujours dans ton rôle de vendeur
+${orderState ? `
+📋 COLLECTE DE COMMANDE EN COURS:
+Étape actuelle: ${orderState.step}
+Données collectées: ${JSON.stringify(orderState.data, null, 2)}
 
-COLLECTE DE COMMANDE:
-Quand un client veut acheter, collecte dans l'ordre:
-1. Confirmation du produit et quantité
-2. Nom complet
-3. Numéro de téléphone
-4. Adresse de livraison (si nécessaire)
-5. Mode de paiement préféré
+PROCHAINE ÉTAPE:
+${getOrderStepInstructions(orderState.step, orderState.data)}
+` : `
+📋 PROCESSUS DE COLLECTE DE COMMANDE:
+⚠️ COMMENCER SEULEMENT si le client manifeste un intérêt d'achat clair (ex: "je veux l'acheter", "je commande", "comment faire pour l'avoir")
 
-RÉPONSES:
-- Maximum 150 mots par réponse
-- Ton conversationnel et naturel
-- Utilise des émojis avec parcimonie
-- Pose toujours une question pour relancer la conversation`;
+PROCÉDURE STRICTE (dans cet ordre) :
+1. **QUANTITÉ**: "Parfait ! Combien d'exemplaires souhaitez-vous ?"
+2. **TÉLÉPHONE**: "Pour finaliser, quel est votre numéro de téléphone ?"
+3. **VÉRIFICATION CLIENT**: Vérifier si le client existe avec ce numéro
+   - Si OUI: "Heureux de vous revoir, [prénom] ! Même adresse de livraison ?"
+   - Si NON: Continuer à l'étape 4
+4. **NOM/PRÉNOM**: "Votre nom et prénom pour la commande ?"
+5. **ADRESSE**: "Quelle est votre adresse de livraison complète ?"
+6. **PAIEMENT**: "Comment préférez-vous payer ? (Espèces, virement, mobile money)"
+7. **CONFIRMATION**: Résumer TOUTE la commande et rassurer sur la suite
+`}
+
+🎨 FORMATAGE DES RÉPONSES:
+- Utilise **gras** pour les informations importantes
+- Utilise *italique* pour l'emphase
+- Saute des lignes pour aérer (utilise \n\n)
+- Émojis avec parcimonie pour la convivialité
+- Maximum 200 mots par réponse pour rester concis
+
+📝 INSTRUCTIONS DE CONVERSATION:
+1. **Premier message**: TOUJOURS mentionner le produit consulté si disponible
+2. **Questions ciblées**: Pose des questions pour comprendre les besoins
+3. **Expertise produit**: Utilise ta base de connaissance pour être précis
+4. **Détection intention**: Sois attentif aux signaux d'achat
+5. **Collecte structurée**: Suis la procédure exacte pour les commandes
+6. **Reste en rôle**: Tu es un vendeur expert, pas un chatbot générique
+
+🚨 RÈGLES ABSOLUES:
+- Ne commence JAMAIS la collecte sans intention d'achat claire
+- Collecte les informations dans l'ORDRE EXACT indiqué
+- Une seule information à la fois
+- Confirme TOUJOURS avant de passer à l'étape suivante
+- Reste naturel et conversationnel même pendant la collecte`;
 
   return basePrompt;
 }
 
-// ✅ NOUVELLE FONCTION : Appeler GPT-4o-mini - CORRIGÉE TYPESCRIPT
-async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, productInfo?: any): Promise<OpenAIResult> {
+// ✅ AMÉLIORATION : Instructions détaillées pour chaque étape
+function getOrderStepInstructions(step: string, data: any): string {
+  switch (step) {
+    case 'quantity':
+      return "Demande combien d'exemplaires il souhaite. Ex: 'Combien d'exemplaires voulez-vous commander ?'";
+    
+    case 'phone':
+      return "Demande le numéro de téléphone pour finaliser. Ex: 'Pour finaliser votre commande, quel est votre numéro de téléphone ?'";
+    
+    case 'name':
+      if (data.customerPhone) {
+        return "IMPORTANT: Vérifie si ce numéro existe déjà en base. Si oui, accueille personnellement. Sinon, demande nom et prénom.";
+      }
+      return "Demande le nom et prénom complets. Ex: 'Parfait ! Votre nom et prénom pour la commande ?'";
+    
+    case 'address':
+      return "Demande l'adresse de livraison complète. Ex: 'Quelle est votre adresse de livraison complète ?'";
+    
+    case 'payment':
+      return "Demande le mode de paiement préféré. Ex: 'Comment souhaitez-vous payer ? Espèces à la livraison, virement, ou mobile money ?'";
+    
+    case 'confirmation':
+      return "Confirme TOUTE la commande avec détails et rassure le client sur la suite du processus.";
+    
+    case 'completed':
+      return "Commande finalisée. Remercie et informe qu'un conseiller va le contacter.";
+    
+    default:
+      return "Continuez la conversation normalement.";
+  }
+}
+
+// ✅ AMÉLIORATION : Détection intention d'achat plus précise
+function detectOrderIntent(message: string): boolean {
+  const orderKeywords = [
+    // Intentions directes
+    'acheter', 'commander', 'commande', 'achat', 'prendre', 'veux', 'souhaite',
+    'vais prendre', 'je le veux', 'ça m\'intéresse',
+    
+    // Questions sur l'achat
+    'comment faire', 'comment commander', 'comment acheter',
+    'où acheter', 'comment procéder',
+    
+    // Expressions d'intérêt fort
+    'intéressé', 'intéresse', 'ça me plaît', 'parfait',
+    'c\'est bon', 'd\'accord', 'ok pour',
+    
+    // Actions
+    'réserver', 'livraison', 'payer', 'prix', 'finaliser',
+    'confirmer', 'valider'
+  ];
+  
+  const lowerMessage = message.toLowerCase();
+  return orderKeywords.some(keyword => lowerMessage.includes(keyword));
+}
+
+// ✅ AMÉLIORATION : Extraction données plus robuste
+function extractOrderData(message: string, currentStep: string): any {
+  const data: any = {};
+  
+  switch (currentStep) {
+    case 'quantity':
+      // Extraire les nombres (1, 2, 3, un, deux, trois, etc.)
+      const qtyPatterns = [
+        /(\d+)/,
+        /\b(un|une)\b/i,
+        /\b(deux)\b/i,
+        /\b(trois)\b/i,
+        /\b(quatre)\b/i,
+        /\b(cinq)\b/i
+      ];
+      
+      for (const pattern of qtyPatterns) {
+        const match = message.match(pattern);
+        if (match) {
+          if (match[1] && /\d+/.test(match[1])) {
+            data.quantity = parseInt(match[1]);
+          } else {
+            // Conversion mots en nombres
+            const wordToNumber: { [key: string]: number } = {
+              'un': 1, 'une': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5
+            };
+            data.quantity = wordToNumber[match[1]?.toLowerCase()] || 1;
+          }
+          break;
+        }
+      }
+      break;
+      
+    case 'phone':
+      // Amélioration extraction téléphone (formats Sénégal/France)
+      const phonePatterns = [
+        /(?:\+?221[\s\-]?)?([0-9\s\-\(\)]{8,})/,
+        /(?:\+?33[\s\-]?)?([0-9\s\-\(\)]{8,})/,
+        /([0-9\s\-\(\)]{8,})/
+      ];
+      
+      for (const pattern of phonePatterns) {
+        const match = message.match(pattern);
+        if (match) {
+          data.customerPhone = match[0].replace(/[\s\-\(\)]/g, '');
+          break;
+        }
+      }
+      break;
+      
+    case 'name':
+      // Extraction nom et prénom améliorée
+      const cleanMessage = message.trim().replace(/[.,!?]/g, '');
+      const words = cleanMessage.split(/\s+/).filter(word => 
+        word.length > 1 && !/^(je|suis|mon|ma|nom|prénom|appelle|m'appelle)$/i.test(word)
+      );
+      
+      if (words.length >= 2) {
+        data.customerFirstName = words[0];
+        data.customerLastName = words.slice(1).join(' ');
+      } else if (words.length === 1) {
+        data.customerFirstName = words[0];
+      }
+      break;
+      
+    case 'address':
+      // Nettoyage adresse
+      data.customerAddress = message.trim().replace(/^(mon adresse|adresse|c'est|voici)\s*/i, '');
+      break;
+      
+    case 'payment':
+      // Extraction mode de paiement
+      const paymentMethods: { [key: string]: string } = {
+        'espèces': 'Espèces à la livraison',
+        'cash': 'Espèces à la livraison',
+        'virement': 'Virement bancaire',
+        'mobile': 'Mobile Money',
+        'wave': 'Wave',
+        'orange': 'Orange Money',
+        'carte': 'Carte bancaire'
+      };
+      
+      const lowerMsg = message.toLowerCase();
+      for (const [key, value] of Object.entries(paymentMethods)) {
+        if (lowerMsg.includes(key)) {
+          data.paymentMethod = value;
+          break;
+        }
+      }
+      
+      if (!data.paymentMethod) {
+        data.paymentMethod = message.trim();
+      }
+      break;
+  }
+  
+  return data;
+}
+
+// ✅ CORRECTION : Sauvegarde commande avec champs corrects du schéma Prisma
+async function saveOrderToDatabase(conversationId: string, shopId: string, agentId: string, orderData: any, productInfo?: any) {
   try {
-    const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, productInfo);
+    await prisma.$connect();
+    
+    // ✅ CORRECTION: Utiliser les noms de champs exacts du schéma Prisma
+    const order = await prisma.order.create({
+      data: {
+        shopId: shopId, // ✅ Correct selon le schéma
+        conversationId: conversationId, // ✅ Correct selon le schéma  
+        customerName: orderData.customerFirstName && orderData.customerLastName 
+          ? `${orderData.customerFirstName} ${orderData.customerLastName}`
+          : orderData.customerFirstName || null,
+        customerPhone: orderData.customerPhone || null,
+        customerEmail: orderData.customerEmail || null,
+        customerAddress: orderData.customerAddress || null,
+        productItems: {
+          productId: productInfo?.id || orderData.productId,
+          productName: productInfo?.name || orderData.productName,
+          productPrice: productInfo?.price || orderData.productPrice,
+          quantity: orderData.quantity || 1
+        },
+        totalAmount: (productInfo?.price || 0) * (orderData.quantity || 1),
+        currency: 'XOF', // ✅ Conforme au schéma (défaut XOF)
+        paymentMethod: orderData.paymentMethod || null,
+        status: 'pending' // ✅ Conforme au schéma (défaut pending)
+      }
+    });
+    
+    await prisma.$disconnect();
+    
+    console.log('✅ Commande sauvegardée:', order.id);
+    return order;
+    
+  } catch (error) {
+    console.error('❌ Erreur sauvegarde commande:', error);
+    await prisma.$disconnect();
+    throw error;
+  }
+}
+
+// ✅ FONCTION AMÉLIORÉE : Appeler GPT-4o-mini avec collecte de commandes
+async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState): Promise<OpenAIResult> {
+  try {
+    const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, productInfo, orderState);
+    
+    // ✅ DÉTECTER L'INTENTION D'ACHAT DANS LE DERNIER MESSAGE
+    const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
+    const hasOrderIntent = !orderState && detectOrderIntent(lastUserMessage);
     
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -187,16 +427,50 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
         { role: "system", content: systemPrompt },
         ...messages
       ],
-      max_tokens: 300,
+      max_tokens: 400,
       temperature: 0.7,
       presence_penalty: 0.3,
       frequency_penalty: 0.3
     });
 
+    let response = completion.choices[0]?.message?.content || "Je n'ai pas pu générer de réponse.";
+    
+    // ✅ FORMATAGE DU MESSAGE AMÉLIORÉ pour lisibilité
+    response = formatAIResponse(response);
+    
+    // ✅ GESTION DE LA COLLECTE DE COMMANDE AMÉLIORÉE
+    let newOrderState: OrderCollectionState | undefined;
+    
+    if (orderState) {
+      // Continuer la collecte
+      const extractedData = extractOrderData(lastUserMessage, orderState.step);
+      const updatedData = { ...orderState.data, ...extractedData };
+      
+      // Déterminer la prochaine étape
+      const nextStep = getNextOrderStep(orderState.step, updatedData);
+      
+      newOrderState = {
+        step: nextStep,
+        data: updatedData
+      };
+    } else if (hasOrderIntent) {
+      // Commencer la collecte seulement si intention claire
+      newOrderState = {
+        step: 'quantity',
+        data: {
+          productId: productInfo?.id,
+          productName: productInfo?.name,
+          productPrice: productInfo?.price
+        }
+      };
+    }
+
     return {
       success: true,
-      message: completion.choices[0]?.message?.content || "Je n'ai pas pu générer de réponse.",
-      tokensUsed: completion.usage?.total_tokens || 0
+      message: response,
+      tokensUsed: completion.usage?.total_tokens || 0,
+      orderCollection: newOrderState,
+      isOrderIntent: hasOrderIntent
     };
 
   } catch (error: any) {
@@ -216,6 +490,57 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
       fallbackMessage: "Désolé, je rencontre un problème technique. Un conseiller vous recontactera bientôt."
     };
   }
+}
+
+// ✅ NOUVELLE FONCTION : Formatage des réponses IA pour meilleure lisibilité
+function formatAIResponse(response: string): string {
+  return response
+    // Convertir les sauts de ligne en HTML
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>')
+    // Convertir le markdown en HTML
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    // Nettoyer les espaces
+    .trim();
+}
+
+// ✅ AMÉLIORATION : Logique d'étapes plus robuste
+function getNextOrderStep(currentStep: string, data: any): OrderCollectionState['step'] {
+  switch (currentStep) {
+    case 'quantity':
+      return data.quantity ? 'phone' : 'quantity';
+    case 'phone':
+      return data.customerPhone ? 'name' : 'phone';
+    case 'name':
+      return (data.customerFirstName || data.customerLastName) ? 'address' : 'name';
+    case 'address':
+      return data.customerAddress ? 'payment' : 'address';
+    case 'payment':
+      return data.paymentMethod ? 'confirmation' : 'payment';
+    case 'confirmation':
+      return 'completed';
+    default:
+      return 'quantity';
+  }
+}
+
+// ✅ AMÉLIORATION : Message d'accueil avec contexte produit obligatoire
+function generateWelcomeMessage(agent: any, productInfo?: any): string {
+  const baseName = agent.name || 'Assistant';
+  
+  if (productInfo?.name) {
+    return `Bonjour ! 👋 Je suis ${baseName}, votre conseiller commercial.
+
+Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! 💫
+
+Comment puis-je vous aider avec ce produit ? 😊`;
+  }
+  
+  // Si pas de produit détecté, demander
+  return `Bonjour ! 👋 Je suis ${baseName}, votre conseiller commercial.
+
+Quel produit vous intéresse aujourd'hui ? Je serais ravi de vous renseigner ! 😊`;
 }
 
 export default async function publicRoutes(fastify: FastifyInstance) {
@@ -344,31 +669,38 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Endpoint de chat public AVEC GPT-4O-MINI - CORRIGÉ TYPESCRIPT
+  // ✅ ROUTE : Endpoint de chat public AVEC COLLECTE COMMANDES AMÉLIORÉE
   fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
     
     try {
-      const { shopId, message, conversationId, productInfo, visitorId } = request.body;
+      const { shopId, message, conversationId, productInfo, visitorId, isFirstMessage } = request.body;
       
-      fastify.log.info(`💬 Nouveau message chat pour shop: ${shopId}`);
+      fastify.log.info(`💬 Nouveau message chat pour shop: ${shopId}${isFirstMessage ? ' (premier message)' : ''}`);
       
       // Mode test pour shops non-UUID
       if (!isValidUUID(shopId)) {
         fastify.log.info(`💬 Mode test détecté pour shop: ${shopId}`);
         
-        const simulatedResponse = getSimulatedAIResponse(message, productInfo);
+        let simulatedResponse = '';
+        
+        if (isFirstMessage && productInfo?.name) {
+          simulatedResponse = generateWelcomeMessage({name: "Rose"}, productInfo);
+        } else {
+          simulatedResponse = getSimulatedAIResponse(message, productInfo);
+        }
         
         return {
           success: true,
           data: {
             conversationId: conversationId || `test-conv-${Date.now()}`,
-            message: simulatedResponse,
+            message: formatAIResponse(simulatedResponse),
             agent: {
               name: "Rose",
               avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
             },
-            responseTime: Date.now() - startTime
+            responseTime: Date.now() - startTime,
+            isWelcomeMessage: isFirstMessage
           }
         };
       }
@@ -414,6 +746,54 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Aucun agent actif trouvé pour cette boutique' });
       }
 
+      // ✅ GESTION PREMIER MESSAGE AUTOMATIQUE AMÉLIORÉ
+      if (isFirstMessage) {
+        const welcomeMessage = generateWelcomeMessage(agent, productInfo);
+        
+        // Créer la conversation
+        const conversation = await prisma.conversation.create({
+          data: {
+            shopId: shopId,
+            agentId: agent.id,
+            visitorId: visitorId || `visitor_${Date.now()}`,
+            productId: productInfo?.id,
+            productName: productInfo?.name,
+            productPrice: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,
+            productUrl: productInfo?.url,
+            visitorIp: request.ip,
+            visitorUserAgent: request.headers['user-agent']
+          }
+        });
+
+        // Sauvegarder le message d'accueil
+        await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            role: 'assistant',
+            content: welcomeMessage,
+            tokensUsed: 0,
+            responseTimeMs: Date.now() - startTime,
+            modelUsed: 'welcome-message'
+          }
+        });
+
+        await prisma.$disconnect();
+
+        return {
+          success: true,
+          data: {
+            conversationId: conversation.id,
+            message: formatAIResponse(welcomeMessage),
+            agent: {
+              name: agent.name,
+              avatar: agent.avatar
+            },
+            responseTime: Date.now() - startTime,
+            isWelcomeMessage: true
+          }
+        };
+      }
+
       // Créer ou récupérer la conversation
       let conversation;
       if (conversationId) {
@@ -436,7 +816,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             visitorId: visitorId || `visitor_${Date.now()}`,
             productId: productInfo?.id,
             productName: productInfo?.name,
-            productPrice: productInfo?.price,
+            productPrice: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,
             productUrl: productInfo?.url,
             visitorIp: request.ip,
             visitorUserAgent: request.headers['user-agent']
@@ -461,6 +841,18 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
         .join('\n\n---\n\n');
 
+      // ✅ RÉCUPÉRER L'ÉTAT DE COLLECTE DE COMMANDE depuis customerData
+      let orderState: OrderCollectionState | undefined;
+      
+      try {
+        const customerData = conversation.customerData as any;
+        if (customerData?.orderCollection) {
+          orderState = customerData.orderCollection;
+        }
+      } catch (error) {
+        console.warn('Erreur lecture customerData conversation:', error);
+      }
+
       // Préparer l'historique des messages pour l'IA
       const messageHistory = conversation.messages.map(msg => ({
         role: msg.role as 'user' | 'assistant',
@@ -470,10 +862,9 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       // Ajouter le nouveau message
       messageHistory.push({ role: 'user', content: message });
 
-      // ✅ APPELER GPT-4O-MINI - CORRIGÉ
-      const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo);
+      // ✅ APPELER GPT-4O-MINI AVEC COLLECTE DE COMMANDES
+      const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo, orderState);
       
-      // ✅ VARIABLES AVEC VALEURS PAR DÉFAUT
       let aiResponse: string = aiResult.fallbackMessage || agent.fallbackMessage || "Je transmets votre question à notre équipe.";
       let tokensUsed: number = 0;
 
@@ -482,6 +873,48 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         tokensUsed = aiResult.tokensUsed || 0;
       } else {
         fastify.log.error('❌ Erreur IA:', aiResult.error);
+      }
+
+      // ✅ SAUVEGARDER L'ÉTAT DE COLLECTE DE COMMANDE dans customerData
+      if (aiResult.orderCollection) {
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            customerData: {
+              orderCollection: aiResult.orderCollection
+            } as any
+          }
+        });
+
+        // ✅ SI COMMANDE TERMINÉE, LA SAUVEGARDER
+        if (aiResult.orderCollection.step === 'completed') {
+          try {
+            await saveOrderToDatabase(
+              conversation.id, 
+              shopId, 
+              agent.id, 
+              {
+                ...aiResult.orderCollection.data,
+                visitorId,
+                visitorIp: request.ip,
+                visitorUserAgent: request.headers['user-agent']
+              }, 
+              productInfo
+            );
+            
+            // Marquer la conversation comme convertie
+            await prisma.conversation.update({
+              where: { id: conversation.id },
+              data: {
+                conversionCompleted: true,
+                customerData: {} // Nettoyer l'état de collecte
+              }
+            });
+            
+          } catch (error) {
+            console.error('❌ Erreur sauvegarde commande:', error);
+          }
+        }
       }
 
       // Sauvegarder la réponse de l'IA
@@ -508,7 +941,8 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             avatar: agent.avatar
           },
           responseTime: Date.now() - startTime,
-          tokensUsed
+          tokensUsed,
+          orderCollection: aiResult.orderCollection
         }
       };
 
@@ -517,14 +951,14 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       
       // Fallback en cas d'erreur
       const fallbackResponse = request.body.message.toLowerCase().includes('bonjour') || request.body.message.toLowerCase().includes('salut')
-        ? "Bonjour ! Je suis Rose, votre assistante d'achat. Comment puis-je vous aider avec ce produit ?"
+        ? "Bonjour ! Je suis votre conseiller commercial. Comment puis-je vous aider avec ce produit ?"
         : "Merci pour votre message ! Comment puis-je vous aider davantage ?";
       
       return {
         success: true,
         data: {
           conversationId: request.body.conversationId || `fallback-conv-${Date.now()}`,
-          message: fallbackResponse,
+          message: formatAIResponse(fallbackResponse),
           agent: {
             name: "Rose",
             avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
@@ -536,37 +970,42 @@ export default async function publicRoutes(fastify: FastifyInstance) {
   });
 }
 
-// ✅ FONCTION pour simuler l'IA (fallback pour les tests)
-function getSimulatedAIResponse(message: string, productInfo: any, agent?: any): string {
+// ✅ FONCTION pour simuler l'IA (fallback pour les tests) - AMÉLIORÉE
+function getSimulatedAIResponse(message: string, productInfo: any): string {
   const msg = message.toLowerCase();
-  const agentName = agent?.name || "Rose";
   
   if (msg.includes('bonjour') || msg.includes('salut') || msg.includes('hello')) {
-    return `Bonjour ! Je suis ${agentName}. Je vois que vous vous intéressez à "${productInfo?.name || 'ce produit'}". Comment puis-je vous aider ?`;
+    return `Bonjour ! Je suis Rose, votre conseillère commerciale. 👋
+
+Je vois que vous vous intéressez à **"${productInfo?.name || 'ce produit'}"**. 
+
+Comment puis-je vous aider ? 😊`;
   }
   
   if (msg.includes('prix') || msg.includes('coût') || msg.includes('tarif')) {
     if (productInfo?.price) {
-      return `Le prix de "${productInfo.name}" est de ${productInfo.price} FCFA. C'est un excellent rapport qualité-prix ! Voulez-vous que je vous aide à passer commande ?`;
+      return `Le prix de **"${productInfo.name}"** est de **${productInfo.price} FCFA**. 💰
+
+C'est un excellent rapport qualité-prix ! 
+
+Voulez-vous que je vous aide à passer commande ? 🛒`;
     }
-    return "Je vais vérifier le prix pour vous. Un instant...";
+    return "Je vais vérifier le prix pour vous. Un instant... 🔍";
   }
   
   if (msg.includes('acheter') || msg.includes('commander') || msg.includes('commande')) {
-    return "Parfait ! Je vais vous aider à finaliser votre commande. Pour commencer, puis-je avoir votre nom et prénom ?";
+    return `Parfait ! Je vais vous aider à finaliser votre commande. ✨
+
+**Combien d'exemplaires** souhaitez-vous commander ? 📦`;
   }
   
   if (msg.includes('info') || msg.includes('détail') || msg.includes('caractéristique')) {
-    return `"${productInfo?.name || 'Ce produit'}" est un excellent choix ! D'après nos informations, c'est l'un de nos produits les plus appréciés. Avez-vous des questions spécifiques ?`;
+    return `**"${productInfo?.name || 'Ce produit'}"** est un excellent choix ! 👌
+
+D'après nos informations, c'est l'un de nos produits les plus appréciés. 
+
+Avez-vous des **questions spécifiques** ? 🤔`;
   }
   
-  if (msg.includes('questions') || msg.includes('question')) {
-    return "Bien sûr ! Je suis là pour répondre à toutes vos questions. Que souhaitez-vous savoir exactement sur ce produit ?";
-  }
-  
-  if (msg.includes('savoir plus') || msg.includes('en savoir')) {
-    return "Je serais ravi de vous en dire plus ! Ce produit a d'excellentes caractéristiques. Qu'est-ce qui vous intéresse le plus : les fonctionnalités, la qualité, ou autre chose ?";
-  }
-  
-  return agent?.fallbackMessage || "Merci pour votre message ! Comment puis-je vous aider davantage avec ce produit ?";
+  return "Merci pour votre message ! Comment puis-je vous aider davantage avec ce produit ? 😊";
 }
