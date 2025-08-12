@@ -48,16 +48,16 @@ interface ChatRequestBody {
 interface OrderCollectionState {
   step: 'quantity' | 'phone' | 'name' | 'address' | 'payment' | 'confirmation' | 'completed';
   data: {
-    productId?: string;
-    productName?: string;
-    productPrice?: number;
-    quantity?: number;
-    customerPhone?: string;
-    customerFirstName?: string;
-    customerLastName?: string;
-    customerEmail?: string;
-    customerAddress?: string;
-    paymentMethod?: string;
+    productId?: string | null;
+    productName?: string | null;
+    productPrice?: number | null;
+    quantity?: number | null;
+    customerPhone?: string | null;
+    customerFirstName?: string | null;
+    customerLastName?: string | null;
+    customerEmail?: string | null;
+    customerAddress?: string | null;
+    paymentMethod?: string | null;
   };
 }
 
@@ -220,31 +220,31 @@ PROCÉDURE STRICTE (dans cet ordre) :
 function getOrderStepInstructions(step: string, data: any): string {
   switch (step) {
     case 'quantity':
-      return "Demande combien d'exemplaires il souhaite. Ex: 'Combien d'exemplaires voulez-vous commander ?'";
+      return "Demande combien d'exemplaires il souhaite. Ex: 'Combien d'exemplaires voulez-vous commander ?'"
     
     case 'phone':
-      return "Demande le numéro de téléphone pour finaliser. Ex: 'Pour finaliser votre commande, quel est votre numéro de téléphone ?'";
+      return "Demande le numéro de téléphone pour finaliser. Ex: 'Pour finaliser votre commande, quel est votre numéro de téléphone ?'"
     
     case 'name':
       if (data.customerPhone) {
-        return "IMPORTANT: Vérifie si ce numéro existe déjà en base. Si oui, accueille personnellement. Sinon, demande nom et prénom.";
+        return "IMPORTANT: Vérifie si ce numéro existe déjà en base. Si oui, accueille personnellement. Sinon, demande nom et prénom."
       }
-      return "Demande le nom et prénom complets. Ex: 'Parfait ! Votre nom et prénom pour la commande ?'";
+      return "Demande le nom et prénom complets. Ex: 'Parfait ! Votre nom et prénom pour la commande ?'"
     
     case 'address':
-      return "Demande l'adresse de livraison complète. Ex: 'Quelle est votre adresse de livraison complète ?'";
+      return "Demande l'adresse de livraison complète. Ex: 'Quelle est votre adresse de livraison complète ?'"
     
     case 'payment':
-      return "Demande le mode de paiement préféré. Ex: 'Comment souhaitez-vous payer ? Espèces à la livraison, virement, ou mobile money ?'";
+      return "Demande le mode de paiement préféré. Ex: 'Comment souhaitez-vous payer ? Espèces à la livraison, virement, ou mobile money ?'"
     
     case 'confirmation':
-      return "Confirme TOUTE la commande avec détails et rassure le client sur la suite du processus.";
+      return "Confirme TOUTE la commande avec détails et rassure le client sur la suite du processus."
     
     case 'completed':
-      return "Commande finalisée. Remercie et informe qu'un conseiller va le contacter.";
+      return "Commande finalisée. Remercie et informe qu'un conseiller va le contacter."
     
     default:
-      return "Continuez la conversation normalement.";
+      return "Continuez la conversation normalement."
   }
 }
 
@@ -266,10 +266,10 @@ function detectOrderIntent(message: string): boolean {
     // Actions
     'réserver', 'livraison', 'payer', 'prix', 'finaliser',
     'confirmer', 'valider'
-  ];
+  ]
   
-  const lowerMessage = message.toLowerCase();
-  return orderKeywords.some(keyword => lowerMessage.includes(keyword));
+  const lowerMessage = message.toLowerCase()
+  return orderKeywords.some(keyword => lowerMessage.includes(keyword))
 }
 
 // ✅ AMÉLIORATION : Extraction données plus robuste
@@ -502,45 +502,45 @@ function formatAIResponse(response: string): string {
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     // Nettoyer les espaces
-    .trim();
+    .trim()
 }
 
 // ✅ AMÉLIORATION : Logique d'étapes plus robuste
 function getNextOrderStep(currentStep: string, data: any): OrderCollectionState['step'] {
   switch (currentStep) {
     case 'quantity':
-      return data.quantity ? 'phone' : 'quantity';
+      return data.quantity ? 'phone' : 'quantity'
     case 'phone':
-      return data.customerPhone ? 'name' : 'phone';
+      return data.customerPhone ? 'name' : 'phone'
     case 'name':
-      return (data.customerFirstName || data.customerLastName) ? 'address' : 'name';
+      return (data.customerFirstName || data.customerLastName) ? 'address' : 'name'
     case 'address':
-      return data.customerAddress ? 'payment' : 'address';
+      return data.customerAddress ? 'payment' : 'address'
     case 'payment':
-      return data.paymentMethod ? 'confirmation' : 'payment';
+      return data.paymentMethod ? 'confirmation' : 'payment'
     case 'confirmation':
-      return 'completed';
+      return 'completed'
     default:
-      return 'quantity';
+      return 'quantity'
   }
 }
 
 // ✅ AMÉLIORATION : Message d'accueil avec contexte produit obligatoire
 function generateWelcomeMessage(agent: any, productInfo?: any): string {
-  const baseName = agent.name || 'Assistant';
+  const baseName = agent.name || 'Assistant'
   
   if (productInfo?.name) {
     return `Bonjour ! 👋 Je suis ${baseName}, votre conseiller commercial.
 
 Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! 💫
 
-Comment puis-je vous aider avec ce produit ? 😊`;
+Comment puis-je vous aider avec ce produit ? 😊`
   }
   
   // Si pas de produit détecté, demander
   return `Bonjour ! 👋 Je suis ${baseName}, votre conseiller commercial.
 
-Quel produit vous intéresse aujourd'hui ? Je serais ravi de vous renseigner ! 😊`;
+Quel produit vous intéresse aujourd'hui ? Je serais ravi de vous renseigner ! 😊`
 }
 
 export default async function publicRoutes(fastify: FastifyInstance) {
@@ -671,315 +671,345 @@ export default async function publicRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : Endpoint de chat public AVEC COLLECTE COMMANDES AMÉLIORÉE
   fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
-    const startTime = Date.now();
+  const startTime = Date.now()
+  
+  try {
+    const { shopId, message, conversationId, productInfo, visitorId, isFirstMessage } = request.body
     
-    try {
-      const { shopId, message, conversationId, productInfo, visitorId, isFirstMessage } = request.body;
+    fastify.log.info(`💬 Nouveau message chat pour shop: ${shopId}${isFirstMessage ? ' (premier message)' : ''}`)
+    
+    // ✅ Mode test pour shops non-UUID avec génération améliorée
+    if (!isValidUUID(shopId)) {
+      fastify.log.info(`💬 Mode test détecté pour shop: ${shopId}`)
       
-      fastify.log.info(`💬 Nouveau message chat pour shop: ${shopId}${isFirstMessage ? ' (premier message)' : ''}`);
+      let simulatedResponse = ''
       
-      // Mode test pour shops non-UUID
-      if (!isValidUUID(shopId)) {
-        fastify.log.info(`💬 Mode test détecté pour shop: ${shopId}`);
-        
-        let simulatedResponse = '';
-        
-        if (isFirstMessage && productInfo?.name) {
-          simulatedResponse = generateWelcomeMessage({name: "Rose"}, productInfo);
-        } else {
-          simulatedResponse = getSimulatedAIResponse(message, productInfo);
-        }
-        
-        return {
-          success: true,
-          data: {
-            conversationId: conversationId || `test-conv-${Date.now()}`,
-            message: formatAIResponse(simulatedResponse),
-            agent: {
-              name: "Rose",
-              avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
-            },
-            responseTime: Date.now() - startTime,
-            isWelcomeMessage: isFirstMessage
-          }
-        };
+      if (isFirstMessage && productInfo?.name) {
+        simulatedResponse = generateWelcomeMessage({name: "Rose"}, productInfo)
+      } else {
+        simulatedResponse = getSimulatedAIResponse(message, productInfo)
       }
       
-      await prisma.$connect();
-      
-      // Récupérer la configuration de l'agent
-      const shopConfig = await prisma.shop.findUnique({
-        where: { id: shopId },
-        select: {
-          id: true,
-          name: true,
-          is_active: true
+      return {
+        success: true,
+        data: {
+          conversationId: conversationId || `test-conv-${Date.now()}`,
+          message: formatAIResponse(simulatedResponse),
+          agent: {
+            name: "Rose",
+            avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
+          },
+          responseTime: Date.now() - startTime,
+          isWelcomeMessage: isFirstMessage
         }
-      });
-
-      if (!shopConfig || !shopConfig.is_active) {
-        await prisma.$disconnect();
-        return reply.status(404).send({ error: 'Boutique non trouvée ou inactive' });
       }
+    }
+    
+    await prisma.$connect()
+    
+    // Récupérer la configuration de l'agent
+    const shopConfig = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: {
+        id: true,
+        name: true,
+        is_active: true
+      }
+    })
 
-      const agent = await prisma.agent.findFirst({
-        where: { 
-          shopId: shopId,
-          isActive: true
-        },
-        include: {
-          knowledgeBase: {
-            where: {
-              knowledgeBase: {
-                isActive: true
-              }
-            },
-            include: {
-              knowledgeBase: true
+    if (!shopConfig || !shopConfig.is_active) {
+      await prisma.$disconnect()
+      return reply.status(404).send({ error: 'Boutique non trouvée ou inactive' })
+    }
+
+    const agent = await prisma.agent.findFirst({
+      where: { 
+        shopId: shopId,
+        isActive: true
+      },
+      include: {
+        knowledgeBase: {
+          where: {
+            knowledgeBase: {
+              isActive: true
             }
-          }
-        }
-      });
-
-      if (!agent) {
-        await prisma.$disconnect();
-        return reply.status(404).send({ error: 'Aucun agent actif trouvé pour cette boutique' });
-      }
-
-      // ✅ GESTION PREMIER MESSAGE AUTOMATIQUE AMÉLIORÉ
-      if (isFirstMessage) {
-        const welcomeMessage = generateWelcomeMessage(agent, productInfo);
-        
-        // Créer la conversation
-        const conversation = await prisma.conversation.create({
-          data: {
-            shopId: shopId,
-            agentId: agent.id,
-            visitorId: visitorId || `visitor_${Date.now()}`,
-            productId: productInfo?.id,
-            productName: productInfo?.name,
-            productPrice: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,
-            productUrl: productInfo?.url,
-            visitorIp: request.ip,
-            visitorUserAgent: request.headers['user-agent']
-          }
-        });
-
-        // Sauvegarder le message d'accueil
-        await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            role: 'assistant',
-            content: welcomeMessage,
-            tokensUsed: 0,
-            responseTimeMs: Date.now() - startTime,
-            modelUsed: 'welcome-message'
-          }
-        });
-
-        await prisma.$disconnect();
-
-        return {
-          success: true,
-          data: {
-            conversationId: conversation.id,
-            message: formatAIResponse(welcomeMessage),
-            agent: {
-              name: agent.name,
-              avatar: agent.avatar
-            },
-            responseTime: Date.now() - startTime,
-            isWelcomeMessage: true
-          }
-        };
-      }
-
-      // Créer ou récupérer la conversation
-      let conversation;
-      if (conversationId) {
-        conversation = await prisma.conversation.findUnique({
-          where: { id: conversationId },
-          include: {
-            messages: {
-              orderBy: { createdAt: 'asc' },
-              take: 10 // Limiter l'historique pour l'IA
-            }
-          }
-        });
-      }
-
-      if (!conversation) {
-        conversation = await prisma.conversation.create({
-          data: {
-            shopId: shopId,
-            agentId: agent.id,
-            visitorId: visitorId || `visitor_${Date.now()}`,
-            productId: productInfo?.id,
-            productName: productInfo?.name,
-            productPrice: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,
-            productUrl: productInfo?.url,
-            visitorIp: request.ip,
-            visitorUserAgent: request.headers['user-agent']
           },
           include: {
-            messages: true
+            knowledgeBase: true
           }
-        });
+        }
       }
+    })
 
-      // Sauvegarder le message utilisateur
-      await prisma.message.create({
+    if (!agent) {
+      await prisma.$disconnect()
+      return reply.status(404).send({ error: 'Aucun agent actif trouvé pour cette boutique' })
+    }
+
+    // ✅ GESTION PREMIER MESSAGE AUTOMATIQUE AMÉLIORÉ
+    if (isFirstMessage) {
+      const welcomeMessage = generateWelcomeMessage(agent, productInfo)
+      
+      // Créer la conversation avec informations produit complètes
+      const conversation = await prisma.conversation.create({
         data: {
-          conversationId: conversation.id,
-          role: 'user',
-          content: message
+          shopId: shopId,
+          agentId: agent.id,
+          visitorId: visitorId || `visitor_${Date.now()}`,
+          productId: productInfo?.id,
+          productName: productInfo?.name,
+          productPrice: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,
+          productUrl: productInfo?.url,
+          visitorIp: request.ip,
+          visitorUserAgent: request.headers['user-agent']
         }
-      });
+      })
 
-      // Préparer la base de connaissance
-      const knowledgeContent = agent.knowledgeBase
-        .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
-        .join('\n\n---\n\n');
-
-      // ✅ RÉCUPÉRER L'ÉTAT DE COLLECTE DE COMMANDE depuis customerData
-      let orderState: OrderCollectionState | undefined;
-      
-      try {
-        const customerData = conversation.customerData as any;
-        if (customerData?.orderCollection) {
-          orderState = customerData.orderCollection;
-        }
-      } catch (error) {
-        console.warn('Erreur lecture customerData conversation:', error);
-      }
-
-      // Préparer l'historique des messages pour l'IA
-      const messageHistory = conversation.messages.map(msg => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content
-      }));
-
-      // Ajouter le nouveau message
-      messageHistory.push({ role: 'user', content: message });
-
-      // ✅ APPELER GPT-4O-MINI AVEC COLLECTE DE COMMANDES
-      const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo, orderState);
-      
-      let aiResponse: string = aiResult.fallbackMessage || agent.fallbackMessage || "Je transmets votre question à notre équipe.";
-      let tokensUsed: number = 0;
-
-      if (aiResult.success && aiResult.message) {
-        aiResponse = aiResult.message;
-        tokensUsed = aiResult.tokensUsed || 0;
-      } else {
-        fastify.log.error('❌ Erreur IA:', aiResult.error);
-      }
-
-      // ✅ SAUVEGARDER L'ÉTAT DE COLLECTE DE COMMANDE dans customerData
-      if (aiResult.orderCollection) {
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: {
-            customerData: {
-              orderCollection: aiResult.orderCollection
-            } as any
-          }
-        });
-
-        // ✅ SI COMMANDE TERMINÉE, LA SAUVEGARDER
-        if (aiResult.orderCollection.step === 'completed') {
-          try {
-            await saveOrderToDatabase(
-              conversation.id, 
-              shopId, 
-              agent.id, 
-              {
-                ...aiResult.orderCollection.data,
-                visitorId,
-                visitorIp: request.ip,
-                visitorUserAgent: request.headers['user-agent']
-              }, 
-              productInfo
-            );
-            
-            // Marquer la conversation comme convertie
-            await prisma.conversation.update({
-              where: { id: conversation.id },
-              data: {
-                conversionCompleted: true,
-                customerData: {} // Nettoyer l'état de collecte
-              }
-            });
-            
-          } catch (error) {
-            console.error('❌ Erreur sauvegarde commande:', error);
-          }
-        }
-      }
-
-      // Sauvegarder la réponse de l'IA
+      // Sauvegarder le message d'accueil
       await prisma.message.create({
         data: {
           conversationId: conversation.id,
           role: 'assistant',
-          content: aiResponse,
-          tokensUsed: tokensUsed,
+          content: welcomeMessage,
+          tokensUsed: 0,
           responseTimeMs: Date.now() - startTime,
-          modelUsed: 'gpt-4o-mini'
+          modelUsed: 'welcome-message'
         }
-      });
+      })
 
-      await prisma.$disconnect();
+      await prisma.$disconnect()
 
       return {
         success: true,
         data: {
           conversationId: conversation.id,
-          message: aiResponse,
+          message: formatAIResponse(welcomeMessage),
           agent: {
             name: agent.name,
             avatar: agent.avatar
           },
           responseTime: Date.now() - startTime,
-          tokensUsed,
-          orderCollection: aiResult.orderCollection
+          isWelcomeMessage: true
         }
-      };
-
-    } catch (error: any) {
-      fastify.log.error('❌ Chat error:', error);
-      
-      // Fallback en cas d'erreur
-      const fallbackResponse = request.body.message.toLowerCase().includes('bonjour') || request.body.message.toLowerCase().includes('salut')
-        ? "Bonjour ! Je suis votre conseiller commercial. Comment puis-je vous aider avec ce produit ?"
-        : "Merci pour votre message ! Comment puis-je vous aider davantage ?";
-      
-      return {
-        success: true,
-        data: {
-          conversationId: request.body.conversationId || `fallback-conv-${Date.now()}`,
-          message: formatAIResponse(fallbackResponse),
-          agent: {
-            name: "Rose",
-            avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
-          },
-          responseTime: Date.now() - startTime
-        }
-      };
+      }
     }
-  });
+
+    // Créer ou récupérer la conversation
+    let conversation
+    if (conversationId) {
+      conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: {
+          messages: {
+            orderBy: { createdAt: 'asc' },
+            take: 10 // Limiter l'historique pour l'IA
+          }
+        }
+      })
+    }
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          shopId: shopId,
+          agentId: agent.id,
+          visitorId: visitorId || `visitor_${Date.now()}`,
+          productId: productInfo?.id,
+          productName: productInfo?.name,
+          productPrice: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,
+          productUrl: productInfo?.url,
+          visitorIp: request.ip,
+          visitorUserAgent: request.headers['user-agent']
+        },
+        include: {
+          messages: true
+        }
+      })
+    }
+
+    // Sauvegarder le message utilisateur
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: 'user',
+        content: message
+      }
+    })
+
+    // Préparer la base de connaissance
+    const knowledgeContent = agent.knowledgeBase
+      .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
+      .join('\n\n---\n\n')
+
+    // ✅ RÉCUPÉRER L'ÉTAT DE COLLECTE DE COMMANDE depuis customerData
+    let orderState: OrderCollectionState | undefined
+    
+    try {
+      const customerData = conversation.customerData as any
+      if (customerData?.orderCollection) {
+        orderState = customerData.orderCollection
+      }
+    } catch (error) {
+      console.warn('Erreur lecture customerData conversation:', error)
+    }
+
+    // Préparer l'historique des messages pour l'IA
+    const messageHistory = conversation.messages.map(msg => ({
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content
+    }))
+
+    // Ajouter le nouveau message
+    messageHistory.push({ role: 'user', content: message })
+
+    // ✅ APPELER GPT-4O-MINI AVEC COLLECTE DE COMMANDES AMÉLIORÉE
+    const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo, orderState)
+    
+    let aiResponse: string = aiResult.fallbackMessage || agent.fallbackMessage || "Je transmets votre question à notre équipe."
+    let tokensUsed: number = 0
+
+    if (aiResult.success && aiResult.message) {
+      aiResponse = aiResult.message
+      tokensUsed = aiResult.tokensUsed || 0
+    } else {
+      fastify.log.error('❌ Erreur IA:', aiResult.error)
+    }
+
+    // ✅ SAUVEGARDER L'ÉTAT DE COLLECTE DE COMMANDE dans customerData
+    if (aiResult.orderCollection) {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          customerData: {
+            orderCollection: aiResult.orderCollection
+          } as any
+        }
+      })
+
+      // ✅ SI COMMANDE TERMINÉE, LA SAUVEGARDER AVEC VÉRIFICATION CLIENT EXISTANT
+      if (aiResult.orderCollection.step === 'completed') {
+        try {
+          // ✅ NOUVEAU : Vérifier si le client existe déjà par téléphone
+          const existingOrder = await prisma.order.findFirst({
+            where: {
+              customerPhone: aiResult.orderCollection.data.customerPhone
+            },
+            orderBy: { createdAt: 'desc' }
+          })
+
+          // Si client existant, enrichir les données
+          if (existingOrder && !aiResult.orderCollection.data.customerFirstName) {
+            aiResult.orderCollection.data.customerFirstName = existingOrder.customerName?.split(' ')[0] || undefined
+            aiResult.orderCollection.data.customerLastName = existingOrder.customerName?.split(' ').slice(1).join(' ') || undefined
+            aiResult.orderCollection.data.customerAddress = aiResult.orderCollection.data.customerAddress || existingOrder.customerAddress || undefined
+            aiResult.orderCollection.data.customerEmail = aiResult.orderCollection.data.customerEmail || existingOrder.customerEmail || undefined
+          }
+
+          await saveOrderToDatabase(
+            conversation.id, 
+            shopId, 
+            agent.id, 
+            {
+              ...aiResult.orderCollection.data,
+              visitorId,
+              visitorIp: request.ip,
+              visitorUserAgent: request.headers['user-agent']
+            }, 
+            productInfo
+          )
+          
+          // Marquer la conversation comme convertie
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              conversionCompleted: true,
+              customerData: {} // Nettoyer l'état de collecte
+            }
+          })
+          
+          fastify.log.info(`✅ Commande sauvegardée pour conversation: ${conversation.id}`)
+          
+        } catch (error) {
+          console.error('❌ Erreur sauvegarde commande:', error)
+          fastify.log.error('❌ Erreur sauvegarde commande:', error)
+        }
+      }
+    }
+
+    // Sauvegarder la réponse de l'IA avec formatage
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: 'assistant',
+        content: aiResponse,
+        tokensUsed: tokensUsed,
+        responseTimeMs: Date.now() - startTime,
+        modelUsed: 'gpt-4o-mini'
+      }
+    })
+
+    await prisma.$disconnect()
+
+    return {
+      success: true,
+      data: {
+        conversationId: conversation.id,
+        message: formatAIResponse(aiResponse), // ✅ Formatage systématique
+        agent: {
+          name: agent.name,
+          avatar: agent.avatar
+        },
+        responseTime: Date.now() - startTime,
+        tokensUsed,
+        orderCollection: aiResult.orderCollection
+      }
+    }
+
+  } catch (error: any) {
+    fastify.log.error('❌ Chat error:', error)
+    
+    // ✅ Fallback amélioré avec contexte produit si possible
+    let fallbackResponse = "Merci pour votre message ! Comment puis-je vous aider davantage ?"
+    
+    const userMessage = request.body.message || ''
+    const productInfo = request.body.productInfo
+    
+    if (userMessage.toLowerCase().includes('bonjour') || userMessage.toLowerCase().includes('salut')) {
+      if (productInfo?.name) {
+        fallbackResponse = `Bonjour ! Je suis votre conseiller commercial. Je vois que vous vous intéressez à "${productInfo.name}". Comment puis-je vous aider avec ce produit ?`
+      } else {
+        fallbackResponse = "Bonjour ! Je suis votre conseiller commercial. Comment puis-je vous aider ?"
+      }
+    } else if (productInfo?.name && userMessage.toLowerCase().includes('produit')) {
+      fallbackResponse = `Concernant "${productInfo.name}", je vous mets en relation avec notre équipe pour vous donner les meilleures informations.`
+    }
+    
+    return {
+      success: true,
+      data: {
+        conversationId: request.body.conversationId || `fallback-conv-${Date.now()}`,
+        message: formatAIResponse(fallbackResponse),
+        agent: {
+          name: "Rose",
+          avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
+        },
+        responseTime: Date.now() - startTime
+      }
+    }
+  }
+})
 }
 
 // ✅ FONCTION pour simuler l'IA (fallback pour les tests) - AMÉLIORÉE
 function getSimulatedAIResponse(message: string, productInfo: any): string {
-  const msg = message.toLowerCase();
+  const msg = message.toLowerCase()
   
   if (msg.includes('bonjour') || msg.includes('salut') || msg.includes('hello')) {
     return `Bonjour ! Je suis Rose, votre conseillère commerciale. 👋
 
 Je vois que vous vous intéressez à **"${productInfo?.name || 'ce produit'}"**. 
 
-Comment puis-je vous aider ? 😊`;
+Comment puis-je vous aider ? 😊`
   }
   
   if (msg.includes('prix') || msg.includes('coût') || msg.includes('tarif')) {
@@ -988,15 +1018,15 @@ Comment puis-je vous aider ? 😊`;
 
 C'est un excellent rapport qualité-prix ! 
 
-Voulez-vous que je vous aide à passer commande ? 🛒`;
+Voulez-vous que je vous aide à passer commande ? 🛒`
     }
-    return "Je vais vérifier le prix pour vous. Un instant... 🔍";
+    return "Je vais vérifier le prix pour vous. Un instant... 🔍"
   }
   
   if (msg.includes('acheter') || msg.includes('commander') || msg.includes('commande')) {
     return `Parfait ! Je vais vous aider à finaliser votre commande. ✨
 
-**Combien d'exemplaires** souhaitez-vous commander ? 📦`;
+**Combien d'exemplaires** souhaitez-vous commander ? 📦`
   }
   
   if (msg.includes('info') || msg.includes('détail') || msg.includes('caractéristique')) {
@@ -1004,8 +1034,8 @@ Voulez-vous que je vous aide à passer commande ? 🛒`;
 
 D'après nos informations, c'est l'un de nos produits les plus appréciés. 
 
-Avez-vous des **questions spécifiques** ? 🤔`;
+Avez-vous des **questions spécifiques** ? 🤔`
   }
   
-  return "Merci pour votre message ! Comment puis-je vous aider davantage avec ce produit ? 😊";
+  return "Merci pour votre message ! Comment puis-je vous aider davantage avec ce produit ? 😊"
 }
