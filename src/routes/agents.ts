@@ -1,4 +1,4 @@
-// src/routes/agents.ts
+// src/routes/agents.ts - VERSION CORRIGÉE AVEC GESTION D'ERREURS ROBUSTE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, AgentType, AgentPersonality, Prisma } from '@prisma/client';
@@ -103,9 +103,17 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
         widget_config: {
           theme: "modern",
           language: "fr", 
-          position: "bottom-right",
-          buttonText: "Parler au vendeur",
-          primaryColor: "#3B82F6"
+          position: "above-cta",
+          buttonText: "Parler à un conseiller",
+          primaryColor: "#3B82F6",
+          widgetSize: "medium",
+          borderRadius: "md",
+          animation: "fade",
+          autoOpen: false,
+          showAvatar: true,
+          soundEnabled: true,
+          mobileOptimized: true,
+          isActive: true
         },
         agent_config: {
           name: "Assistant ChatSeller",
@@ -113,7 +121,10 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
           upsellEnabled: false,
           welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
           fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
-          collectPaymentMethod: true
+          collectPaymentMethod: true,
+          aiProvider: "openai",
+          temperature: 0.7,
+          maxTokens: 1000
         }
       }
     });
@@ -159,7 +170,10 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
@@ -231,13 +245,18 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
+      await prisma.$disconnect();
       fastify.log.error('❌ Get agents error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({ 
+        success: false,
         error: 'Erreur lors de la récupération des agents',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
@@ -254,7 +273,10 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       const body = createAgentSchema.parse(request.body);
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
@@ -268,7 +290,9 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       
       if (!canCreate) {
         const limit = PLAN_LIMITS[shop.subscription_plan as keyof typeof PLAN_LIMITS]?.agents || 1;
+        await prisma.$disconnect();
         return reply.status(403).send({ 
+          success: false,
           error: `Plan ${shop.subscription_plan} limité à ${limit} agent(s). Passez au plan supérieur pour en créer plus.`,
           planLimit: limit,
           currentCount: currentAgentsCount
@@ -316,38 +340,49 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
+      await prisma.$disconnect();
       fastify.log.error('❌ Create agent error:', error);
       
       if (error.name === 'ZodError') {
         return reply.status(400).send({
+          success: false,
           error: 'Données invalides',
           details: error.errors
         });
       }
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la création de l\'agent',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
 
-  // ✅ ROUTE : OBTENIR LA CONFIGURATION D'UN AGENT (GET /api/v1/agents/:id/config)
+  // ✅ ROUTE : OBTENIR LA CONFIGURATION D'UN AGENT (GET /api/v1/agents/:id/config) - CORRIGÉE
   fastify.get<{ Params: AgentParamsType }>('/:id/config', async (request, reply) => {
+    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
+      isConnected = true;
 
       // Vérifier que l'agent appartient au shop
       const agent = await prisma.agent.findFirst({
@@ -373,14 +408,18 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       if (!agent) {
-        return reply.status(404).send({ error: 'Agent non trouvé' });
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
       }
 
-      await prisma.$disconnect();
-
-      return {
+      // ✅ STRUCTURE DE RÉPONSE CORRIGÉE - Compatible avec le frontend
+      const response = {
         success: true,
         data: {
+          // ✅ Configuration de l'agent
           agent: {
             id: agent.id,
             name: agent.name,
@@ -391,20 +430,74 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
             fallbackMessage: agent.fallbackMessage,
             avatar: agent.avatar,
             isActive: agent.isActive,
-            config: agent.config
+            config: {
+              ...(agent.config as any || {}),
+              linkedKnowledgeBase: agent.knowledgeBase.map(kb => kb.knowledgeBase.id),
+              aiProvider: (agent.config as any)?.aiProvider || 'openai',
+              temperature: (agent.config as any)?.temperature || 0.7,
+              maxTokens: (agent.config as any)?.maxTokens || 1000,
+              systemPrompt: (agent.config as any)?.systemPrompt || '',
+              tone: (agent.config as any)?.tone || 'friendly'
+            },
+            // ✅ Statistiques calculées
+            totalConversations: 0, // Sera calculé en dessous
+            totalConversions: 0,   // Sera calculé en dessous
+            stats: {
+              conversations: 0,
+              conversions: 0
+            }
           },
+          // ✅ Base de connaissances liée
           knowledgeBase: agent.knowledgeBase.map(kb => kb.knowledgeBase)
         }
       };
 
+      // ✅ Calculer les statistiques réelles
+      try {
+        const [conversations, conversions] = await Promise.all([
+          prisma.conversation.count({
+            where: { agentId: agent.id }
+          }),
+          prisma.conversation.count({
+            where: { 
+              agentId: agent.id,
+              conversionCompleted: true 
+            }
+          })
+        ]);
+
+        response.data.agent.totalConversations = conversations;
+        response.data.agent.totalConversions = conversions;
+        response.data.agent.stats = {
+          conversations,
+          conversions
+        };
+      } catch (statsError) {
+        console.warn('⚠️ Erreur calcul statistiques:', statsError);
+      }
+
+      await prisma.$disconnect();
+      isConnected = false;
+
+      fastify.log.info(`✅ Configuration agent récupérée: ${id}`);
+      return response;
+
     } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
       fastify.log.error('❌ Get agent config error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la récupération de la configuration',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
@@ -413,6 +506,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : METTRE À JOUR LA CONFIGURATION D'UN AGENT (PUT /api/v1/agents/:id/config)
   fastify.put<{ Params: AgentParamsType; Body: AgentConfigBody }>('/:id/config', async (request, reply) => {
+    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -420,10 +514,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       const { config } = request.body;
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
+      isConnected = true;
 
       // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
@@ -434,7 +532,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       if (!existingAgent) {
-        return reply.status(404).send({ error: 'Agent non trouvé' });
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
       }
 
       // Mettre à jour la configuration
@@ -447,6 +549,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       await prisma.$disconnect();
+      isConnected = false;
 
       fastify.log.info(`✅ Configuration agent mise à jour: ${id}`);
 
@@ -460,13 +563,21 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
       fastify.log.error('❌ Update agent config error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la mise à jour de la configuration',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
@@ -475,6 +586,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : LIER UN AGENT À DES DOCUMENTS DE BASE DE CONNAISSANCE (POST /api/v1/agents/:id/knowledge)
   fastify.post<{ Params: AgentParamsType; Body: AgentKnowledgeBody }>('/:id/knowledge', async (request, reply) => {
+    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -482,10 +594,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       const { knowledgeBaseIds } = request.body;
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
+      isConnected = true;
 
       // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
@@ -496,7 +612,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       if (!existingAgent) {
-        return reply.status(404).send({ error: 'Agent non trouvé' });
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
       }
 
       // Supprimer les liaisons existantes
@@ -517,6 +637,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       }
 
       await prisma.$disconnect();
+      isConnected = false;
 
       fastify.log.info(`✅ Base de connaissance liée à l'agent: ${id}`);
 
@@ -526,21 +647,30 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
       fastify.log.error('❌ Link agent knowledge error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la liaison de la base de connaissance',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
 
-  // ✅ ROUTE : MODIFIER UN AGENT (PUT /api/agents/:id)
+  // ✅ ROUTE : MODIFIER UN AGENT (PUT /api/agents/:id) - CORRIGÉE
   fastify.put<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
+    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -548,10 +678,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       const body = updateAgentSchema.parse(request.body);
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
+      isConnected = true;
 
       // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
@@ -562,7 +696,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       if (!existingAgent) {
-        return reply.status(404).send({ error: 'Agent non trouvé' });
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
       }
 
       // Mettre à jour l'agent
@@ -577,11 +715,13 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           ...(body.fallbackMessage !== undefined && { fallbackMessage: body.fallbackMessage }),
           ...(body.avatar !== undefined && { avatar: body.avatar }),
           ...(body.isActive !== undefined && { isActive: body.isActive }),
-          ...(body.config !== undefined && { config: body.config as Prisma.InputJsonObject })
+          ...(body.config !== undefined && { config: body.config as Prisma.InputJsonObject }),
+          updatedAt: new Date()
         }
       });
 
       await prisma.$disconnect();
+      isConnected = false;
 
       fastify.log.info(`✅ Agent modifié avec succès: ${updatedAgent.id}`);
 
@@ -604,20 +744,29 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
       fastify.log.error('❌ Update agent error:', error);
       
       if (error.name === 'ZodError') {
         return reply.status(400).send({
+          success: false,
           error: 'Données invalides',
           details: error.errors
         });
       }
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la modification de l\'agent',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
@@ -626,16 +775,21 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : SUPPRIMER UN AGENT (DELETE /api/agents/:id)
   fastify.delete<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
+    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
+      isConnected = true;
 
       // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
@@ -646,7 +800,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       if (!existingAgent) {
-        return reply.status(404).send({ error: 'Agent non trouvé' });
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
       }
 
       // Supprimer l'agent (cascade supprimera automatiquement les liaisons)
@@ -655,19 +813,31 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       await prisma.$disconnect();
+      isConnected = false;
 
       fastify.log.info(`✅ Agent supprimé avec succès: ${id}`);
 
-      return { success: true, message: 'Agent supprimé avec succès' };
+      return { 
+        success: true, 
+        message: 'Agent supprimé avec succès' 
+      };
 
     } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
       fastify.log.error('❌ Delete agent error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la suppression de l\'agent',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
@@ -676,6 +846,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : ACTIVER/DÉSACTIVER UN AGENT (PATCH /api/agents/:id/toggle)
   fastify.patch<{ Params: AgentParamsType }>('/:id/toggle', async (request, reply) => {
+    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -683,10 +854,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       const body = toggleAgentSchema.parse(request.body);
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
+      isConnected = true;
 
       // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
@@ -697,16 +872,24 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       if (!existingAgent) {
-        return reply.status(404).send({ error: 'Agent non trouvé' });
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
       }
 
       // Mettre à jour le statut
       const updatedAgent = await prisma.agent.update({
         where: { id },
-        data: { isActive: body.isActive }
+        data: { 
+          isActive: body.isActive,
+          updatedAt: new Date()
+        }
       });
 
       await prisma.$disconnect();
+      isConnected = false;
 
       fastify.log.info(`✅ Statut agent modifié: ${id} -> ${body.isActive ? 'actif' : 'inactif'}`);
 
@@ -720,20 +903,29 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
       fastify.log.error('❌ Toggle agent error:', error);
       
       if (error.name === 'ZodError') {
         return reply.status(400).send({
+          success: false,
           error: 'Données invalides',
           details: error.errors
         });
       }
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la modification du statut',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
@@ -742,16 +934,21 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : DUPLIQUER UN AGENT (POST /api/agents/:id/duplicate)
   fastify.post<{ Params: AgentParamsType }>('/:id/duplicate', async (request, reply) => {
+    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
+      isConnected = true;
 
       // Vérifier les limites du plan
       const currentAgentsCount = await prisma.agent.count({
@@ -762,7 +959,9 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       
       if (!canCreate) {
         const limit = PLAN_LIMITS[shop.subscription_plan as keyof typeof PLAN_LIMITS]?.agents || 1;
+        await prisma.$disconnect();
         return reply.status(403).send({ 
+          success: false,
           error: `Plan ${shop.subscription_plan} limité à ${limit} agent(s).`,
           planLimit: limit,
           currentCount: currentAgentsCount
@@ -781,7 +980,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       if (!originalAgent) {
-        return reply.status(404).send({ error: 'Agent non trouvé' });
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
       }
 
       // Créer la copie
@@ -813,6 +1016,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       }
 
       await prisma.$disconnect();
+      isConnected = false;
 
       fastify.log.info(`✅ Agent dupliqué avec succès: ${duplicatedAgent.id}`);
 
@@ -836,13 +1040,21 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
       fastify.log.error('❌ Duplicate agent error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la duplication de l\'agent',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
@@ -851,16 +1063,21 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : RÉCUPÉRER LA BASE DE CONNAISSANCE D'UN AGENT (GET /api/v1/agents/:id/knowledge)
   fastify.get<{ Params: AgentParamsType }>('/:id/knowledge', async (request, reply) => {
+    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
       const shop = await getOrCreateShop(user, fastify);
 
       if (!shop) {
-        return reply.status(404).send({ error: 'Shop non trouvé' });
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
       }
 
       await prisma.$connect();
+      isConnected = true;
 
       // Vérifier que l'agent appartient au shop
       const agent = await prisma.agent.findFirst({
@@ -889,10 +1106,12 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
 
       if (!agent) {
-        return reply.status(404).send({ error: 'Agent non trouvé' });
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
       }
-
-      await prisma.$disconnect();
 
       const knowledgeBaseDocuments = agent.knowledgeBase.map(kb => ({
         id: kb.knowledgeBase.id,
@@ -907,6 +1126,9 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         linkedAt: kb.createdAt
       }));
 
+      await prisma.$disconnect();
+      isConnected = false;
+
       fastify.log.info(`✅ Base de connaissance récupérée pour agent: ${id} (${knowledgeBaseDocuments.length} documents)`);
 
       return {
@@ -915,13 +1137,21 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
       fastify.log.error('❌ Get agent knowledge error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ error: error.message });
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
       }
       
       return reply.status(500).send({
+        success: false,
         error: 'Erreur lors de la récupération de la base de connaissance',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
