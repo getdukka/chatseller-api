@@ -1157,4 +1157,107 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       });
     }
   });
+
+  // ✅ ROUTE : LIER UN AGENT À DES DOCUMENTS DE BASE DE CONNAISSANCE (PUT /api/v1/agents/:id/knowledge-base)
+  fastify.put<{ Params: AgentParamsType }>('/:id/knowledge-base', async (request, reply) => {
+    let isConnected = false;
+    try {
+      const { id } = request.params;
+      const user = await verifySupabaseAuth(request);
+      const shop = await getOrCreateShop(user, fastify);
+      const { documentIds } = request.body as { documentIds: string[] };
+
+      if (!shop) {
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Shop non trouvé' 
+        });
+      }
+
+      await prisma.$connect();
+      isConnected = true;
+
+      // Vérifier que l'agent appartient au shop
+      const existingAgent = await prisma.agent.findFirst({
+        where: { 
+          id,
+          shopId: shop.id 
+        }
+      });
+
+      if (!existingAgent) {
+        await prisma.$disconnect();
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent non trouvé' 
+        });
+      }
+
+      // Supprimer les liaisons existantes
+      await prisma.agentKnowledgeBase.deleteMany({
+        where: { agentId: id }
+      });
+
+      // Créer les nouvelles liaisons
+      if (documentIds && documentIds.length > 0) {
+        await prisma.agentKnowledgeBase.createMany({
+          data: documentIds.map((kbId, index) => ({
+            agentId: id,
+            knowledgeBaseId: kbId,
+            isActive: true,
+            priority: index
+          }))
+        });
+      }
+
+      // Récupérer les documents liés avec leurs informations complètes
+      const linkedDocuments = await prisma.agentKnowledgeBase.findMany({
+        where: { agentId: id },
+        include: {
+          knowledgeBase: {
+            select: {
+              id: true,
+              title: true,
+              contentType: true,
+              isActive: true,
+              tags: true
+            }
+          }
+        }
+      });
+
+      await prisma.$disconnect();
+      isConnected = false;
+
+      fastify.log.info(`✅ Base de connaissance liée à l'agent: ${id}`);
+
+      return {
+        success: true,
+        message: 'Base de connaissance mise à jour avec succès',
+        data: {
+          documents: linkedDocuments.map(link => link.knowledgeBase)
+        }
+      };
+
+    } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
+      }
+      
+      fastify.log.error('❌ Link agent knowledge error:', error);
+      
+      if (error.message === 'Token manquant' || error.message === 'Token invalide') {
+        return reply.status(401).send({ 
+          success: false, 
+          error: error.message 
+        });
+      }
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la liaison de la base de connaissance',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
 }
