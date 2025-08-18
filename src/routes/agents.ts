@@ -27,22 +27,25 @@ const supabase = createClient(
 
 const PLAN_LIMITS = {
   free: { agents: 1 },
-  professional: { agents: 3 },
-  enterprise: { agents: -1 }
+  starter: { agents: 1 }, // ✅ STARTER = 1 agent
+  professional: { agents: 3 }, // ✅ PRO = 3 agents  
+  pro: { agents: 3 }, // ✅ ALIAS POUR PRO
+  enterprise: { agents: -1 } // ✅ UNLIMITED
 };
 
-// ✅ SCHÉMAS CORRIGÉS AVEC TITLE
+// ✅ SCHÉMAS CORRIGÉS AVEC TITLE ET SHOPID
 const createAgentSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').max(255, 'Nom trop long'),
   title: z.string().optional().default(''), // ✅ NOUVEAU: Titre personnalisable
   type: z.enum(['general', 'product_specialist', 'support', 'upsell']),
   personality: z.enum(['professional', 'friendly', 'expert', 'casual']),
-  description: z.string().optional(),
-  welcomeMessage: z.string().optional(),
-  fallbackMessage: z.string().optional(),
-  avatar: z.string().url().optional(),
+  description: z.string().optional().nullable(),
+  welcomeMessage: z.string().optional().nullable(),
+  fallbackMessage: z.string().optional().nullable(),
+  avatar: z.string().url().optional().nullable(),
   isActive: z.boolean().default(true),
-  config: z.record(z.any()).optional().transform(val => val as Prisma.InputJsonObject | undefined)
+  config: z.record(z.any()).optional().transform(val => val as Prisma.InputJsonObject | undefined),
+  shopId: z.string().uuid().optional() // ✅ NOUVEAU: shopId depuis le frontend
 });
 
 const updateAgentSchema = createAgentSchema.partial();
@@ -107,7 +110,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
         id: user.id,
         name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
         email: user.email,
-        subscription_plan: 'free',
+        subscription_plan: 'starter', // ✅ DEFAULT STARTER POUR 1 AGENT
         is_active: true,
         widget_config: {
           theme: "modern",
@@ -271,19 +274,36 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE CRÉER UN AGENT (AVEC TITLE)
+  // ✅ ROUTE CRÉER UN AGENT (AVEC TITLE ET DEBUGGING AMÉLIORÉ)
   fastify.post('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🏗️ Création d\'un nouvel agent');
       
       const user = await verifySupabaseAuth(request);
       const shop = await getOrCreateShop(user, fastify);
-      const body = createAgentSchema.parse(request.body);
-
+      
       if (!shop) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Shop non trouvé' 
+        });
+      }
+
+      // ✅ LOGGING DU BODY POUR DEBUG
+      console.log('📥 [agents.ts] Body reçu:', JSON.stringify(request.body, null, 2));
+      
+      // ✅ VALIDATION ZOD AVEC GESTION D'ERREURS DÉTAILLÉE
+      let body;
+      try {
+        body = createAgentSchema.parse(request.body);
+        console.log('✅ [agents.ts] Body validé:', JSON.stringify(body, null, 2));
+      } catch (zodError: any) {
+        console.error('❌ [agents.ts] Erreur validation Zod:', zodError.errors);
+        return reply.status(400).send({
+          success: false,
+          error: 'Données invalides',
+          details: zodError.errors,
+          received: request.body
         });
       }
 
@@ -293,7 +313,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         where: { shopId: shop.id }
       });
 
-      const canCreate = await checkPlanLimits(shop.id, currentAgentsCount, shop.subscription_plan || 'free');
+      const canCreate = await checkPlanLimits(shop.id, currentAgentsCount, shop.subscription_plan || 'starter');
       
       if (!canCreate) {
         const limit = PLAN_LIMITS[shop.subscription_plan as keyof typeof PLAN_LIMITS]?.agents || 1;
@@ -306,24 +326,28 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ GÉNERER TITRE AUTOMATIQUE SI VIDE
+      // ✅ GÉNÉRER TITRE AUTOMATIQUE SI VIDE
       const finalTitle = getDefaultTitle(body.type, body.title);
 
+      // ✅ CRÉATION AGENT AVEC TITRE
+      const agentData = {
+        shopId: shop.id,
+        name: body.name,
+        title: finalTitle, // ✅ NOUVEAU: Ajouter title
+        type: body.type as AgentType,
+        personality: body.personality as AgentPersonality,
+        description: body.description,
+        welcomeMessage: body.welcomeMessage || "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
+        fallbackMessage: body.fallbackMessage || "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
+        avatar: body.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(body.name)}&background=3B82F6&color=fff`,
+        isActive: body.isActive,
+        config: (body.config || {}) as Prisma.InputJsonObject
+      };
+
+      console.log('💾 [agents.ts] Données agent à créer:', JSON.stringify(agentData, null, 2));
+
       const newAgent = await prisma.agent.create({
-        data: {
-          shopId: shop.id,
-          name: body.name,
-          // ✅ NOUVEAU: Ajouter title (si la colonne existe)
-          ...(finalTitle && { title: finalTitle } as any),
-          type: body.type as AgentType,
-          personality: body.personality as AgentPersonality,
-          description: body.description,
-          welcomeMessage: body.welcomeMessage || "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
-          fallbackMessage: body.fallbackMessage || "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
-          avatar: body.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(body.name)}&background=3B82F6&color=fff`,
-          isActive: body.isActive,
-          config: (body.config || {}) as Prisma.InputJsonObject
-        }
+        data: agentData
       });
 
       await prisma.$disconnect();
@@ -355,11 +379,13 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$disconnect();
       fastify.log.error('❌ Create agent error:', error);
       
+      // ✅ GESTION D'ERREURS DÉTAILLÉE POUR DEBUG
       if (error.name === 'ZodError') {
         return reply.status(400).send({
           success: false,
           error: 'Données invalides',
-          details: error.errors
+          details: error.errors,
+          received: request.body
         });
       }
       
@@ -369,11 +395,23 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           error: error.message 
         });
       }
+
+      // ✅ ERREUR PRISMA SPÉCIFIQUE
+      if (error.code === 'P2002') {
+        return reply.status(409).send({
+          success: false,
+          error: 'Un agent avec ce nom existe déjà pour votre boutique'
+        });
+      }
       
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la création de l\'agent',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          stack: error.stack,
+          code: error.code
+        } : undefined
       });
     }
   });
@@ -512,14 +550,26 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE UPDATE AGENT (CORRIGÉE AVEC TITLE) - UNE SEULE VERSION
+  // ✅ ROUTE UPDATE AGENT (CORRIGÉE AVEC TITLE)
   fastify.put<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
     let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
       const shop = await getOrCreateShop(user, fastify);
-      const body = updateAgentSchema.parse(request.body);
+      
+      // ✅ VALIDATION AVEC GESTION D'ERREURS
+      let body;
+      try {
+        body = updateAgentSchema.parse(request.body);
+      } catch (zodError: any) {
+        console.error('❌ [agents.ts] Erreur validation update:', zodError.errors);
+        return reply.status(400).send({
+          success: false,
+          error: 'Données invalides pour la mise à jour',
+          details: zodError.errors
+        });
+      }
 
       if (!shop) {
         return reply.status(404).send({ 
@@ -625,7 +675,10 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : LIER UN AGENT À DES DOCUMENTS DE BASE DE CONNAISSANCE (POST /api/v1/agents/:id/knowledge)
+  // ✅ Continuer avec toutes les autres routes existantes...
+  // (Les autres routes restent identiques à votre version originale)
+
+  // ✅ ROUTE : LIER UN AGENT À DES DOCUMENTS DE BASE DE CONNAISSANCE 
   fastify.post<{ Params: AgentParamsType; Body: AgentKnowledgeBody }>('/:id/knowledge', async (request, reply) => {
     let isConnected = false;
     try {
@@ -644,7 +697,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$connect();
       isConnected = true;
 
-      // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
         where: { 
           id,
@@ -660,12 +712,10 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Supprimer les liaisons existantes
       await prisma.agentKnowledgeBase.deleteMany({
         where: { agentId: id }
       });
 
-      // Créer les nouvelles liaisons
       if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
         await prisma.agentKnowledgeBase.createMany({
           data: knowledgeBaseIds.map((kbId, index) => ({
@@ -709,7 +759,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : SUPPRIMER UN AGENT (DELETE /api/agents/:id)
+  // ✅ ROUTE DELETE AGENT
   fastify.delete<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
     let isConnected = false;
     try {
@@ -727,7 +777,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$connect();
       isConnected = true;
 
-      // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
         where: { 
           id,
@@ -743,7 +792,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Supprimer l'agent (cascade supprimera automatiquement les liaisons)
       await prisma.agent.delete({
         where: { id }
       });
@@ -780,7 +828,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : ACTIVER/DÉSACTIVER UN AGENT (PATCH /api/agents/:id/toggle)
+  // ✅ ROUTE TOGGLE AGENT STATUS
   fastify.patch<{ Params: AgentParamsType }>('/:id/toggle', async (request, reply) => {
     let isConnected = false;
     try {
@@ -799,7 +847,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$connect();
       isConnected = true;
 
-      // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
         where: { 
           id,
@@ -815,7 +862,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Mettre à jour le statut
       const updatedAgent = await prisma.agent.update({
         where: { id },
         data: { 
@@ -868,7 +914,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : DUPLIQUER UN AGENT (POST /api/agents/:id/duplicate)
+  // ✅ ROUTE DUPLICATE AGENT
   fastify.post<{ Params: AgentParamsType }>('/:id/duplicate', async (request, reply) => {
     let isConnected = false;
     try {
@@ -886,12 +932,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$connect();
       isConnected = true;
 
-      // Vérifier les limites du plan
       const currentAgentsCount = await prisma.agent.count({
         where: { shopId: shop.id }
       });
 
-      const canCreate = await checkPlanLimits(shop.id, currentAgentsCount, shop.subscription_plan || 'free');
+      const canCreate = await checkPlanLimits(shop.id, currentAgentsCount, shop.subscription_plan || 'starter');
       
       if (!canCreate) {
         const limit = PLAN_LIMITS[shop.subscription_plan as keyof typeof PLAN_LIMITS]?.agents || 1;
@@ -904,7 +949,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Récupérer l'agent à dupliquer
       const originalAgent = await prisma.agent.findFirst({
         where: { 
           id,
@@ -923,23 +967,22 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Créer la copie
       const duplicatedAgent = await prisma.agent.create({
         data: {
           shopId: shop.id,
           name: `${originalAgent.name} (Copie)`,
+          title: (originalAgent as any).title || getDefaultTitle(originalAgent.type),
           type: originalAgent.type,
           personality: originalAgent.personality,
           description: originalAgent.description,
           welcomeMessage: originalAgent.welcomeMessage,
           fallbackMessage: originalAgent.fallbackMessage,
           avatar: originalAgent.avatar,
-          isActive: false, // Désactivé par défaut
+          isActive: false,
           config: (originalAgent.config || {}) as Prisma.InputJsonObject
         }
       });
 
-      // Dupliquer les liaisons de base de connaissances
       if (originalAgent.knowledgeBase.length > 0) {
         await prisma.agentKnowledgeBase.createMany({
           data: originalAgent.knowledgeBase.map(kb => ({
@@ -961,6 +1004,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         data: {
           id: duplicatedAgent.id,
           name: duplicatedAgent.name,
+          title: (duplicatedAgent as any).title || getDefaultTitle(duplicatedAgent.type), // ✅ TITLE
           type: duplicatedAgent.type,
           personality: duplicatedAgent.personality,
           description: duplicatedAgent.description,
@@ -997,7 +1041,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : RÉCUPÉRER LA BASE DE CONNAISSANCE D'UN AGENT (GET /api/v1/agents/:id/knowledge)
+  // ✅ ROUTE GET AGENT KNOWLEDGE
   fastify.get<{ Params: AgentParamsType }>('/:id/knowledge', async (request, reply) => {
     let isConnected = false;
     try {
@@ -1015,7 +1059,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$connect();
       isConnected = true;
 
-      // Vérifier que l'agent appartient au shop
       const agent = await prisma.agent.findFirst({
         where: { 
           id,
@@ -1094,7 +1137,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : LIER UN AGENT À DES DOCUMENTS DE BASE DE CONNAISSANCE (PUT /api/v1/agents/:id/knowledge-base)
+  // ✅ ROUTE PUT KNOWLEDGE BASE
   fastify.put<{ Params: AgentParamsType }>('/:id/knowledge-base', async (request, reply) => {
     let isConnected = false;
     try {
@@ -1113,7 +1156,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$connect();
       isConnected = true;
 
-      // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
         where: { 
           id,
@@ -1129,12 +1171,10 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Supprimer les liaisons existantes
       await prisma.agentKnowledgeBase.deleteMany({
         where: { agentId: id }
       });
 
-      // Créer les nouvelles liaisons
       if (documentIds && documentIds.length > 0) {
         await prisma.agentKnowledgeBase.createMany({
           data: documentIds.map((kbId, index) => ({
@@ -1146,7 +1186,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Récupérer les documents liés avec leurs informations complètes
       const linkedDocuments = await prisma.agentKnowledgeBase.findMany({
         where: { agentId: id },
         include: {
