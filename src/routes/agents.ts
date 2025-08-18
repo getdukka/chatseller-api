@@ -1,10 +1,9 @@
-// src/routes/agents.ts - VERSION CORRIGÉE AVEC GESTION D'ERREURS ROBUSTE
+// src/routes/agents.ts - CORRIGÉ AVEC SUPPORT TITLE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, AgentType, AgentPersonality, Prisma } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ CRÉER UNE INSTANCE PRISMA
 let prisma: PrismaClient;
 
 try {
@@ -26,16 +25,16 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// ✅ CONFIGURATION DES PLANS
 const PLAN_LIMITS = {
   free: { agents: 1 },
   professional: { agents: 3 },
-  enterprise: { agents: -1 } // illimité
+  enterprise: { agents: -1 }
 };
 
-// ✅ SCHÉMAS DE VALIDATION
+// ✅ SCHÉMAS CORRIGÉS AVEC TITLE
 const createAgentSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').max(255, 'Nom trop long'),
+  title: z.string().optional().default(''), // ✅ NOUVEAU: Titre personnalisable
   type: z.enum(['general', 'product_specialist', 'support', 'upsell']),
   personality: z.enum(['professional', 'friendly', 'expert', 'casual']),
   description: z.string().optional(),
@@ -52,7 +51,21 @@ const toggleAgentSchema = z.object({
   isActive: z.boolean()
 });
 
-// ✅ HELPER: Vérifier l'auth Supabase
+// ✅ HELPER: Générer titre par défaut
+function getDefaultTitle(type: string, customTitle?: string): string {
+  if (customTitle && customTitle.trim()) {
+    return customTitle.trim()
+  }
+  
+  const defaultTitles = {
+    'general': 'Conseiller commercial',
+    'product_specialist': 'Spécialiste produit',
+    'support': 'Conseiller support',
+    'upsell': 'Conseiller premium'
+  }
+  return defaultTitles[type as keyof typeof defaultTitles] || 'Assistant commercial'
+}
+
 async function verifySupabaseAuth(request: FastifyRequest) {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -69,12 +82,10 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   return user;
 }
 
-// ✅ HELPER: Récupérer ou créer un shop
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   try {
     await prisma.$connect();
     
-    // Chercher d'abord par ID utilisateur
     let shop = await prisma.shop.findUnique({
       where: { id: user.id }
     });
@@ -83,7 +94,6 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
       return shop;
     }
 
-    // Chercher par email
     shop = await prisma.shop.findUnique({
       where: { email: user.email }
     });
@@ -92,7 +102,6 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
       return shop;
     }
 
-    // Créer automatiquement le shop si il n'existe pas
     const newShop = await prisma.shop.create({
       data: {
         id: user.id,
@@ -117,6 +126,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
         },
         agent_config: {
           name: "Assistant ChatSeller",
+          title: "Assistant commercial", // ✅ NOUVEAU: Titre par défaut
           avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
           upsellEnabled: false,
           welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
@@ -136,17 +146,15 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   }
 }
 
-// ✅ HELPER: Vérifier les limites du plan
 async function checkPlanLimits(shopId: string, currentCount: number, plan: string) {
   const limit = PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS]?.agents;
   
-  if (limit === -1) return true; // Illimité
-  if (limit === undefined) return false; // Plan inconnu
+  if (limit === -1) return true;
+  if (limit === undefined) return false;
   
   return currentCount < limit;
 }
 
-// ✅ INTERFACES POUR LES TYPES DE REQUÊTE
 interface AgentParamsType {
   id: string;
 }
@@ -161,7 +169,7 @@ interface AgentKnowledgeBody {
 
 export default async function agentsRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE : LISTE DES AGENTS (GET /api/agents)
+  // ✅ ROUTE LISTE DES AGENTS (AVEC TITLE)
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🔍 Récupération des agents');
@@ -197,7 +205,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         orderBy: { updatedAt: 'desc' }
       });
 
-      // Calculer les statistiques réelles
       const agentsWithStats = await Promise.all(
         agents.map(async (agent) => {
           const conversations = await prisma.conversation.count({
@@ -214,6 +221,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           return {
             id: agent.id,
             name: agent.name,
+            title: (agent as any).title || getDefaultTitle(agent.type), // ✅ NOUVEAU: Title
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
@@ -263,7 +271,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UN AGENT (POST /api/agents)
+  // ✅ ROUTE CRÉER UN AGENT (AVEC TITLE)
   fastify.post('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🏗️ Création d\'un nouvel agent');
@@ -281,7 +289,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
 
       await prisma.$connect();
 
-      // Vérifier les limites du plan
       const currentAgentsCount = await prisma.agent.count({
         where: { shopId: shop.id }
       });
@@ -299,11 +306,15 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Créer l'agent
+      // ✅ GÉNERER TITRE AUTOMATIQUE SI VIDE
+      const finalTitle = getDefaultTitle(body.type, body.title);
+
       const newAgent = await prisma.agent.create({
         data: {
           shopId: shop.id,
           name: body.name,
+          // ✅ NOUVEAU: Ajouter title (si la colonne existe)
+          ...(finalTitle && { title: finalTitle } as any),
           type: body.type as AgentType,
           personality: body.personality as AgentPersonality,
           description: body.description,
@@ -324,6 +335,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         data: {
           id: newAgent.id,
           name: newAgent.name,
+          title: finalTitle, // ✅ NOUVEAU: Retourner le title
           type: newAgent.type,
           personality: newAgent.personality,
           description: newAgent.description,
@@ -366,7 +378,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR LA CONFIGURATION D'UN AGENT (GET /api/v1/agents/:id/config) - CORRIGÉE
+  // ✅ ROUTE GET CONFIG AGENT (CORRIGÉE AVEC TITLE)
   fastify.get<{ Params: AgentParamsType }>('/:id/config', async (request, reply) => {
     let isConnected = false;
     try {
@@ -384,7 +396,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$connect();
       isConnected = true;
 
-      // Vérifier que l'agent appartient au shop
       const agent = await prisma.agent.findFirst({
         where: { 
           id,
@@ -415,14 +426,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ STRUCTURE DE RÉPONSE CORRIGÉE - Compatible avec le frontend
+      // ✅ STRUCTURE CORRIGÉE AVEC TITLE
       const response = {
         success: true,
         data: {
-          // ✅ Configuration de l'agent
           agent: {
             id: agent.id,
             name: agent.name,
+            title: (agent as any).title || getDefaultTitle(agent.type), // ✅ NOUVEAU: Title personnalisable
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
@@ -439,20 +450,17 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
               systemPrompt: (agent.config as any)?.systemPrompt || '',
               tone: (agent.config as any)?.tone || 'friendly'
             },
-            // ✅ Statistiques calculées
-            totalConversations: 0, // Sera calculé en dessous
-            totalConversions: 0,   // Sera calculé en dessous
+            totalConversations: 0,
+            totalConversions: 0,
             stats: {
               conversations: 0,
               conversions: 0
             }
           },
-          // ✅ Base de connaissances liée
           knowledgeBase: agent.knowledgeBase.map(kb => kb.knowledgeBase)
         }
       };
 
-      // ✅ Calculer les statistiques réelles
       try {
         const [conversations, conversions] = await Promise.all([
           prisma.conversation.count({
@@ -504,14 +512,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : METTRE À JOUR LA CONFIGURATION D'UN AGENT (PUT /api/v1/agents/:id/config)
-  fastify.put<{ Params: AgentParamsType; Body: AgentConfigBody }>('/:id/config', async (request, reply) => {
+  // ✅ ROUTE UPDATE AGENT (CORRIGÉE AVEC TITLE)
+  fastify.put<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
     let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
       const shop = await getOrCreateShop(user, fastify);
-      const { config } = request.body;
+      const body = updateAgentSchema.parse(request.body);
 
       if (!shop) {
         return reply.status(404).send({ 
@@ -523,7 +531,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       await prisma.$connect();
       isConnected = true;
 
-      // Vérifier que l'agent appartient au shop
       const existingAgent = await prisma.agent.findFirst({
         where: { 
           id,
@@ -539,25 +546,51 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Mettre à jour la configuration
+      // ✅ CONSTRUIRE LES DONNÉES DE MISE À JOUR AVEC TITLE
+      const updateData: any = {
+        ...(body.name && { name: body.name }),
+        ...(body.type && { type: body.type as AgentType }),
+        ...(body.personality && { personality: body.personality as AgentPersonality }),
+        ...(body.description !== undefined && { description: body.description }),
+        ...(body.welcomeMessage !== undefined && { welcomeMessage: body.welcomeMessage }),
+        ...(body.fallbackMessage !== undefined && { fallbackMessage: body.fallbackMessage }),
+        ...(body.avatar !== undefined && { avatar: body.avatar }),
+        ...(body.isActive !== undefined && { isActive: body.isActive }),
+        ...(body.config !== undefined && { config: body.config as Prisma.InputJsonObject }),
+        updatedAt: new Date()
+      }
+
+      // ✅ NOUVEAU: Gestion du title
+      if (body.title !== undefined) {
+        const finalTitle = getDefaultTitle(body.type || existingAgent.type, body.title);
+        updateData.title = finalTitle;
+      }
+
       const updatedAgent = await prisma.agent.update({
         where: { id },
-        data: {
-          config: (config || {}) as Prisma.InputJsonObject,
-          updatedAt: new Date()
-        }
+        data: updateData
       });
 
       await prisma.$disconnect();
       isConnected = false;
 
-      fastify.log.info(`✅ Configuration agent mise à jour: ${id}`);
+      fastify.log.info(`✅ Agent modifié avec succès: ${updatedAgent.id}`);
 
       return {
         success: true,
         data: {
           id: updatedAgent.id,
+          name: updatedAgent.name,
+          title: (updatedAgent as any).title || getDefaultTitle(updatedAgent.type), // ✅ NOUVEAU: Title
+          type: updatedAgent.type,
+          personality: updatedAgent.personality,
+          description: updatedAgent.description,
+          welcomeMessage: updatedAgent.welcomeMessage,
+          fallbackMessage: updatedAgent.fallbackMessage,
+          avatar: updatedAgent.avatar,
+          isActive: updatedAgent.isActive,
           config: updatedAgent.config,
+          createdAt: updatedAgent.createdAt.toISOString(),
           updatedAt: updatedAgent.updatedAt.toISOString()
         }
       };
@@ -567,7 +600,15 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         await prisma.$disconnect();
       }
       
-      fastify.log.error('❌ Update agent config error:', error);
+      fastify.log.error('❌ Update agent error:', error);
+      
+      if (error.name === 'ZodError') {
+        return reply.status(400).send({
+          success: false,
+          error: 'Données invalides',
+          details: error.errors
+        });
+      }
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
         return reply.status(401).send({ 
@@ -578,7 +619,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       
       return reply.status(500).send({
         success: false,
-        error: 'Erreur lors de la mise à jour de la configuration',
+        error: 'Erreur lors de la modification de l\'agent',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }

@@ -89,14 +89,15 @@ function getFallbackShopConfig(shopId: string) {
           theme: "modern",
           language: "fr", 
           position: "bottom-right",
-          buttonText: "Parler au vendeur",
+          buttonText: "Parler à la vendeuse",
           primaryColor: "#E91E63"
         },
         agentConfig: {
           name: "Rose",
+          title: "Vendeuse commerciale",
           avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff",
           upsellEnabled: false,
-          welcomeMessage: "Bonjour ! Je suis le Vendeur IA de Chatseller. Comment puis-je vous aider aujourd'hui ?",
+          welcomeMessage: "Bonjour ! Je suis Rose, votre vendeuse IA. Comment puis-je vous aider aujourd'hui ?",
           fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
           collectPaymentMethod: true
         }
@@ -104,10 +105,11 @@ function getFallbackShopConfig(shopId: string) {
       agent: {
         id: `agent-${shopId}`,
         name: "Rose",
+        title: "Vendeuse commerciale", 
         type: "general",
         personality: "friendly",
-        description: "Assistante d'achat spécialisée dans l'accompagnement des clients",
-        welcomeMessage: "Bonjour ! Je suis le Vendeur IA de Chatseller. Comment puis-je vous aider aujourd'hui ?",
+        description: "Vendeuse spécialisée dans l'accompagnement des clients",
+        welcomeMessage: "Bonjour ! Je suis Rose, votre vendeuse IA. Comment puis-je vous aider aujourd'hui ?",
         fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
         avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff",
         config: {
@@ -129,7 +131,7 @@ Veuillez parcourir notre catalogue pour découvrir nos produits.`,
             id: 'doc-fallback-001',
             title: 'Informations produits et boutique',
             contentType: 'manual',
-            tags: ['boutique', 'produits', 'jeu-couples']
+            tags: ['boutique', 'produits']
           }
         ]
       }
@@ -139,9 +141,11 @@ Veuillez parcourir notre catalogue pour découvrir nos produits.`,
 
 // ✅ AMÉLIORATION : Générer le prompt système avec détection produit
 function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState) {
-  const basePrompt = `Tu es ${agent.name}, un vendeur IA commercial expert et ${agent.personality === 'friendly' ? 'chaleureux' : 'professionnel'}.
+  const agentTitle = agent.title || getDefaultTitle(agent.type) // ✅ NOUVEAU
+  
+  const basePrompt = `Tu es ${agent.name}, ${agentTitle} expert et ${agent.personality === 'friendly' ? 'chaleureux' : 'professionnel'}.
 
-🎯 RÔLE: Vendeur commercial spécialisé dans la conversion et l'accompagnement client.
+🎯 RÔLE: ${agentTitle} spécialisé dans la conversion et l'accompagnement client.
 
 💡 PERSONNALITÉ: ${agent.personality}
 - ${agent.personality === 'friendly' ? 'Bienveillant, empathique, à l\'écoute' : 'Professionnel, expert, efficace'}
@@ -204,7 +208,7 @@ PROCÉDURE STRICTE (dans cet ordre) :
 3. **Expertise produit**: Utilise ta base de connaissance pour être précis
 4. **Détection intention**: Sois attentif aux signaux d'achat
 5. **Collecte structurée**: Suis la procédure exacte pour les commandes
-6. **Reste en rôle**: Tu es un vendeur expert, pas un chatbot générique
+6. **Reste en rôle**: Tu es ${agentTitle}, pas un chatbot générique
 
 🚨 RÈGLES ABSOLUES:
 - Ne commence JAMAIS la collecte sans intention d'achat claire
@@ -530,110 +534,98 @@ function getNextOrderStep(currentStep: string, data: any): OrderCollectionState[
 // ✅ AMÉLIORATION : Message d'accueil avec contexte produit obligatoire
 function generateWelcomeMessage(agent: any, productInfo?: any): string {
   const baseName = agent.name || 'Assistant'
+  const baseTitle = agent.title || getDefaultTitle(agent.type) // ✅ NOUVEAU: Utiliser title personnalisable
   
   if (productInfo?.name) {
-    return `Bonjour ! 👋 Je suis ${baseName}, votre conseiller commercial.
+    return `Bonjour ! 👋 Je suis ${baseName}, ${baseTitle}.
 
 Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! 💫
 
 Comment puis-je vous aider avec ce produit ? 😊`
   }
   
-  // Si pas de produit détecté, demander
-  return `Bonjour ! 👋 Je suis ${baseName}, votre conseiller commercial.
+  return `Bonjour ! 👋 Je suis ${baseName}, ${baseTitle}.
 
 Quel produit vous intéresse aujourd'hui ? Je serais ravi de vous renseigner ! 😊`
+}
+
+// ✅ NOUVEAU: Helper pour titre par défaut (cohérent avec agents.ts)
+function getDefaultTitle(type: string): string {
+  const titles = {
+    'general': 'Conseiller commercial',
+    'product_specialist': 'Spécialiste produit',
+    'support': 'Conseiller support',
+    'upsell': 'Conseiller premium'
+  }
+  return titles[type as keyof typeof titles] || 'Assistant commercial'
 }
 
 export default async function publicRoutes(fastify: FastifyInstance) {
   
   // ✅ ROUTE : Récupérer la configuration publique d'un shop et de son agent principal
   fastify.get<{ Params: ShopParamsType }>('/shops/:shopId/agent', async (request, reply) => {
-    let isConnected = false;
-    try {
-      const { shopId } = request.params;
-      fastify.log.info(`🔍 Récupération config publique pour shop: ${shopId}`);
-      
-      if (!isValidUUID(shopId)) {
-        fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
-        return getFallbackShopConfig(shopId);
+  let isConnected = false;
+  try {
+    const { shopId } = request.params;
+    fastify.log.info(`🔍 Récupération config publique pour shop: ${shopId}`);
+    
+    if (!isValidUUID(shopId)) {
+      fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
+      return getFallbackShopConfig(shopId);
+    }
+    
+    await prisma.$connect();
+    isConnected = true;
+    
+    const shop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: {
+        id: true,
+        name: true,
+        is_active: true,
+        widget_config: true,
+        agent_config: true
       }
-      
-      await prisma.$connect();
-      isConnected = true;
-      
-      const shop = await prisma.shop.findUnique({
-        where: { id: shopId },
-        select: {
-          id: true,
-          name: true,
-          is_active: true,
-          widget_config: true,
-          agent_config: true
-        }
-      });
+    });
 
-      if (!shop || !shop.is_active) {
-        fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
-        await prisma.$disconnect();
-        return getFallbackShopConfig(shopId);
-      }
-
-      const agent = await prisma.agent.findFirst({
-        where: { 
-          shopId: shopId,
-          isActive: true
-        },
-        include: {
-          knowledgeBase: {
-            where: {
-              knowledgeBase: {
-                isActive: true
-              }
-            },
-            include: {
-              knowledgeBase: {
-                select: {
-                  id: true,
-                  title: true,
-                  content: true,
-                  contentType: true,
-                  tags: true
-                }
-              }
-            }
-          }
-        },
-        orderBy: { updatedAt: 'desc' }
-      });
-
+    if (!shop || !shop.is_active) {
+      fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
       await prisma.$disconnect();
-      isConnected = false;
+      return getFallbackShopConfig(shopId);
+    }
 
-      if (!agent) {
-        return {
-          success: true,
-          data: {
-            shop: {
-              id: shop.id,
-              name: shop.name,
-              widgetConfig: shop.widget_config,
-              agentConfig: shop.agent_config
-            },
-            agent: null,
+    const agent = await prisma.agent.findFirst({
+      where: { 
+        shopId: shopId,
+        isActive: true
+      },
+      include: {
+        knowledgeBase: {
+          where: {
             knowledgeBase: {
-              content: "Configuration par défaut de la boutique.",
-              documentsCount: 0,
-              documents: []
+              isActive: true
+            }
+          },
+          include: {
+            knowledgeBase: {
+              select: {
+                id: true,
+                title: true,
+                content: true,
+                contentType: true,
+                tags: true
+              }
             }
           }
-        };
-      }
+        }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
 
-      const knowledgeContent = agent.knowledgeBase
-        .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
-        .join('\n\n---\n\n');
+    await prisma.$disconnect();
+    isConnected = false;
 
+    if (!agent) {
       return {
         success: true,
         data: {
@@ -643,40 +635,64 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             widgetConfig: shop.widget_config,
             agentConfig: shop.agent_config
           },
-          agent: {
-            id: agent.id,
-            name: agent.name,
-            type: agent.type,
-            personality: agent.personality,
-            description: agent.description,
-            welcomeMessage: agent.welcomeMessage,
-            fallbackMessage: agent.fallbackMessage,
-            avatar: agent.avatar,
-            config: agent.config
-          },
+          agent: null,
           knowledgeBase: {
-            content: knowledgeContent,
-            documentsCount: agent.knowledgeBase.length,
-            documents: agent.knowledgeBase.map(kb => ({
-              id: kb.knowledgeBase.id,
-              title: kb.knowledgeBase.title,
-              contentType: kb.knowledgeBase.contentType,
-              tags: kb.knowledgeBase.tags
-            }))
+            content: "Configuration par défaut de la boutique.",
+            documentsCount: 0,
+            documents: []
           }
         }
       };
-
-    } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
-      fastify.log.error('❌ Get public shop config error:', error);
-      fastify.log.warn(`⚠️ Erreur API pour shop ${request.params.shopId}, utilisation configuration fallback`);
-      return getFallbackShopConfig(request.params.shopId);
     }
-  });
+
+    const knowledgeContent = agent.knowledgeBase
+      .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
+      .join('\n\n---\n\n');
+
+    return {
+      success: true,
+      data: {
+        shop: {
+          id: shop.id,
+          name: shop.name,
+          widgetConfig: shop.widget_config,
+          agentConfig: shop.agent_config
+        },
+        agent: {
+          id: agent.id,
+          name: agent.name,
+          title: (agent as any).title || getDefaultTitle(agent.type), // ✅ NOUVEAU: Title personnalisable
+          type: agent.type,
+          personality: agent.personality,
+          description: agent.description,
+          welcomeMessage: agent.welcomeMessage,
+          fallbackMessage: agent.fallbackMessage,
+          avatar: agent.avatar,
+          config: agent.config
+        },
+        knowledgeBase: {
+          content: knowledgeContent,
+          documentsCount: agent.knowledgeBase.length,
+          documents: agent.knowledgeBase.map(kb => ({
+            id: kb.knowledgeBase.id,
+            title: kb.knowledgeBase.title,
+            contentType: kb.knowledgeBase.contentType,
+            tags: kb.knowledgeBase.tags
+          }))
+        }
+      }
+    };
+
+  } catch (error: any) {
+    if (isConnected) {
+      await prisma.$disconnect();
+    }
+    
+    fastify.log.error('❌ Get public shop config error:', error);
+    fastify.log.warn(`⚠️ Erreur API pour shop ${request.params.shopId}, utilisation configuration fallback`);
+    return getFallbackShopConfig(request.params.shopId);
+  }
+});
 
   // ✅ ROUTE : Endpoint de chat public AVEC COLLECTE COMMANDES AMÉLIORÉE
   fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
