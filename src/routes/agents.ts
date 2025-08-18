@@ -1,4 +1,4 @@
-// src/routes/agents.ts - CORRIGÉ AVEC SUPPORT TITLE
+// src/routes/agents.ts
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, AgentType, AgentPersonality, Prisma } from '@prisma/client';
@@ -512,7 +512,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE UPDATE AGENT (CORRIGÉE AVEC TITLE)
+  // ✅ ROUTE UPDATE AGENT (CORRIGÉE AVEC TITLE) - UNE SEULE VERSION
   fastify.put<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
     let isConnected = false;
     try {
@@ -704,111 +704,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la liaison de la base de connaissance',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  });
-
-  // ✅ ROUTE : MODIFIER UN AGENT (PUT /api/agents/:id) - CORRIGÉE
-  fastify.put<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
-    let isConnected = false;
-    try {
-      const { id } = request.params;
-      const user = await verifySupabaseAuth(request);
-      const shop = await getOrCreateShop(user, fastify);
-      const body = updateAgentSchema.parse(request.body);
-
-      if (!shop) {
-        return reply.status(404).send({ 
-          success: false, 
-          error: 'Shop non trouvé' 
-        });
-      }
-
-      await prisma.$connect();
-      isConnected = true;
-
-      // Vérifier que l'agent appartient au shop
-      const existingAgent = await prisma.agent.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingAgent) {
-        await prisma.$disconnect();
-        return reply.status(404).send({ 
-          success: false, 
-          error: 'Agent non trouvé' 
-        });
-      }
-
-      // Mettre à jour l'agent
-      const updatedAgent = await prisma.agent.update({
-        where: { id },
-        data: {
-          ...(body.name && { name: body.name }),
-          ...(body.type && { type: body.type as AgentType }),
-          ...(body.personality && { personality: body.personality as AgentPersonality }),
-          ...(body.description !== undefined && { description: body.description }),
-          ...(body.welcomeMessage !== undefined && { welcomeMessage: body.welcomeMessage }),
-          ...(body.fallbackMessage !== undefined && { fallbackMessage: body.fallbackMessage }),
-          ...(body.avatar !== undefined && { avatar: body.avatar }),
-          ...(body.isActive !== undefined && { isActive: body.isActive }),
-          ...(body.config !== undefined && { config: body.config as Prisma.InputJsonObject }),
-          updatedAt: new Date()
-        }
-      });
-
-      await prisma.$disconnect();
-      isConnected = false;
-
-      fastify.log.info(`✅ Agent modifié avec succès: ${updatedAgent.id}`);
-
-      return {
-        success: true,
-        data: {
-          id: updatedAgent.id,
-          name: updatedAgent.name,
-          type: updatedAgent.type,
-          personality: updatedAgent.personality,
-          description: updatedAgent.description,
-          welcomeMessage: updatedAgent.welcomeMessage,
-          fallbackMessage: updatedAgent.fallbackMessage,
-          avatar: updatedAgent.avatar,
-          isActive: updatedAgent.isActive,
-          config: updatedAgent.config,
-          createdAt: updatedAgent.createdAt.toISOString(),
-          updatedAt: updatedAgent.updatedAt.toISOString()
-        }
-      };
-
-    } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
-      fastify.log.error('❌ Update agent error:', error);
-      
-      if (error.name === 'ZodError') {
-        return reply.status(400).send({
-          success: false,
-          error: 'Données invalides',
-          details: error.errors
-        });
-      }
-      
-      if (error.message === 'Token manquant' || error.message === 'Token invalide') {
-        return reply.status(401).send({ 
-          success: false, 
-          error: error.message 
-        });
-      }
-      
-      return reply.status(500).send({
-        success: false,
-        error: 'Erreur lors de la modification de l\'agent',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
