@@ -377,7 +377,15 @@ async function start() {
     await registerRoutes()
 
     const port = parseInt(process.env.PORT || '3001')
-    const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost'
+    const host = '0.0.0.0'
+
+    console.log('🚀 === DÉMARRAGE RAILWAY DEBUG ===')
+    console.log('📊 Environment:', process.env.NODE_ENV)
+    console.log('🌐 Host forcé à:', host)
+    console.log('🔌 Port:', port)
+    console.log('💾 Database URL présent:', !!process.env.DATABASE_URL)
+    console.log('🔗 Database URL preview:', process.env.DATABASE_URL?.substring(0, 80) + '...')
+    console.log('================================')
 
     await fastify.listen({ port, host })
     
