@@ -1,4 +1,4 @@
-// src/routes/public.ts - VERSION CORRIGÉE AVEC FORMATAGE MESSAGES ET GESTION ERREURS
+// src/routes/public.ts
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
@@ -694,8 +694,140 @@ export default async function publicRoutes(fastify: FastifyInstance) {
   }
 });
 
+  // ✅ NOUVELLE ROUTE PUBLIQUE POUR WIDGET (sans auth)
+fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
+  let isConnected = false;
+  try {
+    const { shopId } = request.params;
+    fastify.log.info(`🔍 Récupération config publique pour shop: ${shopId}`);
+    
+    if (!isValidUUID(shopId)) {
+      fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
+      return getFallbackShopConfig(shopId);
+    }
+    
+    await prisma.$connect();
+    isConnected = true;
+    
+    const shop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: {
+        id: true,
+        name: true,
+        is_active: true,
+        widget_config: true,
+        agent_config: true
+      }
+    });
+
+    if (!shop || !shop.is_active) {
+      fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
+      await prisma.$disconnect();
+      return getFallbackShopConfig(shopId);
+    }
+
+    const agent = await prisma.agent.findFirst({
+      where: { 
+        shopId: shopId,
+        isActive: true
+      },
+      include: {
+        knowledgeBase: {
+          where: {
+            knowledgeBase: {
+              isActive: true
+            }
+          },
+          include: {
+            knowledgeBase: {
+              select: {
+                id: true,
+                title: true,
+                content: true,
+                contentType: true,
+                tags: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    await prisma.$disconnect();
+    isConnected = false;
+
+    if (!agent) {
+      return {
+        success: true,
+        data: {
+          shop: {
+            id: shop.id,
+            name: shop.name,
+            widgetConfig: shop.widget_config,
+            agentConfig: shop.agent_config
+          },
+          agent: null,
+          knowledgeBase: {
+            content: "Configuration par défaut de la boutique.",
+            documentsCount: 0,
+            documents: []
+          }
+        }
+      };
+    }
+
+    const knowledgeContent = agent.knowledgeBase
+      .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
+      .join('\n\n---\n\n');
+
+    return {
+      success: true,
+      data: {
+        shop: {
+          id: shop.id,
+          name: shop.name,
+          widgetConfig: shop.widget_config,
+          agentConfig: shop.agent_config
+        },
+        agent: {
+          id: agent.id,
+          name: agent.name,
+          title: (agent as any).title || getDefaultTitle(agent.type),
+          type: agent.type,
+          personality: agent.personality,
+          description: agent.description,
+          welcomeMessage: agent.welcomeMessage,
+          fallbackMessage: agent.fallbackMessage,
+          avatar: agent.avatar,
+          config: agent.config
+        },
+        knowledgeBase: {
+          content: knowledgeContent,
+          documentsCount: agent.knowledgeBase.length,
+          documents: agent.knowledgeBase.map(kb => ({
+            id: kb.knowledgeBase.id,
+            title: kb.knowledgeBase.title,
+            contentType: kb.knowledgeBase.contentType,
+            tags: kb.knowledgeBase.tags
+          }))
+        }
+      }
+    };
+
+  } catch (error: any) {
+    if (isConnected) {
+      await prisma.$disconnect();
+    }
+    
+    fastify.log.error('❌ Get public shop config error:', error);
+    fastify.log.warn(`⚠️ Erreur API pour shop ${request.params.shopId}, utilisation configuration fallback`);
+    return getFallbackShopConfig(request.params.shopId);
+  }
+});
+
   // ✅ ROUTE : Endpoint de chat public AVEC COLLECTE COMMANDES AMÉLIORÉE
-  fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
+  fastify.post<{ Body: ChatRequestBody }>('/public/chat', async (request, reply) => {
     const startTime = Date.now();
     let isConnected = false;
     
