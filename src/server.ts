@@ -1,5 +1,5 @@
 // =====================================
-// SERVER.TS COMPLET - IMPORT DES ROUTES EXISTANTES
+// SERVER.TS COMPLET - ROUTES PUBLIQUES CORRIGÉES
 // =====================================
 
 import Fastify from 'fastify'
@@ -70,7 +70,7 @@ async function registerPlugins() {
     contentSecurityPolicy: false
   })
 
-  // ✅ CORS OPTIMISÉ POUR LE WIDGET
+  // ✅ CORS OPTIMISÉ POUR LE WIDGET EMBEDDABLE - CRITIQUE
   await fastify.register(cors, {
     origin: (origin, callback) => {
       // ✅ IMPORTANT: Autoriser tous les domaines pour le widget embeddable
@@ -78,12 +78,12 @@ async function registerPlugins() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
   })
 
   // ✅ RATE LIMITING ADAPTÉ AU WIDGET
   await fastify.register(rateLimit, {
-    max: parseInt(process.env.RATE_LIMIT_MAX || '200'),
+    max: parseInt(process.env.RATE_LIMIT_MAX || '300'),
     timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '60000'),
     keyGenerator: (request) => {
       return `${request.ip}-${request.headers['user-agent']?.slice(0, 50) || 'unknown'}`
@@ -138,44 +138,64 @@ async function registerRoutes() {
     return {
       success: true,
       message: 'ChatSeller API is running',
-      version: '1.0.0',
+      version: '1.3.0',
       timestamp: new Date().toISOString(),
       endpoints: {
         health: '/health',
-        billing: '/api/v1/billing/*',
-        agents: '/api/v1/agents/*',
-        products: '/api/v1/products/*',
-        orders: '/api/v1/orders/*',
-        conversations: '/api/v1/conversations/*',
-        analytics: '/api/v1/analytics/*',
-        knowledgeBase: '/api/v1/knowledge-base/*',
-        shops: '/api/v1/shops/*',
-        public: '/api/v1/public/*',
-        chat: '/api/v1/chat/*'
+        public: '/api/v1/public/* (NO AUTH)',
+        billing: '/api/v1/billing/* (NO AUTH - webhooks)',
+        auth: '/api/v1/auth/* (NO AUTH - auth endpoints)',
+        agents: '/api/v1/agents/* (PROTECTED)',
+        products: '/api/v1/products/* (PROTECTED)',
+        orders: '/api/v1/orders/* (PROTECTED)',
+        conversations: '/api/v1/conversations/* (PROTECTED)',
+        knowledgeBase: '/api/v1/knowledge-base/* (PROTECTED)',
+        shops: '/api/v1/shops/* (PROTECTED)',
+        chat: '/api/v1/chat/* (PROTECTED)'
       }
     }
   })
 
-  // ✅ ROUTES PUBLIQUES (SANS AUTHENTIFICATION)
+  // ✅ CRITIQUE : ROUTES PUBLIQUES EN PREMIER (SANS AUTHENTIFICATION)
   fastify.register(async function (fastify) {
+    // ✅ RATE LIMITING SPÉCIFIQUE POUR LE WIDGET PUBLIC
     await fastify.register(rateLimit, {
-      max: 300,
-      timeWindow: '1 minute'
+      max: 500, // Plus permissif pour le widget public
+      timeWindow: '1 minute',
+      keyGenerator: (request) => {
+        // Identifier par IP + shopId pour éviter les abus
+        const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
+        return `public-${request.ip}-${shopId}`
+      }
     })
 
-    // Routes publiques pour le widget
+    // ✅ ENREGISTRER LES ROUTES PUBLIQUES SANS AUTH
     fastify.register(publicRoutes)
     
-    fastify.log.info('✅ Routes publiques enregistrées: /api/v1/public/*')
+    fastify.log.info('✅ Routes publiques enregistrées SANS AUTH: /api/v1/public/*')
     
   }, { prefix: '/api/v1/public' })
 
   // ✅ ROUTES BILLING (SANS AUTHENTIFICATION - Stripe webhooks)
-  fastify.register(billingRoutes, { prefix: '/api/v1/billing' })
-  fastify.log.info('✅ Routes billing enregistrées: /api/v1/billing/*')
-
-  // ✅ ROUTES D'AUTHENTIFICATION PUBLIQUES
   fastify.register(async function (fastify) {
+    await fastify.register(rateLimit, {
+      max: 100,
+      timeWindow: '1 minute'
+    })
+    
+    fastify.register(billingRoutes)
+    fastify.log.info('✅ Routes billing enregistrées SANS AUTH: /api/v1/billing/*')
+    
+  }, { prefix: '/api/v1/billing' })
+
+  // ✅ ROUTES D'AUTHENTIFICATION PUBLIQUES (SANS AUTH)
+  fastify.register(async function (fastify) {
+    
+    await fastify.register(rateLimit, {
+      max: 50,
+      timeWindow: '1 minute'
+    })
+    
     // Route de login
     fastify.post('/login', async (request, reply) => {
       const { email, password } = request.body as any
@@ -228,9 +248,12 @@ async function registerRoutes() {
         })
       }
     })
+    
+    fastify.log.info('✅ Routes auth enregistrées SANS AUTH: /api/v1/auth/*')
+    
   }, { prefix: '/api/v1/auth' })
 
-  // ✅ ROUTES API AVEC AUTHENTIFICATION
+  // ✅ ROUTES API AVEC AUTHENTIFICATION OBLIGATOIRE
   fastify.register(async function (fastify) {
     
     // ✅ MIDDLEWARE D'AUTH POUR TOUTES LES ROUTES API PROTÉGÉES
@@ -238,31 +261,31 @@ async function registerRoutes() {
     
     // ✅ ROUTES AGENTS
     fastify.register(agentsRoutes, { prefix: '/agents' })
-    fastify.log.info('✅ Routes agents enregistrées: /api/v1/agents/*')
+    fastify.log.info('✅ Routes agents enregistrées AVEC AUTH: /api/v1/agents/*')
 
     // ✅ ROUTES PRODUITS 
     fastify.register(productsRoutes, { prefix: '/products' })
-    fastify.log.info('✅ Routes produits enregistrées: /api/v1/products/*')
+    fastify.log.info('✅ Routes produits enregistrées AVEC AUTH: /api/v1/products/*')
     
     // ✅ ROUTES COMMANDES
     fastify.register(ordersRoutes, { prefix: '/orders' })
-    fastify.log.info('✅ Routes commandes enregistrées: /api/v1/orders/*')
+    fastify.log.info('✅ Routes commandes enregistrées AVEC AUTH: /api/v1/orders/*')
 
     // ✅ ROUTES SHOPS
     fastify.register(shopsRoutes, { prefix: '/shops' })
-    fastify.log.info('✅ Routes shops enregistrées: /api/v1/shops/*')
+    fastify.log.info('✅ Routes shops enregistrées AVEC AUTH: /api/v1/shops/*')
 
     // ✅ ROUTES KNOWLEDGE BASE
     fastify.register(knowledgeBaseRoutes, { prefix: '/knowledge-base' })
-    fastify.log.info('✅ Routes knowledge-base enregistrées: /api/v1/knowledge-base/*')
+    fastify.log.info('✅ Routes knowledge-base enregistrées AVEC AUTH: /api/v1/knowledge-base/*')
 
     // ✅ ROUTES CONVERSATIONS
     fastify.register(conversationsRoutes, { prefix: '/conversations' })
-    fastify.log.info('✅ Routes conversations enregistrées: /api/v1/conversations/*')
+    fastify.log.info('✅ Routes conversations enregistrées AVEC AUTH: /api/v1/conversations/*')
 
-    // ✅ ROUTES CHAT
+    // ✅ ROUTES CHAT INTERNE (pour le dashboard)
     fastify.register(chatRoutes, { prefix: '/chat' })
-    fastify.log.info('✅ Routes chat enregistrées: /api/v1/chat/*')
+    fastify.log.info('✅ Routes chat enregistrées AVEC AUTH: /api/v1/chat/*')
 
   }, { prefix: '/api/v1' })
 
@@ -278,24 +301,23 @@ async function registerRoutes() {
       availableRoutes: [
         'GET /health',
         'GET /',
-        'GET /api/v1/billing/*',
-        'POST /api/v1/billing/*',
-        'GET /api/v1/agents/*',
-        'POST /api/v1/agents/*',
-        'GET /api/v1/products/*',
-        'POST /api/v1/products/*',
-        'GET /api/v1/orders/*',
-        'POST /api/v1/orders/*',
-        'GET /api/v1/conversations/*',
-        'POST /api/v1/conversations/*',
-        'GET /api/v1/analytics/*',
-        'GET /api/v1/knowledge-base/*',
-        'POST /api/v1/knowledge-base/*',
-        'GET /api/v1/shops/*',
-        'POST /api/v1/auth/login',
-        'POST /api/v1/auth/signup',
-        'GET /api/v1/public/*',
-        'POST /api/v1/public/*'
+        'POST /api/v1/auth/login (NO AUTH)',
+        'POST /api/v1/auth/signup (NO AUTH)',
+        'GET /api/v1/public/shops/public/:shopId/config (NO AUTH)',
+        'POST /api/v1/public/chat (NO AUTH)',
+        'POST /api/v1/billing/* (NO AUTH - webhooks)',
+        'GET /api/v1/agents/* (PROTECTED)',
+        'POST /api/v1/agents/* (PROTECTED)',
+        'GET /api/v1/products/* (PROTECTED)',
+        'POST /api/v1/products/* (PROTECTED)',
+        'GET /api/v1/orders/* (PROTECTED)',
+        'POST /api/v1/orders/* (PROTECTED)',
+        'GET /api/v1/conversations/* (PROTECTED)',
+        'POST /api/v1/conversations/* (PROTECTED)',
+        'GET /api/v1/knowledge-base/* (PROTECTED)',
+        'POST /api/v1/knowledge-base/* (PROTECTED)',
+        'GET /api/v1/shops/* (PROTECTED)',
+        'POST /api/v1/chat/* (PROTECTED)'
       ]
     })
   })
@@ -339,17 +361,21 @@ async function start() {
     console.log(`🚀 ChatSeller API running on http://${host}:${port}`)
     console.log(`📖 Health check: http://${host}:${port}/health`)
     console.log(`🏠 Root: http://${host}:${port}/`)
-    console.log(`💳 Billing routes: http://${host}:${port}/api/v1/billing/*`)
-    console.log(`🤖 Agents routes: http://${host}:${port}/api/v1/agents/*`)
-    console.log(`📦 Products routes: http://${host}:${port}/api/v1/products/*`)
-    console.log(`🛒 Orders routes: http://${host}:${port}/api/v1/orders/*`)
-    console.log(`💬 Conversations routes: http://${host}:${port}/api/v1/conversations/*`)
-    console.log(`📊 Analytics routes: http://${host}:${port}/api/v1/analytics/*`)
-    console.log(`📚 Knowledge Base: http://${host}:${port}/api/v1/knowledge-base/*`)
-    console.log(`🏪 Shops routes: http://${host}:${port}/api/v1/shops/*`)
-    console.log(`🌐 Public routes: http://${host}:${port}/api/v1/public/*`)
-    console.log(`💭 Chat routes: http://${host}:${port}/api/v1/chat/*`)
-    console.log(`🔐 Auth routes: http://${host}:${port}/api/v1/auth/*`)
+    console.log('')
+    console.log('📌 ROUTES PUBLIQUES (sans authentification):')
+    console.log(`   🌐 Config shop: GET /api/v1/public/shops/public/:shopId/config`)
+    console.log(`   💬 Chat widget: POST /api/v1/public/chat`)
+    console.log(`   💳 Billing webhooks: POST /api/v1/billing/*`)
+    console.log(`   🔐 Auth: POST /api/v1/auth/login | /api/v1/auth/signup`)
+    console.log('')
+    console.log('🔒 ROUTES PROTÉGÉES (avec authentification):')
+    console.log(`   🤖 Agents: /api/v1/agents/*`)
+    console.log(`   📦 Products: /api/v1/products/*`)
+    console.log(`   🛒 Orders: /api/v1/orders/*`)
+    console.log(`   💬 Conversations: /api/v1/conversations/*`)
+    console.log(`   📚 Knowledge Base: /api/v1/knowledge-base/*`)
+    console.log(`   🏪 Shops: /api/v1/shops/*`)
+    console.log(`   💭 Chat interne: /api/v1/chat/*`)
     
   } catch (error) {
     fastify.log.error(error)

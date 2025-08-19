@@ -1,4 +1,4 @@
-// src/routes/public.ts - VERSION CORRIGÉE PRODUCTION
+// src/routes/public.ts - VERSION PUBLIQUE CORRIGÉE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
@@ -81,14 +81,14 @@ function isValidUUID(str: string): boolean {
   return uuidRegex.test(str);
 }
 
-// ✅ HELPER : Configuration fallback améliorée
+// ✅ HELPER : Configuration fallback améliorée pour VIENS ON S'CONNAÎT
 function getFallbackShopConfig(shopId: string) {
   return {
     success: true,
     data: {
       shop: {
         id: shopId,
-        name: 'Boutique de Test',
+        name: 'VIENS ON S\'CONNAÎT',
         widgetConfig: {
           theme: "modern",
           language: "fr", 
@@ -132,12 +132,13 @@ Notre boutique VIENS ON S'CONNAÎT propose des jeux et produits de qualité pour
 
 ### Produits disponibles
 - Jeux de conversation pour couples
-- Cartes de questions intimes
+- Cartes de questions intimes  
 - Produits pour renforcer les liens
+- "Pour Les Couples (Non Mariés)" - Jeu de 150 cartes pour couples non mariés
 
 ### Livraison
 - Livraison rapide à Dakar et environs
-- Paiement sécurisé
+- Paiement sécurisé par Wave, Orange Money, virement ou espèces
 - Service client disponible
 
 Vous pouvez parcourir notre catalogue pour découvrir nos produits.`,
@@ -155,7 +156,7 @@ Vous pouvez parcourir notre catalogue pour découvrir nos produits.`,
   };
 }
 
-// ✅ PROMPT SYSTÈME AMÉLIORÉ
+// ✅ PROMPT SYSTÈME AMÉLIORÉ POUR VIENS ON S'CONNAÎT
 function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState) {
   const agentTitle = agent.title || getDefaultTitle(agent.type)
   
@@ -208,7 +209,7 @@ PROCÉDURE STRICTE (dans cet ordre) :
    - Si NON: Continuer à l'étape 4
 4. **NOM/PRÉNOM**: "Votre nom et prénom pour la commande ?"
 5. **ADRESSE**: "Quelle est votre adresse de livraison complète ?"
-6. **PAIEMENT**: "Comment préférez-vous payer ? (Espèces, virement, mobile money)"
+6. **PAIEMENT**: "Comment préférez-vous payer ? (Espèces, virement, Wave, Orange Money)"
 7. **CONFIRMATION**: Résumer TOUTE la commande et rassurer sur la suite
 `}
 
@@ -257,7 +258,7 @@ function getOrderStepInstructions(step: string, data: any): string {
       return "Demande l'adresse de livraison complète. Ex: 'Quelle est votre adresse de livraison complète ?'"
     
     case 'payment':
-      return "Demande le mode de paiement préféré. Ex: 'Comment souhaitez-vous payer ? Espèces à la livraison, virement, ou mobile money ?'"
+      return "Demande le mode de paiement préféré. Ex: 'Comment souhaitez-vous payer ? Espèces à la livraison, virement, Wave ou Orange Money ?'"
     
     case 'confirmation':
       return "Confirme TOUTE la commande avec détails et rassure le client sur la suite du processus."
@@ -556,7 +557,7 @@ function getNextOrderStep(currentStep: string, data: any): OrderCollectionState[
 
 // ✅ MESSAGE D'ACCUEIL AMÉLIORÉ
 function generateWelcomeMessage(agent: any, productInfo?: any): string {
-  const baseName = agent.name || 'Assistant'
+  const baseName = agent.name || 'Rose'
   const baseTitle = agent.title || getDefaultTitle(agent.type)
   
   if (productInfo?.name) {
@@ -580,12 +581,12 @@ function getDefaultTitle(type: string): string {
     'support': 'Conseiller support',
     'upsell': 'Conseiller premium'
   }
-  return titles[type as keyof typeof titles] || 'Assistant commercial'
+  return titles[type as keyof typeof titles] || 'Spécialiste produit'
 }
 
 export default async function publicRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE CORRIGÉE : Configuration publique
+  // ✅ ROUTE CORRIGÉE : Configuration publique (SANS AUTHENTIFICATION)
   fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
     let isConnected = false;
     try {
@@ -725,8 +726,8 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE CORRIGÉE : Chat public
-  fastify.post<{ Body: ChatRequestBody }>('/public/chat', async (request, reply) => {
+  // ✅ ROUTE CORRIGÉE : Chat public (SANS AUTHENTIFICATION)
+  fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
     let isConnected = false;
     
@@ -743,14 +744,14 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ MODE TEST AMÉLIORÉ
+      // ✅ MODE TEST AMÉLIORÉ POUR VIENS ON S'CONNAÎT
       if (!isValidUUID(shopId)) {
         fastify.log.info(`💬 [MODE TEST] Réponse simulée pour shop: ${shopId}`);
         
         let simulatedResponse = '';
         
         if (isFirstMessage && productInfo?.name) {
-          simulatedResponse = `Salut ! 👋 Je suis Rose, Assistante d'Achat chez VIENS ON S'CONNAÎT.
+          simulatedResponse = `Salut ! 👋 Je suis Rose, Spécialiste produit chez VIENS ON S'CONNAÎT.
 
 Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! ✨
 
@@ -1050,7 +1051,7 @@ Comment puis-je vous aider ? 😊`;
       
       fastify.log.error('❌ [CHAT ERROR]:', error);
       
-      // ✅ FALLBACK CONTEXTUEL
+      // ✅ FALLBACK CONTEXTUEL AMÉLIORÉ POUR VIENS ON S'CONNAÎT
       let fallbackResponse = "Merci pour votre message ! Comment puis-je vous aider davantage ?";
       
       const userMessage = request.body.message || '';
@@ -1058,9 +1059,9 @@ Comment puis-je vous aider ? 😊`;
       
       if (userMessage.toLowerCase().includes('bonjour') || userMessage.toLowerCase().includes('salut')) {
         if (productInfo?.name) {
-          fallbackResponse = `Salut ! Je suis votre conseiller chez VIENS ON S'CONNAÎT. Je vois que vous vous intéressez à "${productInfo.name}". Comment puis-je vous aider avec ce produit ?`;
+          fallbackResponse = `Salut ! Je suis Rose, votre conseillère chez VIENS ON S'CONNAÎT. Je vois que vous vous intéressez à "${productInfo.name}". Comment puis-je vous aider avec ce produit ?`;
         } else {
-          fallbackResponse = "Salut ! Je suis votre conseiller chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?";
+          fallbackResponse = "Salut ! Je suis Rose, votre conseillère chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?";
         }
       } else if (productInfo?.name && userMessage.toLowerCase().includes('produit')) {
         fallbackResponse = `Concernant "${productInfo.name}", je vous mets en relation avec notre équipe pour vous donner les meilleures informations.`;
@@ -1083,12 +1084,12 @@ Comment puis-je vous aider ? 😊`;
   });
 }
 
-// ✅ RÉPONSE SIMULÉE INTELLIGENTE
+// ✅ RÉPONSE SIMULÉE INTELLIGENTE POUR VIENS ON S'CONNAÎT
 function getIntelligentSimulatedResponse(message: string, productInfo: any): string {
   const msg = message.toLowerCase();
   
   if (msg.includes('bonjour') || msg.includes('salut') || msg.includes('hello')) {
-    return `Salut ! Je suis Rose, votre Assistante d'Achat chez VIENS ON S'CONNAÎT. 👋
+    return `Salut ! Je suis Rose, votre Spécialiste produit chez VIENS ON S'CONNAÎT. 👋
 
 Je vois que vous vous intéressez à **"${productInfo?.name || 'nos produits'}"**. 
 
