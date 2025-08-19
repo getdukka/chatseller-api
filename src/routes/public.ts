@@ -1,4 +1,4 @@
-// src/routes/public.ts
+// src/routes/public.ts - VERSION CORRIGÉE PRODUCTION
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
@@ -20,10 +20,15 @@ try {
   throw error;
 }
 
-// ✅ INITIALISATION OPENAI
+// ✅ INITIALISATION OPENAI CORRIGÉE
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+
+// ✅ VALIDATION OPENAI
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('⚠️ OPENAI_API_KEY manquante - mode dégradé activé');
+}
 
 // ✅ INTERFACES TYPESCRIPT CORRIGÉES
 interface ShopParamsType {
@@ -44,7 +49,6 @@ interface ChatRequestBody {
   isFirstMessage?: boolean;
 }
 
-// ✅ CORRECTION : Type step plus flexible et ajout étapes manquantes
 interface OrderCollectionState {
   step: 'quantity' | 'phone' | 'name' | 'address' | 'payment' | 'confirmation' | 'completed';
   data: {
@@ -77,7 +81,7 @@ function isValidUUID(str: string): boolean {
   return uuidRegex.test(str);
 }
 
-// ✅ HELPER : Générer une configuration de fallback pour les tests
+// ✅ HELPER : Configuration fallback améliorée
 function getFallbackShopConfig(shopId: string) {
   return {
     success: true,
@@ -88,16 +92,17 @@ function getFallbackShopConfig(shopId: string) {
         widgetConfig: {
           theme: "modern",
           language: "fr", 
-          position: "bottom-right",
+          position: "above-cta",
           buttonText: "Parler à la vendeuse",
-          primaryColor: "#E91E63"
+          primaryColor: "#EF4444",
+          borderRadius: "full"
         },
         agentConfig: {
           name: "Rose",
-          title: "Vendeuse commerciale",
-          avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff",
+          title: "Spécialiste produit",
+          avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff",
           upsellEnabled: false,
-          welcomeMessage: "Bonjour ! Je suis Rose, votre vendeuse IA. Comment puis-je vous aider aujourd'hui ?",
+          welcomeMessage: "Salut 👋 Je suis Rose, Assistante d'Achat chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?",
           fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
           collectPaymentMethod: true
         }
@@ -105,33 +110,44 @@ function getFallbackShopConfig(shopId: string) {
       agent: {
         id: `agent-${shopId}`,
         name: "Rose",
-        title: "Vendeuse commerciale", 
-        type: "general",
+        title: "Spécialiste produit", 
+        type: "product_specialist",
         personality: "friendly",
-        description: "Vendeuse spécialisée dans l'accompagnement des clients",
-        welcomeMessage: "Bonjour ! Je suis Rose, votre vendeuse IA. Comment puis-je vous aider aujourd'hui ?",
+        description: "Assistante d'achat spécialisée dans l'accompagnement client",
+        welcomeMessage: "Salut 👋 Je suis Rose, Assistante d'Achat chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?",
         fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
-        avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff",
+        avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff",
         config: {
           collectName: true,
           collectPhone: true,
-          collectAddress: false,
+          collectAddress: true,
           collectPayment: true,
           upsellEnabled: true
         }
       },
       knowledgeBase: {
-        content: `## Informations Boutique
-Notre boutique propose des produits de qualité qui améliorent votre quotidien.
+        content: `## VIENS ON S'CONNAÎT - Boutique
 
-Veuillez parcourir notre catalogue pour découvrir nos produits.`,
+Notre boutique VIENS ON S'CONNAÎT propose des jeux et produits de qualité pour couples et personnes qui souhaitent mieux se connaître et améliorer leur relation.
+
+### Produits disponibles
+- Jeux de conversation pour couples
+- Cartes de questions intimes
+- Produits pour renforcer les liens
+
+### Livraison
+- Livraison rapide à Dakar et environs
+- Paiement sécurisé
+- Service client disponible
+
+Vous pouvez parcourir notre catalogue pour découvrir nos produits.`,
         documentsCount: 1,
         documents: [
           {
             id: 'doc-fallback-001',
-            title: 'Informations produits et boutique',
+            title: 'Informations boutique VIENS ON S\'CONNAÎT',
             contentType: 'manual',
-            tags: ['boutique', 'produits']
+            tags: ['boutique', 'produits', 'couples']
           }
         ]
       }
@@ -139,23 +155,24 @@ Veuillez parcourir notre catalogue pour découvrir nos produits.`,
   };
 }
 
-// ✅ AMÉLIORATION : Générer le prompt système avec détection produit
+// ✅ PROMPT SYSTÈME AMÉLIORÉ
 function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState) {
-  const agentTitle = agent.title || getDefaultTitle(agent.type) // ✅ NOUVEAU
+  const agentTitle = agent.title || getDefaultTitle(agent.type)
   
   const basePrompt = `Tu es ${agent.name}, ${agentTitle} expert et ${agent.personality === 'friendly' ? 'chaleureux' : 'professionnel'}.
 
-🎯 RÔLE: ${agentTitle} spécialisé dans la conversion et l'accompagnement client.
+🎯 RÔLE: ${agentTitle} chez VIENS ON S'CONNAÎT spécialisé dans la conversion et l'accompagnement client.
 
 💡 PERSONNALITÉ: ${agent.personality}
 - ${agent.personality === 'friendly' ? 'Bienveillant, empathique, à l\'écoute' : 'Professionnel, expert, efficace'}
 - Toujours positif et orienté solution
 - Expert en techniques de vente consultative et persuasion éthique
+- Tu connais parfaitement les produits de la boutique
 
 🎯 OBJECTIFS PRINCIPAUX:
 1. **Accueil contextuel** : Saluer chaleureusement en mentionnant le produit consulté
 2. **Identification besoins** : Comprendre les motivations et attentes du client
-3. **Conseil expert** : Apporter des réponses précises et rassurantes
+3. **Conseil expert** : Apporter des réponses précises sur nos produits
 4. **Lever objections** : Traiter les freins à l'achat avec empathie
 5. **Collecte commande** : Guider naturellement vers l'achat quand l'intérêt est manifesté
 6. **Upselling intelligent** : Proposer des produits complémentaires pertinents
@@ -169,7 +186,7 @@ ${productInfo ? `
 ⚠️ IMPORTANT: Dès le premier message, montre que tu sais quel produit l'intéresse !
 ` : '🚨 AUCUNE INFORMATION PRODUIT - Demande quel produit l\'intéresse'}
 
-📚 BASE DE CONNAISSANCE:
+📚 BASE DE CONNAISSANCE VIENS ON S'CONNAÎT:
 ${knowledgeBase}
 
 ${orderState ? `
@@ -208,14 +225,15 @@ PROCÉDURE STRICTE (dans cet ordre) :
 3. **Expertise produit**: Utilise ta base de connaissance pour être précis
 4. **Détection intention**: Sois attentif aux signaux d'achat
 5. **Collecte structurée**: Suis la procédure exacte pour les commandes
-6. **Reste en rôle**: Tu es ${agentTitle}, pas un chatbot générique
+6. **Reste en rôle**: Tu es ${agentTitle} chez VIENS ON S'CONNAÎT, pas un chatbot générique
 
 🚨 RÈGLES ABSOLUES:
 - Ne commence JAMAIS la collecte sans intention d'achat claire
 - Collecte les informations dans l'ORDRE EXACT indiqué
 - Une seule information à la fois
 - Confirme TOUJOURS avant de passer à l'étape suivante
-- Reste naturel et conversationnel même pendant la collecte`;
+- Reste naturel et conversationnel même pendant la collecte
+- Si tu ne sais pas quelque chose, admets-le et propose de contacter l'équipe`;
 
   return basePrompt;
 }
@@ -282,7 +300,6 @@ function extractOrderData(message: string, currentStep: string): any {
   
   switch (currentStep) {
     case 'quantity':
-      // Extraire les nombres (1, 2, 3, un, deux, trois, etc.)
       const qtyPatterns = [
         /(\d+)/,
         /\b(un|une)\b/i,
@@ -298,7 +315,6 @@ function extractOrderData(message: string, currentStep: string): any {
           if (match[1] && /\d+/.test(match[1])) {
             data.quantity = parseInt(match[1]);
           } else {
-            // Conversion mots en nombres
             const wordToNumber: { [key: string]: number } = {
               'un': 1, 'une': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5
             };
@@ -310,7 +326,6 @@ function extractOrderData(message: string, currentStep: string): any {
       break;
       
     case 'phone':
-      // Amélioration extraction téléphone (formats Sénégal/France)
       const phonePatterns = [
         /(?:\+?221[\s\-]?)?([0-9\s\-\(\)]{8,})/,
         /(?:\+?33[\s\-]?)?([0-9\s\-\(\)]{8,})/,
@@ -327,7 +342,6 @@ function extractOrderData(message: string, currentStep: string): any {
       break;
       
     case 'name':
-      // Extraction nom et prénom améliorée
       const cleanMessage = message.trim().replace(/[.,!?]/g, '');
       const words = cleanMessage.split(/\s+/).filter(word => 
         word.length > 1 && !/^(je|suis|mon|ma|nom|prénom|appelle|m'appelle)$/i.test(word)
@@ -342,12 +356,10 @@ function extractOrderData(message: string, currentStep: string): any {
       break;
       
     case 'address':
-      // Nettoyage adresse
       data.customerAddress = message.trim().replace(/^(mon adresse|adresse|c'est|voici)\s*/i, '');
       break;
       
     case 'payment':
-      // Extraction mode de paiement
       const paymentMethods: { [key: string]: string } = {
         'espèces': 'Espèces à la livraison',
         'cash': 'Espèces à la livraison',
@@ -375,18 +387,17 @@ function extractOrderData(message: string, currentStep: string): any {
   return data;
 }
 
-// ✅ CORRECTION : Sauvegarde commande avec champs corrects du schéma Prisma
+// ✅ AMÉLIORATION : Sauvegarde commande
 async function saveOrderToDatabase(conversationId: string, shopId: string, agentId: string, orderData: any, productInfo?: any) {
   let isConnected = false;
   try {
     await prisma.$connect();
     isConnected = true;
     
-    // ✅ CORRECTION: Utiliser les noms de champs exacts du schéma Prisma
     const order = await prisma.order.create({
       data: {
-        shopId: shopId, // ✅ Correct selon le schéma
-        conversationId: conversationId, // ✅ Correct selon le schéma  
+        shopId: shopId,
+        conversationId: conversationId,  
         customerName: orderData.customerFirstName && orderData.customerLastName 
           ? `${orderData.customerFirstName} ${orderData.customerLastName}`
           : orderData.customerFirstName || null,
@@ -400,9 +411,9 @@ async function saveOrderToDatabase(conversationId: string, shopId: string, agent
           quantity: orderData.quantity || 1
         },
         totalAmount: (productInfo?.price || 0) * (orderData.quantity || 1),
-        currency: 'XOF', // ✅ Conforme au schéma (défaut XOF)
+        currency: 'XOF',
         paymentMethod: orderData.paymentMethod || null,
-        status: 'pending' // ✅ Conforme au schéma (défaut pending)
+        status: 'pending'
       }
     });
     
@@ -421,12 +432,21 @@ async function saveOrderToDatabase(conversationId: string, shopId: string, agent
   }
 }
 
-// ✅ FONCTION AMÉLIORÉE : Appeler GPT-4o-mini avec collecte de commandes
+// ✅ FONCTION AMÉLIORÉE : Appeler GPT-4o-mini avec gestion d'erreurs
 async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState): Promise<OpenAIResult> {
   try {
+    // ✅ VÉRIFICATION OPENAI_API_KEY
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('⚠️ OpenAI API Key manquante');
+      return {
+        success: false,
+        error: 'Configuration OpenAI manquante',
+        fallbackMessage: "Je rencontre un problème technique temporaire. Comment puis-je vous aider autrement ?"
+      };
+    }
+
     const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, productInfo, orderState);
     
-    // ✅ DÉTECTER L'INTENTION D'ACHAT DANS LE DERNIER MESSAGE
     const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
     const hasOrderIntent = !orderState && detectOrderIntent(lastUserMessage);
     
@@ -444,18 +464,14 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
 
     let response = completion.choices[0]?.message?.content || "Je n'ai pas pu générer de réponse.";
     
-    // ✅ FORMATAGE DU MESSAGE AMÉLIORÉ pour lisibilité
     response = formatAIResponse(response);
     
-    // ✅ GESTION DE LA COLLECTE DE COMMANDE AMÉLIORÉE
     let newOrderState: OrderCollectionState | undefined;
     
     if (orderState) {
-      // Continuer la collecte
       const extractedData = extractOrderData(lastUserMessage, orderState.step);
       const updatedData = { ...orderState.data, ...extractedData };
       
-      // Déterminer la prochaine étape
       const nextStep = getNextOrderStep(orderState.step, updatedData);
       
       newOrderState = {
@@ -463,7 +479,6 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
         data: updatedData
       };
     } else if (hasOrderIntent) {
-      // Commencer la collecte seulement si intention claire
       newOrderState = {
         step: 'quantity',
         data: {
@@ -493,25 +508,33 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
       };
     }
     
+    // ✅ FALLBACK INTELLIGENT SELON LE CONTEXTE
+    let fallbackMessage = "Je rencontre un problème technique temporaire.";
+    
+    if (productInfo?.name) {
+      fallbackMessage = `Je vois que vous vous intéressez à "${productInfo.name}". Un de nos conseillers va vous recontacter rapidement pour vous aider !`;
+    } else {
+      fallbackMessage = "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.";
+    }
+    
     return {
       success: false,
       error: error.message || 'Erreur IA',
-      fallbackMessage: "Désolé, je rencontre un problème technique. Un conseiller vous recontactera bientôt."
+      fallbackMessage: fallbackMessage
     };
   }
 }
 
-// ✅ NOUVELLE FONCTION : Formatage des réponses IA pour meilleure lisibilité
+// ✅ FORMATAGE RÉPONSES IA
 function formatAIResponse(response: string): string {
   return response
-    // Gestion des sauts de ligne pour le frontend
     .replace(/\n\n/g, '\n\n')
-    .replace(/\*\*(.*?)\*\*/g, '**$1**')  // Préserver le markdown gras
-    .replace(/\*(.*?)\*/g, '*$1*')       // Préserver le markdown italique
+    .replace(/\*\*(.*?)\*\*/g, '**$1**')
+    .replace(/\*(.*?)\*/g, '*$1*')
     .trim()
 }
 
-// ✅ AMÉLIORATION : Logique d'étapes plus robuste
+// ✅ LOGIQUE ÉTAPES
 function getNextOrderStep(currentStep: string, data: any): OrderCollectionState['step'] {
   switch (currentStep) {
     case 'quantity':
@@ -531,25 +554,25 @@ function getNextOrderStep(currentStep: string, data: any): OrderCollectionState[
   }
 }
 
-// ✅ AMÉLIORATION : Message d'accueil avec contexte produit obligatoire
+// ✅ MESSAGE D'ACCUEIL AMÉLIORÉ
 function generateWelcomeMessage(agent: any, productInfo?: any): string {
   const baseName = agent.name || 'Assistant'
-  const baseTitle = agent.title || getDefaultTitle(agent.type) // ✅ NOUVEAU: Utiliser title personnalisable
+  const baseTitle = agent.title || getDefaultTitle(agent.type)
   
   if (productInfo?.name) {
-    return `Bonjour ! 👋 Je suis ${baseName}, ${baseTitle}.
+    return `Salut ! 👋 Je suis ${baseName}, ${baseTitle} chez VIENS ON S'CONNAÎT.
 
 Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! 💫
 
 Comment puis-je vous aider avec ce produit ? 😊`
   }
   
-  return `Bonjour ! 👋 Je suis ${baseName}, ${baseTitle}.
+  return agent.welcomeMessage || `Salut ! 👋 Je suis ${baseName}, ${baseTitle} chez VIENS ON S'CONNAÎT.
 
 Quel produit vous intéresse aujourd'hui ? Je serais ravi de vous renseigner ! 😊`
 }
 
-// ✅ NOUVEAU: Helper pour titre par défaut (cohérent avec agents.ts)
+// ✅ HELPER TITRE PAR DÉFAUT
 function getDefaultTitle(type: string): string {
   const titles = {
     'general': 'Conseiller commercial',
@@ -562,71 +585,95 @@ function getDefaultTitle(type: string): string {
 
 export default async function publicRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE : Récupérer la configuration publique d'un shop et de son agent principal
-  fastify.get<{ Params: ShopParamsType }>('/shops/:shopId/agent', async (request, reply) => {
-  let isConnected = false;
-  try {
-    const { shopId } = request.params;
-    fastify.log.info(`🔍 Récupération config publique pour shop: ${shopId}`);
-    
-    if (!isValidUUID(shopId)) {
-      fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
-      return getFallbackShopConfig(shopId);
-    }
-    
-    await prisma.$connect();
-    isConnected = true;
-    
-    const shop = await prisma.shop.findUnique({
-      where: { id: shopId },
-      select: {
-        id: true,
-        name: true,
-        is_active: true,
-        widget_config: true,
-        agent_config: true
+  // ✅ ROUTE CORRIGÉE : Configuration publique
+  fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
+    let isConnected = false;
+    try {
+      const { shopId } = request.params;
+      fastify.log.info(`🔍 [PUBLIC CONFIG] Récupération config pour shop: ${shopId}`);
+      
+      // ✅ GESTION UUID vs DEMO
+      if (!isValidUUID(shopId)) {
+        fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
+        return getFallbackShopConfig(shopId);
       }
-    });
+      
+      await prisma.$connect();
+      isConnected = true;
+      
+      const shop = await prisma.shop.findUnique({
+        where: { id: shopId },
+        select: {
+          id: true,
+          name: true,
+          is_active: true,
+          widget_config: true,
+          agent_config: true
+        }
+      });
 
-    if (!shop || !shop.is_active) {
-      fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
-      await prisma.$disconnect();
-      return getFallbackShopConfig(shopId);
-    }
+      if (!shop || !shop.is_active) {
+        fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
+        await prisma.$disconnect();
+        return getFallbackShopConfig(shopId);
+      }
 
-    const agent = await prisma.agent.findFirst({
-      where: { 
-        shopId: shopId,
-        isActive: true
-      },
-      include: {
-        knowledgeBase: {
-          where: {
-            knowledgeBase: {
-              isActive: true
-            }
-          },
-          include: {
-            knowledgeBase: {
-              select: {
-                id: true,
-                title: true,
-                content: true,
-                contentType: true,
-                tags: true
+      const agent = await prisma.agent.findFirst({
+        where: { 
+          shopId: shopId,
+          isActive: true
+        },
+        include: {
+          knowledgeBase: {
+            where: {
+              knowledgeBase: {
+                isActive: true
+              }
+            },
+            include: {
+              knowledgeBase: {
+                select: {
+                  id: true,
+                  title: true,
+                  content: true,
+                  contentType: true,
+                  tags: true
+                }
               }
             }
           }
-        }
-      },
-      orderBy: { updatedAt: 'desc' }
-    });
+        },
+        orderBy: { updatedAt: 'desc' }
+      });
 
-    await prisma.$disconnect();
-    isConnected = false;
+      await prisma.$disconnect();
+      isConnected = false;
 
-    if (!agent) {
-      return {
+      if (!agent) {
+        return {
+          success: true,
+          data: {
+            shop: {
+              id: shop.id,
+              name: shop.name,
+              widgetConfig: shop.widget_config,
+              agentConfig: shop.agent_config
+            },
+            agent: null,
+            knowledgeBase: {
+              content: "Configuration par défaut de la boutique.",
+              documentsCount: 0,
+              documents: []
+            }
+          }
+        };
+      }
+
+      const knowledgeContent = agent.knowledgeBase
+        .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
+        .join('\n\n---\n\n');
+
+      const response = {
         success: true,
         data: {
           shop: {
@@ -635,198 +682,50 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             widgetConfig: shop.widget_config,
             agentConfig: shop.agent_config
           },
-          agent: null,
+          agent: {
+            id: agent.id,
+            name: agent.name,
+            title: (agent as any).title || getDefaultTitle(agent.type),
+            type: agent.type,
+            personality: agent.personality,
+            description: agent.description,
+            welcomeMessage: agent.welcomeMessage,
+            fallbackMessage: agent.fallbackMessage,
+            avatar: agent.avatar,
+            config: agent.config
+          },
           knowledgeBase: {
-            content: "Configuration par défaut de la boutique.",
-            documentsCount: 0,
-            documents: []
+            content: knowledgeContent,
+            documentsCount: agent.knowledgeBase.length,
+            documents: agent.knowledgeBase.map(kb => ({
+              id: kb.knowledgeBase.id,
+              title: kb.knowledgeBase.title,
+              contentType: kb.knowledgeBase.contentType,
+              tags: kb.knowledgeBase.tags
+            }))
           }
         }
       };
-    }
 
-    const knowledgeContent = agent.knowledgeBase
-      .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
-      .join('\n\n---\n\n');
+      fastify.log.info(`✅ [PUBLIC CONFIG] Configuration envoyée pour ${shopId}:`, {
+        agent: response.data.agent.name,
+        documents: response.data.knowledgeBase.documentsCount
+      });
 
-    return {
-      success: true,
-      data: {
-        shop: {
-          id: shop.id,
-          name: shop.name,
-          widgetConfig: shop.widget_config,
-          agentConfig: shop.agent_config
-        },
-        agent: {
-          id: agent.id,
-          name: agent.name,
-          title: (agent as any).title || getDefaultTitle(agent.type), // ✅ NOUVEAU: Title personnalisable
-          type: agent.type,
-          personality: agent.personality,
-          description: agent.description,
-          welcomeMessage: agent.welcomeMessage,
-          fallbackMessage: agent.fallbackMessage,
-          avatar: agent.avatar,
-          config: agent.config
-        },
-        knowledgeBase: {
-          content: knowledgeContent,
-          documentsCount: agent.knowledgeBase.length,
-          documents: agent.knowledgeBase.map(kb => ({
-            id: kb.knowledgeBase.id,
-            title: kb.knowledgeBase.title,
-            contentType: kb.knowledgeBase.contentType,
-            tags: kb.knowledgeBase.tags
-          }))
-        }
+      return response;
+
+    } catch (error: any) {
+      if (isConnected) {
+        await prisma.$disconnect();
       }
-    };
-
-  } catch (error: any) {
-    if (isConnected) {
-      await prisma.$disconnect();
+      
+      fastify.log.error('❌ [PUBLIC CONFIG] Erreur:', error);
+      fastify.log.warn(`⚠️ Fallback activé pour shop ${request.params.shopId}`);
+      return getFallbackShopConfig(request.params.shopId);
     }
-    
-    fastify.log.error('❌ Get public shop config error:', error);
-    fastify.log.warn(`⚠️ Erreur API pour shop ${request.params.shopId}, utilisation configuration fallback`);
-    return getFallbackShopConfig(request.params.shopId);
-  }
-});
+  });
 
-  // ✅ NOUVELLE ROUTE PUBLIQUE POUR WIDGET (sans auth)
-fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
-  let isConnected = false;
-  try {
-    const { shopId } = request.params;
-    fastify.log.info(`🔍 Récupération config publique pour shop: ${shopId}`);
-    
-    if (!isValidUUID(shopId)) {
-      fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
-      return getFallbackShopConfig(shopId);
-    }
-    
-    await prisma.$connect();
-    isConnected = true;
-    
-    const shop = await prisma.shop.findUnique({
-      where: { id: shopId },
-      select: {
-        id: true,
-        name: true,
-        is_active: true,
-        widget_config: true,
-        agent_config: true
-      }
-    });
-
-    if (!shop || !shop.is_active) {
-      fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
-      await prisma.$disconnect();
-      return getFallbackShopConfig(shopId);
-    }
-
-    const agent = await prisma.agent.findFirst({
-      where: { 
-        shopId: shopId,
-        isActive: true
-      },
-      include: {
-        knowledgeBase: {
-          where: {
-            knowledgeBase: {
-              isActive: true
-            }
-          },
-          include: {
-            knowledgeBase: {
-              select: {
-                id: true,
-                title: true,
-                content: true,
-                contentType: true,
-                tags: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: { updatedAt: 'desc' }
-    });
-
-    await prisma.$disconnect();
-    isConnected = false;
-
-    if (!agent) {
-      return {
-        success: true,
-        data: {
-          shop: {
-            id: shop.id,
-            name: shop.name,
-            widgetConfig: shop.widget_config,
-            agentConfig: shop.agent_config
-          },
-          agent: null,
-          knowledgeBase: {
-            content: "Configuration par défaut de la boutique.",
-            documentsCount: 0,
-            documents: []
-          }
-        }
-      };
-    }
-
-    const knowledgeContent = agent.knowledgeBase
-      .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
-      .join('\n\n---\n\n');
-
-    return {
-      success: true,
-      data: {
-        shop: {
-          id: shop.id,
-          name: shop.name,
-          widgetConfig: shop.widget_config,
-          agentConfig: shop.agent_config
-        },
-        agent: {
-          id: agent.id,
-          name: agent.name,
-          title: (agent as any).title || getDefaultTitle(agent.type),
-          type: agent.type,
-          personality: agent.personality,
-          description: agent.description,
-          welcomeMessage: agent.welcomeMessage,
-          fallbackMessage: agent.fallbackMessage,
-          avatar: agent.avatar,
-          config: agent.config
-        },
-        knowledgeBase: {
-          content: knowledgeContent,
-          documentsCount: agent.knowledgeBase.length,
-          documents: agent.knowledgeBase.map(kb => ({
-            id: kb.knowledgeBase.id,
-            title: kb.knowledgeBase.title,
-            contentType: kb.knowledgeBase.contentType,
-            tags: kb.knowledgeBase.tags
-          }))
-        }
-      }
-    };
-
-  } catch (error: any) {
-    if (isConnected) {
-      await prisma.$disconnect();
-    }
-    
-    fastify.log.error('❌ Get public shop config error:', error);
-    fastify.log.warn(`⚠️ Erreur API pour shop ${request.params.shopId}, utilisation configuration fallback`);
-    return getFallbackShopConfig(request.params.shopId);
-  }
-});
-
-  // ✅ ROUTE : Endpoint de chat public AVEC COLLECTE COMMANDES AMÉLIORÉE
+  // ✅ ROUTE CORRIGÉE : Chat public
   fastify.post<{ Body: ChatRequestBody }>('/public/chat', async (request, reply) => {
     const startTime = Date.now();
     let isConnected = false;
@@ -834,31 +733,44 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
     try {
       const { shopId, message, conversationId, productInfo, visitorId, isFirstMessage } = request.body;
       
-      fastify.log.info(`💬 Nouveau message chat pour shop: ${shopId}${isFirstMessage ? ' (premier message)' : ''}`);
+      fastify.log.info(`💬 [PUBLIC CHAT] Nouveau message pour shop: ${shopId}${isFirstMessage ? ' (premier message)' : ''}`);
       
-      // ✅ Mode test pour shops non-UUID avec génération améliorée
+      // ✅ VALIDATION DONNÉES
+      if (!shopId || !message) {
+        return reply.status(400).send({ 
+          success: false, 
+          error: 'shopId et message requis' 
+        });
+      }
+
+      // ✅ MODE TEST AMÉLIORÉ
       if (!isValidUUID(shopId)) {
-        fastify.log.info(`💬 Mode test détecté pour shop: ${shopId}`);
+        fastify.log.info(`💬 [MODE TEST] Réponse simulée pour shop: ${shopId}`);
         
         let simulatedResponse = '';
         
         if (isFirstMessage && productInfo?.name) {
-          simulatedResponse = generateWelcomeMessage({name: "Rose"}, productInfo);
+          simulatedResponse = `Salut ! 👋 Je suis Rose, Assistante d'Achat chez VIENS ON S'CONNAÎT.
+
+Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! ✨
+
+Comment puis-je vous aider ? 😊`;
         } else {
-          simulatedResponse = getSimulatedAIResponse(message, productInfo);
+          simulatedResponse = getIntelligentSimulatedResponse(message, productInfo);
         }
         
         return {
           success: true,
           data: {
             conversationId: conversationId || `test-conv-${Date.now()}`,
-            message: simulatedResponse, // ✅ Pas de formatage HTML pour le mode test
+            message: simulatedResponse,
             agent: {
               name: "Rose",
-              avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
+              avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff"
             },
             responseTime: Date.now() - startTime,
-            isWelcomeMessage: isFirstMessage
+            isWelcomeMessage: isFirstMessage,
+            mode: 'test'
           }
         };
       }
@@ -866,7 +778,7 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
       await prisma.$connect();
       isConnected = true;
       
-      // Récupérer la configuration de l'agent
+      // ✅ VÉRIFICATION SHOP
       const shopConfig = await prisma.shop.findUnique({
         where: { id: shopId },
         select: {
@@ -884,6 +796,7 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         });
       }
 
+      // ✅ RÉCUPÉRATION AGENT
       const agent = await prisma.agent.findFirst({
         where: { 
           shopId: shopId,
@@ -911,11 +824,10 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         });
       }
 
-      // ✅ GESTION PREMIER MESSAGE AUTOMATIQUE AMÉLIORÉ
+      // ✅ PREMIER MESSAGE AUTOMATIQUE
       if (isFirstMessage) {
         const welcomeMessage = generateWelcomeMessage(agent, productInfo);
         
-        // Créer la conversation avec informations produit complètes
         const conversation = await prisma.conversation.create({
           data: {
             shopId: shopId,
@@ -930,7 +842,6 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
           }
         });
 
-        // Sauvegarder le message d'accueil
         await prisma.message.create({
           data: {
             conversationId: conversation.id,
@@ -945,11 +856,13 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         await prisma.$disconnect();
         isConnected = false;
 
+        fastify.log.info(`✅ [WELCOME] Message d'accueil envoyé pour conversation: ${conversation.id}`);
+
         return {
           success: true,
           data: {
             conversationId: conversation.id,
-            message: welcomeMessage, // ✅ Pas de formatage HTML - sera fait côté frontend
+            message: welcomeMessage,
             agent: {
               name: agent.name,
               avatar: agent.avatar
@@ -960,7 +873,7 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         };
       }
 
-      // Créer ou récupérer la conversation
+      // ✅ GESTION CONVERSATION EXISTANTE
       let conversation;
       if (conversationId) {
         conversation = await prisma.conversation.findUnique({
@@ -968,7 +881,7 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
           include: {
             messages: {
               orderBy: { createdAt: 'asc' },
-              take: 10 // Limiter l'historique pour l'IA
+              take: 10
             }
           }
         });
@@ -993,7 +906,7 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         });
       }
 
-      // Sauvegarder le message utilisateur
+      // ✅ SAUVEGARDER MESSAGE UTILISATEUR
       await prisma.message.create({
         data: {
           conversationId: conversation.id,
@@ -1002,12 +915,12 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         }
       });
 
-      // Préparer la base de connaissance
+      // ✅ PRÉPARER BASE DE CONNAISSANCE
       const knowledgeContent = agent.knowledgeBase
         .map(kb => `## ${kb.knowledgeBase.title}\n${kb.knowledgeBase.content}`)
         .join('\n\n---\n\n');
 
-      // ✅ RÉCUPÉRER L'ÉTAT DE COLLECTE DE COMMANDE depuis customerData
+      // ✅ RÉCUPÉRER ÉTAT COLLECTE COMMANDE
       let orderState: OrderCollectionState | undefined;
       
       try {
@@ -1019,16 +932,15 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         console.warn('Erreur lecture customerData conversation:', error);
       }
 
-      // Préparer l'historique des messages pour l'IA
+      // ✅ PRÉPARER HISTORIQUE MESSAGES
       const messageHistory = conversation.messages.map(msg => ({
         role: msg.role as 'user' | 'assistant',
         content: msg.content
       }));
 
-      // Ajouter le nouveau message
       messageHistory.push({ role: 'user', content: message });
 
-      // ✅ APPELER GPT-4O-MINI AVEC COLLECTE DE COMMANDES AMÉLIORÉE
+      // ✅ APPELER IA
       const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo, orderState);
       
       let aiResponse: string = aiResult.fallbackMessage || agent.fallbackMessage || "Je transmets votre question à notre équipe.";
@@ -1038,10 +950,10 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         aiResponse = aiResult.message;
         tokensUsed = aiResult.tokensUsed || 0;
       } else {
-        fastify.log.error('❌ Erreur IA:', aiResult.error);
+        fastify.log.error('❌ [IA ERROR]:', aiResult.error);
       }
 
-      // ✅ SAUVEGARDER L'ÉTAT DE COLLECTE DE COMMANDE dans customerData
+      // ✅ SAUVEGARDER ÉTAT COLLECTE
       if (aiResult.orderCollection) {
         await prisma.conversation.update({
           where: { id: conversation.id },
@@ -1052,10 +964,9 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
           }
         });
 
-        // ✅ SI COMMANDE TERMINÉE, LA SAUVEGARDER AVEC VÉRIFICATION CLIENT EXISTANT
+        // ✅ SAUVEGARDER COMMANDE SI TERMINÉE
         if (aiResult.orderCollection.step === 'completed') {
           try {
-            // ✅ NOUVEAU : Vérifier si le client existe déjà par téléphone
             const existingOrder = await prisma.order.findFirst({
               where: {
                 customerPhone: aiResult.orderCollection.data.customerPhone
@@ -1063,7 +974,6 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
               orderBy: { createdAt: 'desc' }
             });
 
-            // Si client existant, enrichir les données
             if (existingOrder && !aiResult.orderCollection.data.customerFirstName) {
               aiResult.orderCollection.data.customerFirstName = existingOrder.customerName?.split(' ')[0] || undefined;
               aiResult.orderCollection.data.customerLastName = existingOrder.customerName?.split(' ').slice(1).join(' ') || undefined;
@@ -1084,25 +994,24 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
               productInfo
             );
             
-            // Marquer la conversation comme convertie
             await prisma.conversation.update({
               where: { id: conversation.id },
               data: {
                 conversionCompleted: true,
-                customerData: {} // Nettoyer l'état de collecte
+                customerData: {}
               }
             });
             
-            fastify.log.info(`✅ Commande sauvegardée pour conversation: ${conversation.id}`);
+            fastify.log.info(`✅ [ORDER] Commande sauvegardée pour conversation: ${conversation.id}`);
             
           } catch (error) {
             console.error('❌ Erreur sauvegarde commande:', error);
-            fastify.log.error('❌ Erreur sauvegarde commande:', error);
+            fastify.log.error('❌ [ORDER ERROR]:', error);
           }
         }
       }
 
-      // Sauvegarder la réponse de l'IA
+      // ✅ SAUVEGARDER RÉPONSE IA
       await prisma.message.create({
         data: {
           conversationId: conversation.id,
@@ -1117,11 +1026,13 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
       await prisma.$disconnect();
       isConnected = false;
 
+      fastify.log.info(`✅ [CHAT SUCCESS] Réponse envoyée pour conversation: ${conversation.id} (${Date.now() - startTime}ms)`);
+
       return {
         success: true,
         data: {
           conversationId: conversation.id,
-          message: aiResponse, // ✅ Pas de formatage HTML - sera fait côté frontend
+          message: aiResponse,
           agent: {
             name: agent.name,
             avatar: agent.avatar
@@ -1137,9 +1048,9 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
         await prisma.$disconnect();
       }
       
-      fastify.log.error('❌ Chat error:', error);
+      fastify.log.error('❌ [CHAT ERROR]:', error);
       
-      // ✅ Fallback amélioré avec contexte produit si possible
+      // ✅ FALLBACK CONTEXTUEL
       let fallbackResponse = "Merci pour votre message ! Comment puis-je vous aider davantage ?";
       
       const userMessage = request.body.message || '';
@@ -1147,9 +1058,9 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
       
       if (userMessage.toLowerCase().includes('bonjour') || userMessage.toLowerCase().includes('salut')) {
         if (productInfo?.name) {
-          fallbackResponse = `Bonjour ! Je suis votre conseiller commercial. Je vois que vous vous intéressez à "${productInfo.name}". Comment puis-je vous aider avec ce produit ?`;
+          fallbackResponse = `Salut ! Je suis votre conseiller chez VIENS ON S'CONNAÎT. Je vois que vous vous intéressez à "${productInfo.name}". Comment puis-je vous aider avec ce produit ?`;
         } else {
-          fallbackResponse = "Bonjour ! Je suis votre conseiller commercial. Comment puis-je vous aider ?";
+          fallbackResponse = "Salut ! Je suis votre conseiller chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?";
         }
       } else if (productInfo?.name && userMessage.toLowerCase().includes('produit')) {
         fallbackResponse = `Concernant "${productInfo.name}", je vous mets en relation avec notre équipe pour vous donner les meilleures informations.`;
@@ -1162,23 +1073,24 @@ fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (r
           message: fallbackResponse,
           agent: {
             name: "Rose",
-            avatar: "https://ui-avatars.com/api/?name=Rose&background=E91E63&color=fff"
+            avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff"
           },
-          responseTime: Date.now() - startTime
+          responseTime: Date.now() - startTime,
+          mode: 'fallback'
         }
       };
     }
   });
 }
 
-// ✅ FONCTION pour simuler l'IA (fallback pour les tests) - AMÉLIORÉE
-function getSimulatedAIResponse(message: string, productInfo: any): string {
+// ✅ RÉPONSE SIMULÉE INTELLIGENTE
+function getIntelligentSimulatedResponse(message: string, productInfo: any): string {
   const msg = message.toLowerCase();
   
   if (msg.includes('bonjour') || msg.includes('salut') || msg.includes('hello')) {
-    return `Bonjour ! Je suis Rose, votre conseillère commerciale. 👋
+    return `Salut ! Je suis Rose, votre Assistante d'Achat chez VIENS ON S'CONNAÎT. 👋
 
-Je vois que vous vous intéressez à **"${productInfo?.name || 'ce produit'}"**. 
+Je vois que vous vous intéressez à **"${productInfo?.name || 'nos produits'}"**. 
 
 Comment puis-je vous aider ? 😊`;
   }
@@ -1203,10 +1115,10 @@ Voulez-vous que je vous aide à passer commande ? 🛒`;
   if (msg.includes('info') || msg.includes('détail') || msg.includes('caractéristique')) {
     return `**"${productInfo?.name || 'Ce produit'}"** est un excellent choix ! 👌
 
-D'après nos informations, c'est l'un de nos produits les plus appréciés. 
+D'après nos informations, c'est l'un de nos produits les plus appréciés chez VIENS ON S'CONNAÎT. 
 
 Avez-vous des **questions spécifiques** ? 🤔`;
   }
   
-  return "Merci pour votre message ! Comment puis-je vous aider davantage avec ce produit ? 😊";
+  return "Merci pour votre message ! Comment puis-je vous aider davantage avec nos produits ? 😊";
 }
