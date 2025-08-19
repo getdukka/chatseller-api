@@ -9,6 +9,17 @@
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
+    "restartPolicyMaxRetries": 3,
+    "numReplicas": 1,
+    "sleepApplication": false
+  },
+  "environments": {
+    "production": {
+      "variables": {
+        "NODE_ENV": "production",
+        "DATABASE_CONNECTION_LIMIT": "5",
+        "DATABASE_POOL_TIMEOUT": "0"
+      }
+    }
   }
 }

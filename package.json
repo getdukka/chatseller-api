@@ -12,6 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
+    "test:railway": "node scripts/test-railway.js",
+    "start:prod": "NODE_ENV=production node dist/server.js",
     "lint": "eslint src --ext .ts",
     "test": "jest"
   },

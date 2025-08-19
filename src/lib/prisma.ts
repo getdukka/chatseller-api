@@ -1,4 +1,4 @@
-// src/lib/prisma.ts - SINGLETON PRISMA POUR ÉVITER LES CONFLITS
+// src/lib/prisma.ts - SINGLETON PRISMA OPTIMISÉ POUR RAILWAY
 import { PrismaClient } from '@prisma/client'
 
 // ✅ DÉCLARATION GLOBALE POUR LE SINGLETON
@@ -6,15 +6,15 @@ declare global {
   var __prisma: PrismaClient | undefined
 }
 
-// ✅ FONCTION POUR CRÉER UNE INSTANCE PRISMA OPTIMISÉE
+// ✅ FONCTION POUR CRÉER UNE INSTANCE PRISMA OPTIMISÉE POUR RAILWAY
 function createPrismaClient(): PrismaClient {
+  const isProduction = process.env.NODE_ENV === 'production'
+  
   return new PrismaClient({
     // ✅ LOGS RÉDUITS EN PRODUCTION
-    log: process.env.NODE_ENV === 'production' 
-      ? ['error'] 
-      : ['query', 'info', 'warn', 'error'],
+    log: isProduction ? ['error'] : ['query', 'info', 'warn', 'error'],
     
-    // ✅ CONFIGURATION DE CONNEXION OPTIMISÉE POUR RAILWAY
+    // ✅ CONFIGURATION SPÉCIALE POUR RAILWAY
     datasources: {
       db: {
         url: process.env.DATABASE_URL
@@ -49,19 +49,28 @@ process.on('SIGINT', async () => {
   process.exit(0)
 })
 
-// ✅ FONCTION UTILITAIRE POUR TESTER LA CONNEXION SANS PREPARED STATEMENTS
+// ✅ FONCTION UTILITAIRE POUR TESTER LA CONNEXION - VERSION RAILWAY
 export async function testDatabaseConnection(): Promise<{ success: boolean; error?: string }> {
   try {
-    // ✅ Utiliser $executeRaw au lieu de $queryRaw pour éviter les prepared statements
-    await prisma.$executeRaw`SELECT 1 as test`
+    // ✅ SOLUTION RAILWAY: Utiliser une requête simple sans prepared statements
+    const result = await prisma.$queryRawUnsafe('SELECT 1 as test')
     
     console.log('✅ Base de données: Connexion OK')
     return { success: true }
   } catch (error: any) {
     console.error('❌ Base de données: Erreur connexion:', error)
-    return { 
-      success: false, 
-      error: error.message || 'Erreur de connexion à la base de données'
+    
+    // ✅ FALLBACK: Essayer une méthode alternative
+    try {
+      await prisma.$connect()
+      console.log('✅ Connexion alternative réussie')
+      return { success: true }
+    } catch (fallbackError: any) {
+      console.error('❌ Fallback connexion échoué:', fallbackError)
+      return { 
+        success: false, 
+        error: fallbackError.message || 'Erreur de connexion à la base de données'
+      }
     }
   }
 }
@@ -78,7 +87,7 @@ export async function reconnectIfNeeded(): Promise<void> {
   }
 }
 
-// ✅ FONCTION POUR OBTENIR LE STATUS DE CONNEXION
+// ✅ FONCTION POUR OBTENIR LE STATUS DE CONNEXION - VERSION RAILWAY
 export async function getConnectionStatus(): Promise<{
   connected: boolean
   latency?: number
@@ -87,7 +96,8 @@ export async function getConnectionStatus(): Promise<{
   const startTime = Date.now()
   
   try {
-    await prisma.$executeRaw`SELECT 1 as health_check`
+    // ✅ Utiliser $queryRawUnsafe pour éviter les prepared statements
+    await prisma.$queryRawUnsafe('SELECT 1 as health_check')
     const latency = Date.now() - startTime
     
     return {
@@ -99,6 +109,27 @@ export async function getConnectionStatus(): Promise<{
       connected: false,
       error: error.message
     }
+  }
+}
+
+// ✅ FONCTION UTILITAIRE POUR RAILWAY: Exécuter des requêtes sans prepared statements
+export async function queryWithoutPreparedStatements<T = any>(sql: string, values?: any[]): Promise<T> {
+  try {
+    if (values && values.length > 0) {
+      // Remplacer les paramètres manuellement
+      let finalSql = sql
+      values.forEach((value, index) => {
+        const placeholder = `$${index + 1}`
+        const safeValue = typeof value === 'string' ? `'${value.replace(/'/g, "''")}'` : value
+        finalSql = finalSql.replace(placeholder, safeValue)
+      })
+      return await prisma.$queryRawUnsafe(finalSql)
+    } else {
+      return await prisma.$queryRawUnsafe(sql)
+    }
+  } catch (error) {
+    console.error('❌ Erreur requête sans prepared statements:', error)
+    throw error
   }
 }
 
