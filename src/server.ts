@@ -348,44 +348,57 @@ async function gracefulShutdown() {
 // Start server
 async function start() {
   try {
+    // ✅ LOGS DE DEBUG RAILWAY
+    console.log('🚀 === DÉMARRAGE CHATSELLER API ===')
+    console.log('📊 Environment:', process.env.NODE_ENV)
+    console.log('💾 Database URL présent:', !!process.env.DATABASE_URL)
+    console.log('🔗 Database URL preview:', process.env.DATABASE_URL?.substring(0, 80) + '...')
+    console.log('🔑 Supabase URL présent:', !!process.env.SUPABASE_URL)
+    console.log('🔐 Service Key présent:', !!process.env.SUPABASE_SERVICE_KEY)
+    console.log('🤖 OpenAI Key présent:', !!process.env.OPENAI_API_KEY)
+    console.log('================================')
+
     // ✅ TEST CONNEXION DATABASE AVANT DÉMARRAGE
     console.log('🔧 Test de connexion base de données...')
     const dbStatus = await testDatabaseConnection()
     
     if (!dbStatus.success) {
       console.error('❌ ERREUR CRITIQUE: Impossible de se connecter à la base de données')
-      console.error('🔍 Vérifiez votre DATABASE_URL')
+      console.error('🔍 DATABASE_URL:', process.env.DATABASE_URL?.substring(0, 50) + '...')
       console.error('📋 Erreur:', dbStatus.error)
       process.exit(1)
     }
     
     console.log('✅ Connexion base de données: OK')
 
-    // ✅ TEST CONNEXION SUPABASE AU DÉMARRAGE
+    // ✅ TEST CONNEXION SUPABASE AVEC FALLBACK
     console.log('🔧 Test de connexion Supabase...')
     const supabaseTest = await testSupabaseConnection()
     
     if (!supabaseTest.success) {
-      console.error('❌ ERREUR CRITIQUE: Impossible de se connecter à Supabase')
-      console.error('🔍 Vérifiez vos variables SUPABASE_URL et SUPABASE_SERVICE_KEY')
-      process.exit(1)
+      console.warn('⚠️ Supabase connection failed:', supabaseTest.error)
+      
+      // ✅ EN DÉVELOPPEMENT, ON CONTINUE SANS SUPABASE
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🚧 Mode développement : continuant sans Supabase...')
+      } else {
+        // ✅ EN PRODUCTION, SUPABASE EST CRITIQUE
+        console.error('❌ ERREUR CRITIQUE: Impossible de se connecter à Supabase en production')
+        console.error('🔍 Vérifiez vos variables SUPABASE_URL et SUPABASE_SERVICE_KEY')
+        process.exit(1)
+      }
+    } else {
+      console.log('✅ Connexion Supabase: OK')
     }
-    
-    console.log('✅ Connexion Supabase: OK')
 
     await registerPlugins()
     await registerRoutes()
 
     const port = parseInt(process.env.PORT || '3001')
-    const host = '0.0.0.0'
+    const host = '0.0.0.0' // ✅ TOUJOURS 0.0.0.0 pour Railway
 
-    console.log('🚀 === DÉMARRAGE RAILWAY DEBUG ===')
-    console.log('📊 Environment:', process.env.NODE_ENV)
     console.log('🌐 Host forcé à:', host)
     console.log('🔌 Port:', port)
-    console.log('💾 Database URL présent:', !!process.env.DATABASE_URL)
-    console.log('🔗 Database URL preview:', process.env.DATABASE_URL?.substring(0, 80) + '...')
-    console.log('================================')
 
     await fastify.listen({ port, host })
     
@@ -410,6 +423,7 @@ async function start() {
     
   } catch (error) {
     fastify.log.error(error)
+    console.error('💥 Erreur fatale au démarrage:', error)
     process.exit(1)
   }
 }
