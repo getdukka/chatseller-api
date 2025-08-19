@@ -356,6 +356,15 @@ async function start() {
     console.log('🔑 Supabase URL présent:', !!process.env.SUPABASE_URL)
     console.log('🔐 Service Key présent:', !!process.env.SUPABASE_SERVICE_KEY)
     console.log('🤖 OpenAI Key présent:', !!process.env.OPENAI_API_KEY)
+    console.log('🚀 === RAILWAY PORT DEBUG ===')
+    console.log('🔌 PORT brut:', process.env.PORT)
+    console.log('🔌 PORT type:', typeof process.env.PORT)
+    console.log('🔌 Toutes les variables PORT-like:')
+    Object.keys(process.env).filter(key => 
+      key.toLowerCase().includes('port')
+    ).forEach(key => {
+      console.log(`   ${key}: "${process.env[key]}"`)
+    })
     console.log('================================')
 
     // ✅ TEST CONNEXION DATABASE AVANT DÉMARRAGE
@@ -394,11 +403,29 @@ async function start() {
     await registerPlugins()
     await registerRoutes()
 
-    const port = parseInt(process.env.PORT || '3001')
-    const host = '0.0.0.0' // ✅ TOUJOURS 0.0.0.0 pour Railway
+    const getPort = () => {
+    const portEnv = process.env.PORT
+    if (!portEnv) {
+      console.log('🔌 PORT non défini, utilisation du port 3001 par défaut')
+      return 3001
+    }
+    
+    const port = parseInt(portEnv, 10)
+    if (isNaN(port) || port < 1 || port > 65535) {
+      console.error('❌ PORT invalide:', portEnv)
+      console.log('🔌 Utilisation du port 3001 par défaut')
+      return 3001
+    }
+    
+    console.log('🔌 Port détecté:', port)
+    return port
+  }
 
-    console.log('🌐 Host forcé à:', host)
-    console.log('🔌 Port:', port)
+  const port = getPort()
+  const host = '0.0.0.0'
+
+  console.log('🌐 Host forcé à:', host)
+  console.log('🔌 Port final:', port)
 
     await fastify.listen({ port, host })
     
