@@ -1,4 +1,4 @@
-// src/routes/shops.ts - VERSION CORRIGÉE AVEC PERSISTANCE WIDGET OPTIMISÉE
+// src/routes/shops.ts - VERSION CORRIGÉE AVEC ROUTE PUBLIQUE FIXÉE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, Prisma } from '@prisma/client';
@@ -12,7 +12,7 @@ interface WidgetConfig {
   buttonText?: string;
   primaryColor?: string;
   widgetSize?: string;
-  borderRadius?: string;
+  borderRadius?: string; // ✅ AJOUT BORDERRADIUS
   animation?: string;
   autoOpen?: boolean;
   showAvatar?: boolean;
@@ -92,7 +92,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// ✅ SCHÉMAS DE VALIDATION RENFORCÉS - CORRIGÉS POUR ÉVITER ERREURS 400
+// ✅ SCHÉMAS DE VALIDATION RENFORCÉS
 const updateShopSchema = z.object({
   name: z.string().optional(),
   domain: z.string().nullable().optional(),
@@ -101,7 +101,7 @@ const updateShopSchema = z.object({
   subscription_plan: z.enum(['free', 'starter', 'pro', 'professional', 'enterprise']).optional(),
   onboarding_completed: z.boolean().optional(),
   onboarding_completed_at: z.string().datetime().nullable().optional(),
-  // ✅ VALIDATION WIDGET CONFIG PLUS FLEXIBLE
+  // ✅ VALIDATION WIDGET CONFIG AVEC BORDERRADIUS
   widget_config: z.object({
     primaryColor: z.string().optional(),
     buttonText: z.string().optional(),
@@ -109,7 +109,7 @@ const updateShopSchema = z.object({
     theme: z.string().optional(),
     language: z.string().optional(),
     widgetSize: z.string().optional(),
-    borderRadius: z.string().optional(),
+    borderRadius: z.string().optional(), // ✅ AJOUT
     animation: z.string().optional(),
     autoOpen: z.boolean().optional(),
     showAvatar: z.boolean().optional(),
@@ -149,7 +149,7 @@ const createShopSchema = z.object({
     buttonText: z.string().optional(),
     primaryColor: z.string().optional(),
     widgetSize: z.string().optional(),
-    borderRadius: z.string().optional(),
+    borderRadius: z.string().optional(), // ✅ AJOUT
     animation: z.string().optional(),
     autoOpen: z.boolean().optional(),
     showAvatar: z.boolean().optional(),
@@ -207,7 +207,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
       return shop;
     }
 
-    // ✅ CONFIGURATION WIDGET PAR DÉFAUT AMÉLIORÉE
+    // ✅ CONFIGURATION WIDGET PAR DÉFAUT AVEC BORDERRADIUS
     const defaultWidgetConfig = {
       theme: "modern",
       language: "fr", 
@@ -215,7 +215,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
       buttonText: "Parler à un conseiller",
       primaryColor: "#3B82F6",
       widgetSize: "medium",
-      borderRadius: "md",
+      borderRadius: "md", // ✅ AJOUT
       animation: "fade",
       autoOpen: false,
       showAvatar: true,
@@ -257,7 +257,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   }
 }
 
-// ✅ NOUVELLE FONCTION : Merger intelligent des configurations
+// ✅ FONCTION : Merger intelligent des configurations
 function mergeConfigIntelligent(existing: any, updates: any): any {
   if (!existing && !updates) return {};
   if (!existing) return updates;
@@ -286,14 +286,24 @@ interface ShopQueryType {
 
 export default async function shopsRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE PUBLIQUE CONFIG - AMÉLIORÉE POUR WIDGET
+  // ✅ CORRECTION PRINCIPALE : ROUTE PUBLIQUE CONFIG CORRIGÉE
   fastify.get<{ Params: ShopParamsType; Querystring: ShopQueryType }>('/public/:id/config', async (request, reply) => {
     let isConnected = false;
     try {
       const { id: shopId } = request.params;
       const { agentId } = request.query;
 
-      fastify.log.info(`🔍 Récupération config publique shop: ${shopId}, agent: ${agentId || 'auto'}`);
+      fastify.log.info(`🔍 [PUBLIC] Récupération config publique shop: ${shopId}, agent: ${agentId || 'auto'}`);
+
+      // ✅ VALIDATION UUID SHOPID
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(shopId)) {
+        fastify.log.warn(`⚠️ [PUBLIC] ShopId invalide: ${shopId}`);
+        return reply.status(400).send({
+          success: false,
+          error: 'ShopId invalide - doit être un UUID valide'
+        });
+      }
 
       await prisma.$connect();
       isConnected = true;
@@ -331,6 +341,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       if (!shop || !shop.is_active) {
         await prisma.$disconnect();
+        fastify.log.warn(`⚠️ [PUBLIC] Shop non trouvé ou inactif: ${shopId}`);
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé ou inactif'
@@ -346,6 +357,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       if (!selectedAgent) {
         await prisma.$disconnect();
+        fastify.log.warn(`⚠️ [PUBLIC] Aucun agent actif trouvé pour shop: ${shopId}`);
         return reply.status(404).send({
           success: false,
           error: 'Aucun agent actif trouvé pour ce shop'
@@ -355,7 +367,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       const widgetConfig = shop.widget_config as WidgetConfig | null;
       const agentConfig = selectedAgent.config as AgentConfig | null;
 
-      // ✅ CONFIGURATION PUBLIQUE COMPLÈTE AVEC TOUTES LES PROPRIÉTÉS WIDGET
+      // ✅ CONFIGURATION PUBLIQUE COMPLÈTE AVEC BORDERRADIUS
       const publicConfig = {
         shop: {
           id: shop.id,
@@ -363,14 +375,14 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           name: shop.name,
           domain: shop.domain,
           subscription_plan: shop.subscription_plan,
-          // ✅ TOUTES LES PROPRIÉTÉS WIDGET EXPOSÉES
+          // ✅ TOUTES LES PROPRIÉTÉS WIDGET EXPOSÉES + BORDERRADIUS
           primaryColor: widgetConfig?.primaryColor || '#3B82F6',
           buttonText: widgetConfig?.buttonText || 'Parler à un conseiller',
           position: widgetConfig?.position || 'above-cta',
           theme: widgetConfig?.theme || 'modern',
           language: widgetConfig?.language || 'fr',
           widgetSize: widgetConfig?.widgetSize || 'medium',
-          borderRadius: widgetConfig?.borderRadius || 'md',
+          borderRadius: widgetConfig?.borderRadius || 'md', // ✅ AJOUT BORDERRADIUS
           animation: widgetConfig?.animation || 'fade',
           autoOpen: widgetConfig?.autoOpen || false,
           showAvatar: widgetConfig?.showAvatar !== false,
@@ -402,7 +414,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       await prisma.$disconnect();
       isConnected = false;
 
-      fastify.log.info(`✅ Configuration publique retournée pour ${shop.name} avec agent ${selectedAgent.name}`);
+      fastify.log.info(`✅ [PUBLIC] Configuration publique retournée pour ${shop.name} avec agent ${selectedAgent.name} (borderRadius: ${publicConfig.shop.borderRadius})`);
 
       return {
         success: true,
@@ -414,17 +426,17 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         await prisma.$disconnect();
       }
       
-      fastify.log.error('❌ Erreur récupération config publique:', error);
+      fastify.log.error('❌ [PUBLIC] Erreur récupération config publique:', error);
       
       return reply.status(500).send({
         success: false,
-        error: 'Erreur lors de la récupération de la configuration',
+        error: 'Erreur lors de la récupération de la configuration publique',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
 
-  // ✅ ROUTE : OBTENIR UN SHOP (GET /api/v1/shops/:id) - AMÉLIORÉE
+  // ✅ ROUTE : OBTENIR UN SHOP (GET /api/v1/shops/:id) - AVEC BORDERRADIUS
   fastify.get<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     let isConnected = false;
     try {
@@ -553,7 +565,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         };
       }
 
-      // ✅ CRÉER NOUVEAU SHOP AVEC CONFIGS PAR DÉFAUT OPTIMISÉES
+      // ✅ CRÉER NOUVEAU SHOP AVEC CONFIGS PAR DÉFAUT AVEC BORDERRADIUS
       const defaultWidgetConfig = {
         theme: "modern",
         language: "fr", 
@@ -561,7 +573,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         buttonText: "Parler à un conseiller",
         primaryColor: "#3B82F6",
         widgetSize: "medium",
-        borderRadius: "md",
+        borderRadius: "md", // ✅ AJOUT
         animation: "fade",
         autoOpen: false,
         showAvatar: true,
@@ -604,7 +616,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       await prisma.$disconnect();
       isConnected = false;
 
-      fastify.log.info(`✅ Shop créé avec widget_config:`, newShop.widget_config);
+      fastify.log.info(`✅ Shop créé avec widget_config (borderRadius: ${defaultWidgetConfig.borderRadius}):`, newShop.widget_config);
 
       return {
         success: true,
@@ -642,14 +654,14 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : METTRE À JOUR UN SHOP (PUT /api/v1/shops/:id) - VERSION CORRIGÉE WIDGET
+  // ✅ ROUTE : METTRE À JOUR UN SHOP (PUT /api/v1/shops/:id) - AVEC BORDERRADIUS
   fastify.put<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
       
-      // ✅ VALIDATION STRICTE MAIS PLUS FLEXIBLE
+      // ✅ VALIDATION
       const body = updateShopSchema.parse(request.body);
 
       fastify.log.info(`📝 Mise à jour shop: ${id}`, {
@@ -694,7 +706,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         updateData.onboarding_completed_at = body.onboarding_completed_at ? new Date(body.onboarding_completed_at) : null;
       }
 
-      // ✅ FUSION INTELLIGENTE DES CONFIGURATIONS WIDGET - CORRIGÉE
+      // ✅ FUSION INTELLIGENTE DES CONFIGURATIONS WIDGET AVEC BORDERRADIUS
       if (body.widget_config) {
         const existingWidgetConfig = existingShop.widget_config as WidgetConfig | null;
         
@@ -723,7 +735,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         
         updateData.widget_config = cleanWidgetConfig as Prisma.InputJsonObject;
         
-        fastify.log.info(`🎨 Widget config merger:`, {
+        fastify.log.info(`🎨 Widget config merger (borderRadius: ${cleanWidgetConfig.borderRadius}):`, {
           existing: existingWidgetConfig,
           updates: body.widget_config,
           merged: cleanWidgetConfig
