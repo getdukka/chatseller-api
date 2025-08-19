@@ -1,4 +1,4 @@
-// src/lib/supabase.ts - VERSION CORRIGÉE
+// src/lib/supabase.ts 
 import { createClient } from '@supabase/supabase-js'
 
 // ✅ CLIENT SUPABASE SERVICE (avec bypass RLS explicite)

@@ -1,8 +1,9 @@
-// src/routes/shops.ts - VERSION CORRIGÉE AVEC ROUTE PUBLIQUE FIXÉE
+// src/routes/shops.ts - VERSION CORRIGÉE AVEC SINGLETON PRISMA
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
+import prisma from '../lib/prisma'
 
 // ✅ INTERFACES POUR CONFIGURATIONS
 interface WidgetConfig {
@@ -70,23 +71,7 @@ interface ShopWithAgents {
   agents: AgentWithKnowledgeBase[];
 }
 
-// ✅ PRISMA ET SUPABASE
-let prisma: PrismaClient;
-
-try {
-  prisma = new PrismaClient({
-    log: ['query', 'info', 'warn', 'error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      }
-    }
-  });
-} catch (error) {
-  console.error('❌ ERREUR lors de l\'initialisation de Prisma:', error);
-  throw error;
-}
-
+// ✅ SUPABASE
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
@@ -186,11 +171,7 @@ async function verifySupabaseAuth(request: FastifyRequest) {
 }
 
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
-  let isConnected = false;
   try {
-    await prisma.$connect();
-    isConnected = true;
-    
     let shop = await prisma.shop.findUnique({
       where: { id: user.id }
     });
@@ -250,10 +231,9 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
 
     return newShop;
 
-  } finally {
-    if (isConnected) {
-      await prisma.$disconnect();
-    }
+  } catch (error) {
+    console.error('❌ Erreur getOrCreateShop:', error);
+    throw error;
   }
 }
 
@@ -288,7 +268,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
   
   // ✅ CORRECTION PRINCIPALE : ROUTE PUBLIQUE CONFIG CORRIGÉE
   fastify.get<{ Params: ShopParamsType; Querystring: ShopQueryType }>('/public/:id/config', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id: shopId } = request.params;
       const { agentId } = request.query;
@@ -304,9 +283,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           error: 'ShopId invalide - doit être un UUID valide'
         });
       }
-
-      await prisma.$connect();
-      isConnected = true;
 
       const shop = await prisma.shop.findUnique({
         where: { id: shopId },
@@ -340,7 +316,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       }) as ShopWithAgents | null;
 
       if (!shop || !shop.is_active) {
-        await prisma.$disconnect();
         fastify.log.warn(`⚠️ [PUBLIC] Shop non trouvé ou inactif: ${shopId}`);
         return reply.status(404).send({
           success: false,
@@ -356,7 +331,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       }
 
       if (!selectedAgent) {
-        await prisma.$disconnect();
         fastify.log.warn(`⚠️ [PUBLIC] Aucun agent actif trouvé pour shop: ${shopId}`);
         return reply.status(404).send({
           success: false,
@@ -411,9 +385,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         }
       };
 
-      await prisma.$disconnect();
-      isConnected = false;
-
       fastify.log.info(`✅ [PUBLIC] Configuration publique retournée pour ${shop.name} avec agent ${selectedAgent.name} (borderRadius: ${publicConfig.shop.borderRadius})`);
 
       return {
@@ -422,10 +393,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ [PUBLIC] Erreur récupération config publique:', error);
       
       return reply.status(500).send({
@@ -438,15 +405,11 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : OBTENIR UN SHOP (GET /api/v1/shops/:id) - AVEC BORDERRADIUS
   fastify.get<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
 
       fastify.log.info(`🔍 Récupération shop: ${id}`);
-
-      await prisma.$connect();
-      isConnected = true;
 
       const shop = await prisma.shop.findFirst({
         where: { 
@@ -477,15 +440,11 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       });
 
       if (!shop) {
-        await prisma.$disconnect();
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
         });
       }
-
-      await prisma.$disconnect();
-      isConnected = false;
 
       fastify.log.info(`✅ Shop récupéré avec widget_config:`, shop.widget_config);
 
@@ -495,10 +454,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Erreur récupération shop:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -518,7 +473,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : CRÉER UN SHOP (POST /api/v1/shops)
   fastify.post('/', async (request, reply) => {
-    let isConnected = false;
     try {
       const user = await verifySupabaseAuth(request);
       
@@ -538,9 +492,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       
       fastify.log.info(`🏗️ Création shop custom pour: ${user.email}`);
 
-      await prisma.$connect();
-      isConnected = true;
-
       // ✅ VÉRIFIER SI LE SHOP EXISTE DÉJÀ
       const existingShop = await prisma.shop.findFirst({
         where: {
@@ -555,8 +506,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       if (existingShop) {
         fastify.log.info(`✅ Shop existant retourné: ${existingShop.id}`);
-        
-        await prisma.$disconnect();
         
         return {
           success: true,
@@ -613,9 +562,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         }
       });
 
-      await prisma.$disconnect();
-      isConnected = false;
-
       fastify.log.info(`✅ Shop créé avec widget_config (borderRadius: ${defaultWidgetConfig.borderRadius}):`, newShop.widget_config);
 
       return {
@@ -625,10 +571,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Erreur création shop:', error);
       
       if (error.name === 'ZodError') {
@@ -656,7 +598,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : METTRE À JOUR UN SHOP (PUT /api/v1/shops/:id) - AVEC BORDERRADIUS
   fastify.put<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -670,9 +611,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         widgetUpdates: body.widget_config
       });
 
-      await prisma.$connect();
-      isConnected = true;
-
       const existingShop = await prisma.shop.findFirst({
         where: { 
           id,
@@ -684,7 +622,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       });
 
       if (!existingShop) {
-        await prisma.$disconnect();
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
@@ -779,9 +716,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         }
       });
 
-      await prisma.$disconnect();
-      isConnected = false;
-
       fastify.log.info(`✅ Shop mis à jour avec succès:`, {
         id,
         newWidgetConfig: updatedShop.widget_config,
@@ -795,10 +729,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Erreur mise à jour shop:', error);
       
       if (error.name === 'ZodError') {
@@ -826,13 +756,9 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : OBTENIR LES STATISTIQUES D'UN SHOP (GET /api/v1/shops/:id/stats)
   fastify.get<{ Params: ShopParamsType }>('/:id/stats', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
-
-      await prisma.$connect();
-      isConnected = true;
 
       const shop = await prisma.shop.findFirst({
         where: { 
@@ -845,7 +771,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       });
 
       if (!shop) {
-        await prisma.$disconnect();
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
@@ -910,9 +835,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         ordersLast30Days = totalOrders;
       }
 
-      await prisma.$disconnect();
-      isConnected = false;
-
       const stats = {
         total: {
           conversations: totalConversations,
@@ -940,10 +862,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Erreur statistiques shop:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -963,14 +881,10 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
   // ✅ ROUTE : LISTE DES SHOPS DE L'UTILISATEUR (GET /api/v1/shops)
   fastify.get('/', async (request, reply) => {
-    let isConnected = false;
     try {
       const user = await verifySupabaseAuth(request);
 
       fastify.log.info(`🔍 Récupération shops pour: ${user.email}`);
-
-      await prisma.$connect();
-      isConnected = true;
 
       const shops = await prisma.shop.findMany({
         where: {
@@ -992,9 +906,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         orderBy: { createdAt: 'desc' }
       });
 
-      await prisma.$disconnect();
-      isConnected = false;
-
       return {
         success: true,
         data: shops,
@@ -1004,10 +915,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Erreur liste shops:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -1027,15 +934,11 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
   // ✅ NOUVELLE ROUTE : TEST DE CONFIGURATION WIDGET
   fastify.get<{ Params: ShopParamsType }>('/:id/widget-config', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
 
       fastify.log.info(`🎨 Test récupération widget config pour shop: ${id}`);
-
-      await prisma.$connect();
-      isConnected = true;
 
       const shop = await prisma.shop.findFirst({
         where: { 
@@ -1053,15 +956,11 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       });
 
       if (!shop) {
-        await prisma.$disconnect();
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
         });
       }
-
-      await prisma.$disconnect();
-      isConnected = false;
 
       return {
         success: true,
@@ -1073,10 +972,6 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Erreur test widget config:', error);
       
       return reply.status(500).send({

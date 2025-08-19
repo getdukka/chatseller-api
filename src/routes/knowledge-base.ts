@@ -5,6 +5,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import prisma from '../lib/prisma'
 
 // ✅ CONFIGURATION DES LIMITES PAR PLAN
 const PLAN_LIMITS = {
@@ -66,23 +67,6 @@ interface SafeMetadata {
   storagePath?: string;
   storageUrl?: string;
   [key: string]: any;
-}
-
-// ✅ CRÉER UNE INSTANCE PRISMA
-let prisma: PrismaClient;
-
-try {
-  prisma = new PrismaClient({
-    log: ['query', 'info', 'warn', 'error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      }
-    }
-  });
-} catch (error) {
-  console.error('❌ ERREUR lors de l\'initialisation de Prisma:', error);
-  throw error;
 }
 
 const supabase = createClient(

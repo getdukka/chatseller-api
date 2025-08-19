@@ -1,24 +1,8 @@
-// src/routes/public.ts - VERSION PUBLIQUE CORRIGÉE
+// src/routes/public.ts - VERSION CORRIGÉE AVEC SINGLETON PRISMA
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import OpenAI from 'openai';
-
-let prisma: PrismaClient;
-
-try {
-  prisma = new PrismaClient({
-    log: ['query', 'info', 'warn', 'error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      }
-    }
-  });
-} catch (error) {
-  console.error('❌ ERREUR lors de l\'initialisation de Prisma:', error);
-  throw error;
-}
+import prisma from '../lib/prisma'
 
 // ✅ INITIALISATION OPENAI CORRIGÉE
 const openai = new OpenAI({
@@ -461,20 +445,13 @@ function extractOrderData(message: string, currentStep: string): any {
 
 // ✅ FONCTION : Vérification client existant
 async function checkExistingCustomer(phone: string) {
-  let isConnected = false;
   try {
-    await prisma.$connect();
-    isConnected = true;
-    
     const existingOrder = await prisma.order.findFirst({
       where: {
         customerPhone: phone
       },
       orderBy: { createdAt: 'desc' }
     });
-    
-    await prisma.$disconnect();
-    isConnected = false;
     
     if (existingOrder && existingOrder.customerName) {
       const firstName = existingOrder.customerName.split(' ')[0];
@@ -489,9 +466,6 @@ async function checkExistingCustomer(phone: string) {
     
     return { exists: false };
   } catch (error) {
-    if (isConnected) {
-      await prisma.$disconnect();
-    }
     console.error('❌ Erreur vérification client:', error);
     return { exists: false };
   }
@@ -499,11 +473,7 @@ async function checkExistingCustomer(phone: string) {
 
 // ✅ AMÉLIORATION : Sauvegarde commande
 async function saveOrderToDatabase(conversationId: string, shopId: string, agentId: string, orderData: any, productInfo?: any) {
-  let isConnected = false;
   try {
-    await prisma.$connect();
-    isConnected = true;
-    
     const order = await prisma.order.create({
       data: {
         shopId: shopId,
@@ -527,16 +497,10 @@ async function saveOrderToDatabase(conversationId: string, shopId: string, agent
       }
     });
     
-    await prisma.$disconnect();
-    isConnected = false;
-    
     console.log('✅ Commande sauvegardée:', order.id);
     return order;
     
   } catch (error) {
-    if (isConnected) {
-      await prisma.$disconnect();
-    }
     console.error('❌ Erreur sauvegarde commande:', error);
     throw error;
   }
@@ -828,7 +792,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
   
   // ✅ ROUTE CORRIGÉE : Configuration publique (SANS AUTHENTIFICATION)
   fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
-    let isConnected = false;
     try {
       const { shopId } = request.params;
       fastify.log.info(`🔍 [PUBLIC CONFIG] Récupération config pour shop: ${shopId}`);
@@ -838,9 +801,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
         return getFallbackShopConfig(shopId);
       }
-      
-      await prisma.$connect();
-      isConnected = true;
       
       const shop = await prisma.shop.findUnique({
         where: { id: shopId },
@@ -855,7 +815,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
 
       if (!shop || !shop.is_active) {
         fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
-        await prisma.$disconnect();
         return getFallbackShopConfig(shopId);
       }
 
@@ -886,9 +845,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         },
         orderBy: { updatedAt: 'desc' }
       });
-
-      await prisma.$disconnect();
-      isConnected = false;
 
       if (!agent) {
         return {
@@ -956,10 +912,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       return response;
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ [PUBLIC CONFIG] Erreur:', error);
       fastify.log.warn(`⚠️ Fallback activé pour shop ${request.params.shopId}`);
       return getFallbackShopConfig(request.params.shopId);
@@ -969,7 +921,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
   // ✅ ROUTE CORRIGÉE : Chat public (SANS AUTHENTIFICATION)
   fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
-    let isConnected = false;
     
     try {
       const { shopId, message, conversationId, productInfo, visitorId, isFirstMessage } = request.body;
@@ -1016,9 +967,6 @@ Comment puis-je vous aider ? 😊`;
         };
       }
       
-      await prisma.$connect();
-      isConnected = true;
-      
       // ✅ VÉRIFICATION SHOP
       const shopConfig = await prisma.shop.findUnique({
         where: { id: shopId },
@@ -1030,7 +978,6 @@ Comment puis-je vous aider ? 😊`;
       });
 
       if (!shopConfig || !shopConfig.is_active) {
-        await prisma.$disconnect();
         return reply.status(404).send({ 
           success: false, 
           error: 'Boutique non trouvée ou inactive' 
@@ -1058,7 +1005,6 @@ Comment puis-je vous aider ? 😊`;
       });
 
       if (!agent) {
-        await prisma.$disconnect();
         return reply.status(404).send({ 
           success: false, 
           error: 'Aucun agent actif trouvé pour cette boutique' 
@@ -1093,9 +1039,6 @@ Comment puis-je vous aider ? 😊`;
             modelUsed: 'welcome-message'
           }
         });
-
-        await prisma.$disconnect();
-        isConnected = false;
 
         fastify.log.info(`✅ [WELCOME] Message d'accueil envoyé pour conversation: ${conversation.id}`);
 
@@ -1264,9 +1207,6 @@ Comment puis-je vous aider ? 😊`;
         }
       });
 
-      await prisma.$disconnect();
-      isConnected = false;
-
       fastify.log.info(`✅ [CHAT SUCCESS] Réponse envoyée pour conversation: ${conversation.id} (${Date.now() - startTime}ms)`);
 
       return {
@@ -1285,10 +1225,6 @@ Comment puis-je vous aider ? 😊`;
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ [CHAT ERROR]:', error);
       
       // ✅ FALLBACK CONTEXTUEL AMÉLIORÉ POUR VIENS ON S'CONNAÎT

@@ -1,13 +1,15 @@
 // =====================================
-// SERVER.TS COMPLET - ROUTES PUBLIQUES CORRIGÉES
+// SERVER.TS CORRIGÉ - SINGLETON PRISMA
 // =====================================
 
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
-import { PrismaClient } from '@prisma/client'
 import dotenv from 'dotenv'
+
+// ✅ IMPORT DU SINGLETON PRISMA - PLUS D'INSTANCE MULTIPLE
+import prisma, { testDatabaseConnection, getConnectionStatus } from './lib/prisma'
 
 // ✅ IMPORT DES NOUVEAUX MODULES SUPABASE
 import { supabaseServiceClient, supabaseAuthClient, testSupabaseConnection } from './lib/supabase'
@@ -44,11 +46,6 @@ for (const [key, value] of Object.entries(requiredEnvVars)) {
 }
 
 console.log('✅ Variables d\'environnement validées')
-
-// Initialize Prisma client
-const prisma = new PrismaClient({
-  log: ['error', 'warn'],
-})
 
 // Create Fastify instance
 const fastify = Fastify({
@@ -94,7 +91,7 @@ async function registerPlugins() {
 // Routes
 async function registerRoutes() {
   
-  // ✅ HEALTH CHECK AVEC TEST SUPABASE CORRIGÉ
+  // ✅ HEALTH CHECK CORRIGÉ SANS PREPARED STATEMENTS
   fastify.get('/health', async (request, reply) => {
     const healthData = {
       status: 'ok',
@@ -108,10 +105,15 @@ async function registerRoutes() {
       }
     }
 
-    // Test base de données Prisma
+    // ✅ TEST DATABASE AVEC NOUVELLE MÉTHODE SANS CONFLITS
     try {
-      await prisma.$queryRaw`SELECT 1`
-      healthData.services.database = 'ok'
+      const dbStatus = await testDatabaseConnection()
+      healthData.services.database = dbStatus.success ? 'ok' : 'error'
+      
+      if (!dbStatus.success) {
+        console.error('❌ Database health check failed:', dbStatus.error)
+        healthData.status = 'degraded'
+      }
     } catch (error) {
       console.error('❌ Database health check failed:', error)
       healthData.services.database = 'error'
@@ -323,14 +325,22 @@ async function registerRoutes() {
   })
 }
 
-// Graceful shutdown
+// ✅ GRACEFUL SHUTDOWN AMÉLIORÉ
 async function gracefulShutdown() {
   try {
+    console.log('🛑 Arrêt du serveur en cours...')
+    
+    // Fermer les connexions Prisma proprement
     await prisma.$disconnect()
+    console.log('✅ Connexions Prisma fermées')
+    
+    // Fermer Fastify
     await fastify.close()
+    console.log('✅ Serveur Fastify fermé')
+    
     process.exit(0)
   } catch (error) {
-    fastify.log.error(error)
+    console.error('❌ Erreur lors de l\'arrêt:', error)
     process.exit(1)
   }
 }
@@ -338,6 +348,19 @@ async function gracefulShutdown() {
 // Start server
 async function start() {
   try {
+    // ✅ TEST CONNEXION DATABASE AVANT DÉMARRAGE
+    console.log('🔧 Test de connexion base de données...')
+    const dbStatus = await testDatabaseConnection()
+    
+    if (!dbStatus.success) {
+      console.error('❌ ERREUR CRITIQUE: Impossible de se connecter à la base de données')
+      console.error('🔍 Vérifiez votre DATABASE_URL')
+      console.error('📋 Erreur:', dbStatus.error)
+      process.exit(1)
+    }
+    
+    console.log('✅ Connexion base de données: OK')
+
     // ✅ TEST CONNEXION SUPABASE AU DÉMARRAGE
     console.log('🔧 Test de connexion Supabase...')
     const supabaseTest = await testSupabaseConnection()
@@ -386,6 +409,17 @@ async function start() {
 // Handle shutdown signals
 process.on('SIGTERM', gracefulShutdown)
 process.on('SIGINT', gracefulShutdown)
+
+// ✅ GESTION D'ERREURS NON CAPTURÉES
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error)
+  gracefulShutdown()
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason)
+  gracefulShutdown()
+})
 
 // Start the server
 start()

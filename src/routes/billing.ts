@@ -4,22 +4,7 @@ import { z } from 'zod';
 import Stripe from 'stripe';
 import { PrismaClient } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
-
-let prisma: PrismaClient;
-
-try {
-  prisma = new PrismaClient({
-    log: ['query', 'info', 'warn', 'error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      }
-    }
-  });
-} catch (error) {
-  console.error('❌ ERREUR lors de l\'initialisation de Prisma:', error);
-  throw error;
-}
+import prisma from '../lib/prisma'
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,

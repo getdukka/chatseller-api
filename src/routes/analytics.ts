@@ -1,8 +1,7 @@
 // src/routes/analytics.ts - ROUTES ANALYTICS CORRIGÉES
 import { FastifyPluginAsync } from 'fastify'
 import { PrismaClient } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import prisma from '../lib/prisma'
 
 // ✅ INTERFACE TYPES
 interface AnalyticsQuery {

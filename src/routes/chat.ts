@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { Decimal } from '@prisma/client/runtime/library';
+import prisma from '../lib/prisma'
 
 // ✅ AJOUT: Interface pour la config agent
 interface AgentConfig {
@@ -27,23 +28,6 @@ interface ConversationMessage {
   content: string;
   createdAt: Date;
   metadata?: any;
-}
-
-// ✅ INITIALISATION DES SERVICES
-let prisma: PrismaClient;
-
-try {
-  prisma = new PrismaClient({
-    log: ['query', 'info', 'warn', 'error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      }
-    }
-  });
-} catch (error) {
-  console.error('❌ ERREUR lors de l\'initialisation de Prisma:', error);
-  throw error;
 }
 
 const supabase = createClient(
