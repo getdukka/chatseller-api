@@ -93,30 +93,70 @@ async function registerRoutes() {
   
   // ✅ HEALTH CHECK CORRIGÉ SANS PREPARED STATEMENTS
   fastify.get('/health', async (request, reply) => {
-  // Pas d'appels async, juste une réponse JSON simple
-  reply.code(200).send({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: Math.floor(process.uptime()),
-    version: '1.3.0'
+    const healthData = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      version: process.env.npm_package_version || '1.0.0',
+      environment: process.env.NODE_ENV || 'development',
+      services: {
+        database: 'checking...',
+        openai: 'checking...',
+        supabase: 'checking...'
+      }
+    }
+
+    // ✅ TEST DATABASE AVEC NOUVELLE MÉTHODE SANS CONFLITS
+    try {
+      const dbStatus = await testDatabaseConnection()
+      healthData.services.database = dbStatus.success ? 'ok' : 'error'
+      
+      if (!dbStatus.success) {
+        console.error('❌ Database health check failed:', dbStatus.error)
+        healthData.status = 'degraded'
+      }
+    } catch (error) {
+      console.error('❌ Database health check failed:', error)
+      healthData.services.database = 'error'
+      healthData.status = 'degraded'
+    }
+
+    // Test OpenAI
+    healthData.services.openai = process.env.OPENAI_API_KEY ? 'configured' : 'not_configured'
+
+    // ✅ TEST SUPABASE AVEC NOUVELLE FONCTION
+    const supabaseTest = await testSupabaseConnection()
+    healthData.services.supabase = supabaseTest.success ? 'ok' : 'error'
+    
+    if (!supabaseTest.success) {
+      console.error('❌ Supabase health check failed:', supabaseTest.error)
+      healthData.status = 'degraded'
+    }
+
+    return healthData
   })
-})
 
   // ✅ ROUTE RACINE
   fastify.get('/', async (request, reply) => {
-  reply.code(200).send({
-    success: true,
-    message: 'ChatSeller API is running',
-    version: '1.3.0',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    return {
+      success: true,
+      message: 'ChatSeller API is running',
+      version: '1.3.0',
+      timestamp: new Date().toISOString(),
+      endpoints: {
+        health: '/health',
+        public: '/api/v1/public/* (NO AUTH)',
+        billing: '/api/v1/billing/* (NO AUTH - webhooks)',
+        auth: '/api/v1/auth/* (NO AUTH - auth endpoints)',
+        agents: '/api/v1/agents/* (PROTECTED)',
+        products: '/api/v1/products/* (PROTECTED)',
+        orders: '/api/v1/orders/* (PROTECTED)',
+        conversations: '/api/v1/conversations/* (PROTECTED)',
+        knowledgeBase: '/api/v1/knowledge-base/* (PROTECTED)',
+        shops: '/api/v1/shops/* (PROTECTED)',
+        chat: '/api/v1/chat/* (PROTECTED)'
+      }
+    }
   })
-})
-
-// ✅ ROUTE DE TEST SUPPLÉMENTAIRE
-fastify.get('/ping', async (request, reply) => {
-  reply.code(200).send({ pong: true, time: Date.now() })
-})
 
   // ✅ CRITIQUE : ROUTES PUBLIQUES EN PREMIER (SANS AUTHENTIFICATION)
   fastify.register(async function (fastify) {

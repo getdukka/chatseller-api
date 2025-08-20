@@ -4,18 +4,9 @@
   "description": "Backend API for ChatSeller - AI Commercial Agent",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server-minimal.js",
     "build": "tsc",
-    "start": "node dist/server.js",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio",
-    "postinstall": "prisma generate",
-    "test:railway": "node scripts/test-railway.js",
-    "start:prod": "NODE_ENV=production node dist/server.js",
-    "lint": "eslint src --ext .ts",
-    "test": "jest"
+    "dev": "tsx watch src/server-minimal.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
