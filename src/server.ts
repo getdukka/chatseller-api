@@ -427,7 +427,23 @@ async function start() {
   console.log('🌐 Host forcé à:', host)
   console.log('🔌 Port final:', port)
 
-    await fastify.listen({ port, host })
+    await fastify.listen({ 
+      port, 
+      host: '0.0.0.0',
+      listenTextResolver: (address) => {
+        console.log(`🚀 Serveur démarré et accessible sur: ${address}`)
+        console.log(`🌐 URL publique Railway: https://chatseller-api-production.up.railway.app`)
+        return `Server listening at ${address}`
+      }
+    })
+
+    // ✅ AJOUT DE LOGS DE VÉRIFICATION
+    console.log('🔍 Configuration finale:')
+    console.log(`   Host: 0.0.0.0`)
+    console.log(`   Port: ${port}`)
+    console.log(`   Env: ${process.env.NODE_ENV}`)
+    console.log(`   Railway Port: ${process.env.PORT}`)
+    console.log('✅ Application prête à recevoir le trafic Railway')
     
     console.log(`🚀 ChatSeller API running on http://${host}:${port}`)
     console.log(`📖 Health check: http://${host}:${port}/health`)
