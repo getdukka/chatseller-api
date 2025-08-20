@@ -176,18 +176,58 @@ fastify.addHook('onRequest', async (request, reply) => {
 async function registerRoutes() {
   try {
     
-    // ✅ HEALTH CHECK SIMPLE ET ROBUSTE POUR RAILWAY
+    // ✅ HEALTH CHECK ULTRA-SIMPLE POUR RAILWAY
     fastify.get('/health', async (request, reply) => {
+      // ✅ POUR RAILWAY: Juste vérifier que le serveur répond
+      return reply.status(200).send({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        version: '1.3.0',
+        environment: process.env.NODE_ENV || 'development',
+        uptime: Math.round(process.uptime()),
+        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+      })
+    })
+
+    // ✅ HEALTH CHECK DÉTAILLÉ SUR UNE ROUTE SÉPARÉE
+    fastify.get('/health/detailed', async (request, reply) => {
       const healthData = {
         status: 'ok',
         timestamp: new Date().toISOString(),
-        version: process.env.npm_package_version || '1.0.0',
+        version: '1.3.0',
         environment: process.env.NODE_ENV || 'development',
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        services: {
+          database: 'unknown',
+          supabase: 'unknown',
+          openai: process.env.OPENAI_API_KEY ? 'configured' : 'not_configured'
+        }
       }
 
-      // ✅ POUR RAILWAY : TOUJOURS RETOURNER 200 SI LE SERVEUR RÉPOND
-      // Les vérifications détaillées peuvent être faites ailleurs
+      // Test DB sans bloquer
+      try {
+        const dbStatus = await Promise.race([
+          testDatabaseConnection(),
+          new Promise(resolve => setTimeout(() => resolve({success: false, error: 'timeout'}), 5000))
+        ]) as any
+        
+        healthData.services.database = dbStatus.success ? 'ok' : 'error'
+      } catch (error) {
+        healthData.services.database = 'error'
+      }
+
+      // Test Supabase sans bloquer
+      try {
+        const supabaseTest = await Promise.race([
+          testSupabaseConnection(),
+          new Promise(resolve => setTimeout(() => resolve({success: false, error: 'timeout'}), 3000))
+        ]) as any
+        
+        healthData.services.supabase = supabaseTest.success ? 'ok' : 'error'
+      } catch (error) {
+        healthData.services.supabase = 'error'
+      }
+
       return reply.status(200).send(healthData)
     })
 
@@ -406,31 +446,37 @@ async function start() {
     const port = getPort()
     const host = '0.0.0.0'
 
-    // ✅ TEST CONNEXIONS AVANT DÉMARRAGE
+    // ✅ TEST CONNEXIONS AVANT DÉMARRAGE - VERSION ROBUSTE POUR RAILWAY
     console.log('🔧 Test de connexion base de données...')
-    const dbStatus = await testDatabaseConnection()
     
-    if (!dbStatus.success) {
-      console.error('❌ ERREUR CRITIQUE: Impossible de se connecter à la base de données')
-      console.error('📋 Erreur:', dbStatus.error)
-      throw new Error(`Database connection failed: ${dbStatus.error}`)
+    // ✅ POUR RAILWAY: Continuer même si DB échoue temporairement
+    try {
+      const dbStatus = await testDatabaseConnection()
+      
+      if (!dbStatus.success) {
+        console.warn('⚠️ Base de données: Connexion échouée au démarrage:', dbStatus.error)
+        console.log('🔄 Railway: Continuant le démarrage, reconnexion automatique en cours...')
+      } else {
+        console.log('✅ Connexion base de données: OK')
+      }
+    } catch (dbError: any) {
+      console.warn('⚠️ Erreur test DB initial:', dbError.message)
+      console.log('🔄 Railway: Démarrage en mode dégradé, reconnexion automatique...')
     }
-    
-    console.log('✅ Connexion base de données: OK')
 
     console.log('🔧 Test de connexion Supabase...')
-    const supabaseTest = await testSupabaseConnection()
-    
-    if (!supabaseTest.success) {
-      console.error('❌ ERREUR: Connexion Supabase échouée:', supabaseTest.error)
-      // Ne pas faire planter en production, mais logger l'erreur
-      if (process.env.NODE_ENV === 'production') {
-        console.warn('⚠️ Continuant sans Supabase en mode dégradé...')
+    try {
+      const supabaseTest = await testSupabaseConnection()
+      
+      if (!supabaseTest.success) {
+        console.warn('⚠️ Supabase: Connexion échouée:', supabaseTest.error)
+        // Ne pas bloquer le démarrage pour Supabase
       } else {
-        throw new Error(`Supabase connection failed: ${supabaseTest.error}`)
+        console.log('✅ Connexion Supabase: OK')
       }
-    } else {
-      console.log('✅ Connexion Supabase: OK')
+    } catch (supabaseError: any) {
+      console.warn('⚠️ Erreur test Supabase:', supabaseError.message)
+      // Continuer sans Supabase si nécessaire
     }
 
     // ✅ ENREGISTRER PLUGINS ET ROUTES
