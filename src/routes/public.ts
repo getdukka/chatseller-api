@@ -1,4 +1,4 @@
-// src/routes/public.ts - VERSION CORRIGÉE AVEC SINGLETON PRISMA
+// src/routes/public.ts - VERSION CORRIGÉE ERREURS TYPESCRIPT
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import OpenAI from 'openai';
@@ -244,7 +244,7 @@ function getOrderStepInstructions(step: string, data: any): string {
       return "Demande l'adresse de livraison complète. Ex: 'Quelle est votre adresse de livraison complète ?'"
     
     case 'payment':
-      return "Demande le mode de paiement préféré. Ex: 'Comment souhaitez-vous payer ? Espèces à la livraison, virement, Wave ou Orange Money ?'"
+      return "Demande le mode de paiement préféré. Ex: 'Comment souhaitez-vous payer ? Espèces à la livraison, virement, mobile money ?'"
     
     case 'confirmation':
       return "Confirme TOUTE la commande avec détails et rassure le client sur la suite du processus."
@@ -904,15 +904,13 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         }
       };
 
-      fastify.log.info(`✅ [PUBLIC CONFIG] Configuration envoyée pour ${shopId}:`, {
-        agent: response.data.agent.name,
-        documents: response.data.knowledgeBase.documentsCount
-      });
+      // ✅ CORRECTION ERREUR TYPESCRIPT - LOG INFO FORMATÉ
+      fastify.log.info(`✅ [PUBLIC CONFIG] Configuration envoyée pour ${shopId} - Agent: ${response.data.agent.name}, Documents: ${response.data.knowledgeBase.documentsCount}`);
 
       return response;
 
     } catch (error: any) {
-      fastify.log.error('❌ [PUBLIC CONFIG] Erreur:', error);
+      fastify.log.error(`❌ [PUBLIC CONFIG] Erreur: ${error.message}`);
       fastify.log.warn(`⚠️ Fallback activé pour shop ${request.params.shopId}`);
       return getFallbackShopConfig(request.params.shopId);
     }
@@ -1134,7 +1132,10 @@ Comment puis-je vous aider ? 😊`;
         aiResponse = aiResult.message;
         tokensUsed = aiResult.tokensUsed || 0;
       } else {
-        fastify.log.error('❌ [IA ERROR]:', aiResult.error);
+        // ✅ CORRECTION ERREUR TYPESCRIPT - LOG ERROR FORMATÉ
+        if (aiResult.error) {
+          fastify.log.error(`❌ [IA ERROR]: ${aiResult.error}`);
+        }
       }
 
       // ✅ SAUVEGARDER ÉTAT COLLECTE
@@ -1188,9 +1189,10 @@ Comment puis-je vous aider ? 😊`;
             
             fastify.log.info(`✅ [ORDER] Commande sauvegardée pour conversation: ${conversation.id}`);
             
-          } catch (error) {
+          } catch (error: any) {
             console.error('❌ Erreur sauvegarde commande:', error);
-            fastify.log.error('❌ [ORDER ERROR]:', error);
+            // ✅ CORRECTION ERREUR TYPESCRIPT - LOG ERROR FORMATÉ
+            fastify.log.error(`❌ [ORDER ERROR]: ${error.message || 'Erreur inconnue'}`);
           }
         }
       }
@@ -1225,7 +1227,7 @@ Comment puis-je vous aider ? 😊`;
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ [CHAT ERROR]:', error);
+      fastify.log.error(`❌ [CHAT ERROR]: ${error.message || 'Erreur inconnue'}`);
       
       // ✅ FALLBACK CONTEXTUEL AMÉLIORÉ POUR VIENS ON S'CONNAÎT
       let fallbackResponse = "Merci pour votre message ! Comment puis-je vous aider davantage ?";

@@ -1,4 +1,4 @@
-// src/routes/billing.ts 
+// src/routes/billing.ts - VERSION CORRIGÉE TYPES TYPESCRIPT
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Stripe from 'stripe';
@@ -13,7 +13,7 @@ const supabase = createClient(
 
 // ✅ VERSION STRIPE CORRIGÉE
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-06-30.basil'
+  apiVersion: '2025-07-30.basil'
 });
 
 // ✅ CONFIGURATION DES PLANS CORRIGÉE
@@ -118,13 +118,13 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
     return newShop;
 
   } catch (error: any) {
-    fastify.log.error('❌ ERREUR GLOBALE dans getOrCreateShop:', error);
+    fastify.log.error('❌ ERREUR GLOBALE dans getOrCreateShop:', error.message || String(error));
     throw new Error(`Impossible de créer ou récupérer le shop: ${error.message}`);
   } finally {
     try {
       await prisma.$disconnect();
-    } catch (disconnectError) {
-      fastify.log.warn('⚠️ Erreur lors de la déconnexion Prisma:', disconnectError);
+    } catch (disconnectError: any) {
+      fastify.log.warn('⚠️ Erreur lors de la déconnexion Prisma:', disconnectError.message || String(disconnectError));
     }
   }
 }
@@ -238,8 +238,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       }));
 
       return { success: true, plans };
-    } catch (error) {
-      fastify.log.error('Get plans error:', error);
+    } catch (error: any) {
+      fastify.log.error('Get plans error:', error.message || String(error));
       return reply.status(500).send({ error: 'Erreur lors de la récupération des plans' });
     }
   });
@@ -319,7 +319,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
           fastify.log.info(`✅ Customer créé: ${customer.id}`);
         }
       } catch (customerError: any) {
-        fastify.log.error('❌ Erreur customer Stripe:', customerError);
+        fastify.log.error('❌ Erreur customer Stripe:', customerError.message || String(customerError));
         throw new Error(`Erreur customer: ${customerError.message}`);
       }
 
@@ -363,7 +363,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         };
 
       } catch (sessionError: any) {
-        fastify.log.error('❌ ERREUR CRÉATION SESSION:', sessionError);
+        fastify.log.error('❌ ERREUR CRÉATION SESSION:', sessionError.message || String(sessionError));
         
         if (sessionError.type === 'StripeInvalidRequestError') {
           return reply.status(400).send({
@@ -377,7 +377,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       }
 
     } catch (error: any) {
-      fastify.log.error('❌ ERREUR GLOBALE CHECKOUT:', error);
+      fastify.log.error('❌ ERREUR GLOBALE CHECKOUT:', error.message || String(error));
       
       if (error.name === 'ZodError') {
         return reply.status(400).send({
@@ -435,7 +435,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ Get subscription status error:', error);
+      fastify.log.error('❌ Get subscription status error:', error.message || String(error));
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
         return reply.status(401).send({ error: error.message });
@@ -518,7 +518,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       return { received: true, eventId: event.id, requestId };
 
     } catch (error: any) {
-      fastify.log.error(`❌ [${requestId}] ERREUR GLOBALE webhook:`, error);
+      fastify.log.error(`❌ [${requestId}] ERREUR GLOBALE webhook:`, error.message || String(error));
       return reply.status(500).send({ 
         error: 'Erreur serveur',
         requestId,
@@ -557,7 +557,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // ✅ FONCTIONS WEBHOOK ULTRA ROBUSTES
+  // ✅ FONCTIONS WEBHOOK ULTRA ROBUSTES - AVEC LOGGING CORRIGÉ
   
   async function handleCheckoutCompleted(session: Stripe.Checkout.Session, fastify: FastifyInstance, requestId: string) {
     const userId = session.metadata?.userId;
@@ -572,11 +572,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     fastify.log.info(`📧 [${requestId}] Session ID: ${session.id}`);
 
     if (!userId || !plan) {
-      fastify.log.error(`❌ [${requestId}] Metadata critiques manquantes:`, { 
-        userId, 
-        plan, 
-        allMetadata: session.metadata 
-      });
+      const metadataString = JSON.stringify({ userId, plan, allMetadata: session.metadata });
+      fastify.log.error(`❌ [${requestId}] Metadata critiques manquantes: ${metadataString}`);
       return;
     }
 
@@ -614,13 +611,14 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         return;
       }
 
-      fastify.log.info(`🏪 [${requestId}] Shop trouvé:`, {
+      const shopInfoString = JSON.stringify({
         id: existingShop.id,
         name: existingShop.name,
         email: existingShop.email,
         currentPlan: existingShop.subscription_plan,
         isActive: existingShop.is_active
       });
+      fastify.log.info(`🏪 [${requestId}] Shop trouvé: ${shopInfoString}`);
 
       // ✅ VÉRIFICATION PLAN ACTUEL
       if (existingShop.subscription_plan === plan) {
@@ -668,13 +666,13 @@ export default async function billingRoutes(fastify: FastifyInstance) {
             eventType: 'payment_success',
             eventData: logData.eventData
           }
-        }).catch((analyticsError) => {
-          fastify.log.warn(`⚠️ [${requestId}] Impossible de créer l'événement analytics:`, analyticsError.message);
+        }).catch((analyticsError: any) => {
+          fastify.log.warn(`⚠️ [${requestId}] Impossible de créer l'événement analytics: ${analyticsError.message}`);
         });
         
         fastify.log.info(`📊 [${requestId}] Événement analytics créé`);
       } catch (analyticsError: any) {
-        fastify.log.warn(`⚠️ [${requestId}] Erreur création analytics (non bloquante):`, analyticsError.message);
+        fastify.log.warn(`⚠️ [${requestId}] Erreur création analytics (non bloquante): ${analyticsError.message}`);
       }
 
       // ✅ NOTIFICATION DE SUCCÈS (Optionnel)
@@ -688,21 +686,22 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         // - Activation de fonctionnalités spécifiques au plan
         
       } catch (notificationError: any) {
-        fastify.log.warn(`⚠️ [${requestId}] Erreur notification (non bloquante):`, notificationError.message);
+        fastify.log.warn(`⚠️ [${requestId}] Erreur notification (non bloquante): ${notificationError.message}`);
       }
 
     } catch (error: any) {
-      fastify.log.error(`❌ [${requestId}] ERREUR MISE À JOUR SHOP:`, {
+      const errorInfoString = JSON.stringify({
         message: error.message,
         code: error.code,
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
+      fastify.log.error(`❌ [${requestId}] ERREUR MISE À JOUR SHOP: ${errorInfoString}`);
     } finally {
       try {
         await prisma.$disconnect();
         fastify.log.info(`🔌 [${requestId}] Déconnexion Prisma: ${connectionId}`);
       } catch (disconnectError: any) {
-        fastify.log.warn(`⚠️ [${requestId}] Erreur déconnexion Prisma:`, disconnectError.message);
+        fastify.log.warn(`⚠️ [${requestId}] Erreur déconnexion Prisma: ${disconnectError.message}`);
       }
     }
   }
@@ -731,7 +730,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`✅ [${requestId}] Subscription canceled for user ${userId}`);
     } catch (error: any) {
-      fastify.log.error(`❌ [${requestId}] Error canceling shop subscription:`, error);
+      fastify.log.error(`❌ [${requestId}] Error canceling shop subscription: ${error.message}`);
     }
   }
 
@@ -760,7 +759,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`✅ [${requestId}] Subscription updated for user ${userId}, status: ${subscription.status}`);
     } catch (error: any) {
-      fastify.log.error(`❌ [${requestId}] Error updating shop subscription:`, error);
+      fastify.log.error(`❌ [${requestId}] Error updating shop subscription: ${error.message}`);
     }
   }
 

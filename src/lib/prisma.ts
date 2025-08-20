@@ -1,4 +1,4 @@
-// src/lib/prisma.ts - SINGLETON PRISMA OPTIMISÉ POUR RAILWAY
+// src/lib/prisma.ts
 import { PrismaClient } from '@prisma/client'
 
 // ✅ DÉCLARATION GLOBALE POUR LE SINGLETON
@@ -6,20 +6,23 @@ declare global {
   var __prisma: PrismaClient | undefined
 }
 
-// ✅ FONCTION POUR CRÉER UNE INSTANCE PRISMA OPTIMISÉE POUR RAILWAY
+// ✅ CONFIGURATION PRISMA OPTIMISÉE POUR RAILWAY
 function createPrismaClient(): PrismaClient {
   const isProduction = process.env.NODE_ENV === 'production'
   
   return new PrismaClient({
-    // ✅ LOGS RÉDUITS EN PRODUCTION
-    log: isProduction ? ['error'] : ['query', 'info', 'warn', 'error'],
+    // ✅ LOGS ADAPTÉS À L'ENVIRONNEMENT
+    log: isProduction ? ['error', 'warn'] : ['query', 'info', 'warn', 'error'],
     
-    // ✅ CONFIGURATION SPÉCIALE POUR RAILWAY
+    // ✅ CONFIGURATION DATABASE
     datasources: {
       db: {
         url: process.env.DATABASE_URL
       }
-    }
+    },
+    
+    // ✅ OPTIONS SPÉCIALES POUR RAILWAY
+    errorFormat: 'minimal'
   })
 }
 
@@ -31,42 +34,32 @@ if (process.env.NODE_ENV !== 'production') {
   globalThis.__prisma = prisma
 }
 
-// ✅ GESTION PROPRE DE LA FERMETURE
-process.on('beforeExit', async () => {
-  console.log('🔌 Fermeture des connexions Prisma...')
-  await prisma.$disconnect()
-})
-
-process.on('SIGTERM', async () => {
-  console.log('📡 SIGTERM reçu, fermeture Prisma...')
-  await prisma.$disconnect()
-  process.exit(0)
-})
-
-process.on('SIGINT', async () => {
-  console.log('⚡ SIGINT reçu, fermeture Prisma...')
-  await prisma.$disconnect()
-  process.exit(0)
-})
-
-// ✅ FONCTION UTILITAIRE POUR TESTER LA CONNEXION - VERSION RAILWAY
+// ✅ FONCTION UTILITAIRE POUR TESTER LA CONNEXION - OPTIMISÉE RAILWAY
 export async function testDatabaseConnection(): Promise<{ success: boolean; error?: string }> {
   try {
-    // ✅ SOLUTION RAILWAY: Utiliser une requête simple sans prepared statements
-    const result = await prisma.$queryRawUnsafe('SELECT 1 as test')
+    // ✅ Test simple d'abord
+    await prisma.$connect()
     
-    console.log('✅ Base de données: Connexion OK')
+    // ✅ Test avec une requête basique
+    const result = await prisma.$executeRaw`SELECT 1 as test`
+    
+    console.log('✅ Base de données: Connexion et requête OK')
     return { success: true }
-  } catch (error: any) {
-    console.error('❌ Base de données: Erreur connexion:', error)
     
-    // ✅ FALLBACK: Essayer une méthode alternative
+  } catch (error: any) {
+    console.error('❌ Base de données: Erreur connexion:', error.message)
+    
+    // ✅ TENTATIVE DE RECONNEXION
     try {
+      await prisma.$disconnect()
+      await new Promise(resolve => setTimeout(resolve, 2000)) // Attendre 2s
       await prisma.$connect()
-      console.log('✅ Connexion alternative réussie')
+      
+      console.log('✅ Reconnexion base de données réussie')
       return { success: true }
+      
     } catch (fallbackError: any) {
-      console.error('❌ Fallback connexion échoué:', fallbackError)
+      console.error('❌ Reconnexion base de données échouée:', fallbackError.message)
       return { 
         success: false, 
         error: fallbackError.message || 'Erreur de connexion à la base de données'
@@ -75,10 +68,11 @@ export async function testDatabaseConnection(): Promise<{ success: boolean; erro
   }
 }
 
-// ✅ FONCTION POUR FORCER LA RECONNEXION SI NÉCESSAIRE
+// ✅ FONCTION POUR FORCER LA RECONNEXION
 export async function reconnectIfNeeded(): Promise<void> {
   try {
     await prisma.$disconnect()
+    await new Promise(resolve => setTimeout(resolve, 1000))
     await prisma.$connect()
     console.log('🔄 Prisma reconnecté avec succès')
   } catch (error) {
@@ -87,7 +81,7 @@ export async function reconnectIfNeeded(): Promise<void> {
   }
 }
 
-// ✅ FONCTION POUR OBTENIR LE STATUS DE CONNEXION - VERSION RAILWAY
+// ✅ FONCTION POUR OBTENIR LE STATUS DE CONNEXION
 export async function getConnectionStatus(): Promise<{
   connected: boolean
   latency?: number
@@ -96,8 +90,7 @@ export async function getConnectionStatus(): Promise<{
   const startTime = Date.now()
   
   try {
-    // ✅ Utiliser $queryRawUnsafe pour éviter les prepared statements
-    await prisma.$queryRawUnsafe('SELECT 1 as health_check')
+    await prisma.$executeRaw`SELECT 1 as health_check`
     const latency = Date.now() - startTime
     
     return {
@@ -112,26 +105,27 @@ export async function getConnectionStatus(): Promise<{
   }
 }
 
-// ✅ FONCTION UTILITAIRE POUR RAILWAY: Exécuter des requêtes sans prepared statements
-export async function queryWithoutPreparedStatements<T = any>(sql: string, values?: any[]): Promise<T> {
+// ✅ GESTION PROPRE DE LA FERMETURE POUR RAILWAY
+async function gracefulDisconnect() {
   try {
-    if (values && values.length > 0) {
-      // Remplacer les paramètres manuellement
-      let finalSql = sql
-      values.forEach((value, index) => {
-        const placeholder = `$${index + 1}`
-        const safeValue = typeof value === 'string' ? `'${value.replace(/'/g, "''")}'` : value
-        finalSql = finalSql.replace(placeholder, safeValue)
-      })
-      return await prisma.$queryRawUnsafe(finalSql)
-    } else {
-      return await prisma.$queryRawUnsafe(sql)
-    }
+    console.log('🔌 Fermeture des connexions Prisma...')
+    await prisma.$disconnect()
+    console.log('✅ Prisma déconnecté proprement')
   } catch (error) {
-    console.error('❌ Erreur requête sans prepared statements:', error)
-    throw error
+    console.error('❌ Erreur fermeture Prisma:', error)
   }
 }
+
+// ✅ SIGNAL HANDLERS POUR RAILWAY
+process.on('beforeExit', gracefulDisconnect)
+process.on('SIGTERM', async () => {
+  console.log('📡 SIGTERM reçu, fermeture Prisma...')
+  await gracefulDisconnect()
+})
+process.on('SIGINT', async () => {
+  console.log('⚡ SIGINT reçu, fermeture Prisma...')
+  await gracefulDisconnect()
+})
 
 // ✅ EXPORT DE L'INSTANCE UNIQUE
 export default prisma

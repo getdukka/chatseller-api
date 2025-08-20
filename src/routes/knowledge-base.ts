@@ -1,4 +1,4 @@
-// src/routes/knowledge-base.ts - VERSION COMPLÈTE AVEC UPLOAD ET WEBSITE
+// src/routes/knowledge-base.ts - VERSION CORRIGÉE POUR @FASTIFY/MULTIPART V6
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient, Prisma } from '@prisma/client';
@@ -66,6 +66,7 @@ interface SafeMetadata {
   lastModified?: string;
   storagePath?: string;
   storageUrl?: string;
+  contentLength?: number;
   [key: string]: any;
 }
 
@@ -388,8 +389,15 @@ function mergeSafeMetadata(existing: Prisma.JsonValue, updates: SafeMetadata): P
 
 export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
   
-  // ✅ ENREGISTRER LE PLUGIN MULTIPART POUR LES UPLOADS (VERSION COMPATIBLE FASTIFY V4)
-  await fastify.register(require('fastify-multipart'));
+  // ✅ ENREGISTRER LE PLUGIN @FASTIFY/MULTIPART V6 - CORRECTION CRITIQUE
+  await fastify.register(require('@fastify/multipart'), {
+    // Configuration pour @fastify/multipart v6
+    attachFieldsToBody: true,
+    limits: {
+      fileSize: 100 * 1024 * 1024, // 100MB max
+      files: 1 // 1 fichier à la fois
+    }
+  });
   
   // ✅ ROUTE : LISTE DES DOCUMENTS AVEC RESTRICTIONS PLAN
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -485,7 +493,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ NOUVELLE ROUTE : UPLOAD DE FICHIER VERS SUPABASE STORAGE
+  // ✅ NOUVELLE ROUTE : UPLOAD DE FICHIER - SYNTAXE @FASTIFY/MULTIPART V6
   fastify.post('/upload', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('📤 Upload de fichier KB');
@@ -515,7 +523,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER LE FICHIER UPLOADÉ (SYNTAXE FASTIFY-MULTIPART V5)
+      // ✅ RÉCUPÉRER LE FICHIER UPLOADÉ - NOUVELLE SYNTAXE @FASTIFY/MULTIPART V6
       const data = await (request as any).file();
       
       if (!data) {
@@ -1127,13 +1135,13 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
               .remove([metadata.storagePath]);
               
             if (deleteError) {
-              fastify.log.warn('⚠️ Erreur suppression fichier storage:', deleteError);
+              fastify.log.warn('⚠️ Erreur suppression fichier storage: %s', deleteError.message);
             } else {
-              fastify.log.info('✅ Fichier supprimé du storage:', metadata.storagePath);
+              fastify.log.info('✅ Fichier supprimé du storage: %s', metadata.storagePath);
             }
           }
-        } catch (storageError) {
-          fastify.log.warn('⚠️ Erreur lors de la suppression du fichier storage:', storageError);
+        } catch (storageError: any) {
+          fastify.log.warn('⚠️ Erreur lors de la suppression du fichier storage:', storageError.message);
         }
       }
 

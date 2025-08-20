@@ -1,4 +1,4 @@
-// src/routes/conversations.ts - ROUTES CONVERSATIONS MANQUANTES
+// src/routes/conversations.ts - VERSION CORRIGÉE AVEC TYPES LOGS
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
@@ -71,8 +71,13 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         count: conversations.length
       }
 
-    } catch (error) {
-      fastify.log.error('❌ Erreur récupération conversations:', error)
+    } catch (error: any) {
+      // ✅ CORRECTION: Typage correct pour le logger
+      fastify.log.error({
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur récupération conversations')
+      
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la récupération des conversations'
@@ -128,8 +133,14 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         data: conversation
       }
 
-    } catch (error) {
-      fastify.log.error('❌ Erreur récupération conversation:', error)
+    } catch (error: any) {
+      // ✅ CORRECTION: Typage correct pour le logger
+      fastify.log.error({
+        conversationId: request.params.conversationId,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur récupération conversation')
+      
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la récupération de la conversation'
@@ -186,8 +197,14 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         data: newConversation
       }
 
-    } catch (error) {
-      fastify.log.error('❌ Erreur création conversation:', error)
+    } catch (error: any) {
+      // ✅ CORRECTION: Typage correct pour le logger
+      fastify.log.error({
+        shopId: request.body,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur création conversation')
+      
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la création de la conversation'
@@ -249,8 +266,15 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         data: updatedConversation
       }
 
-    } catch (error) {
-      fastify.log.error('❌ Erreur mise à jour conversation:', error)
+    } catch (error: any) {
+      // ✅ CORRECTION: Typage correct pour le logger
+      fastify.log.error({
+        conversationId: request.params.conversationId,
+        updateData: request.body,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur mise à jour conversation')
+      
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la mise à jour de la conversation'

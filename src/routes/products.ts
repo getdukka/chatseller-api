@@ -117,7 +117,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
       const { data, error, count } = await query
 
       if (error) {
-        fastify.log.error('Erreur fetch products:', error)
+        fastify.log.error({ msg: 'Erreur fetch products', error: error.message })
         throw error
       }
 
@@ -132,7 +132,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         }
       })
     } catch (error: any) {
-      fastify.log.error('Erreur GET /products:', error)
+      fastify.log.error('Erreur GET /products:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur serveur'
@@ -177,7 +177,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         data
       })
     } catch (error: any) {
-      fastify.log.error('Erreur GET /products/:id:', error)
+      fastify.log.error('Erreur GET /products/:id:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur serveur'
@@ -247,7 +247,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         data
       })
     } catch (error: any) {
-      fastify.log.error('Erreur POST /products:', error)
+      fastify.log.error('Erreur POST /products:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur lors de la création'
@@ -305,7 +305,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         data
       })
     } catch (error: any) {
-      fastify.log.error('Erreur PUT /products/:id:', error)
+      fastify.log.error('Erreur PUT /products/:id:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur lors de la modification'
@@ -368,7 +368,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         message: 'Produit supprimé avec succès'
       })
     } catch (error: any) {
-      fastify.log.error('Erreur DELETE /products/:id:', error)
+      fastify.log.error('Erreur DELETE /products/:id:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur lors de la suppression'
@@ -435,7 +435,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         }
       })
     } catch (error: any) {
-      fastify.log.error('Erreur GET /products/stats:', error)
+      fastify.log.error('Erreur GET /products/stats:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur serveur'
@@ -499,7 +499,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         jobId
       })
     } catch (error: any) {
-      fastify.log.error('Erreur POST /products/sync:', error)
+      fastify.log.error('Erreur POST /products/sync:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur lors de la synchronisation'
@@ -535,7 +535,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         }
       })
     } catch (error: any) {
-      fastify.log.error('Erreur GET /products/sync/status:', error)
+      fastify.log.error('Erreur GET /products/sync/status:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur serveur'
@@ -611,7 +611,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         data
       })
     } catch (error: any) {
-      fastify.log.error('Erreur POST /products/:id/duplicate:', error)
+      fastify.log.error('Erreur POST /products/:id/duplicate:', error.message || 'Erreur inconnue')
       return reply.status(500).send({
         success: false,
         error: error.message || 'Erreur lors de la duplication'

@@ -1,4 +1,4 @@
-// src/routes/shops.ts - VERSION CORRIGÉE AVEC SINGLETON PRISMA
+// src/routes/shops.ts - VERSION CORRIGÉE LOGS PINO
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -403,7 +403,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR UN SHOP (GET /api/v1/shops/:id) - AVEC BORDERRADIUS
+  // ✅ ROUTE : OBTENIR UN SHOP (GET /api/v1/shops/:id) - LOGS CORRIGÉS
   fastify.get<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -446,7 +446,8 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      fastify.log.info(`✅ Shop récupéré avec widget_config:`, shop.widget_config);
+      // ✅ LOG CORRIGÉ POUR PINO
+      fastify.log.info(`✅ Shop récupéré avec widget_config: ${JSON.stringify(shop.widget_config)}`);
 
       return {
         success: true,
@@ -471,7 +472,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UN SHOP (POST /api/v1/shops)
+  // ✅ ROUTE : CRÉER UN SHOP (POST /api/v1/shops) - LOGS CORRIGÉS
   fastify.post('/', async (request, reply) => {
     try {
       const user = await verifySupabaseAuth(request);
@@ -562,7 +563,8 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         }
       });
 
-      fastify.log.info(`✅ Shop créé avec widget_config (borderRadius: ${defaultWidgetConfig.borderRadius}):`, newShop.widget_config);
+      // ✅ LOG CORRIGÉ POUR PINO
+      fastify.log.info(`✅ Shop créé avec widget_config (borderRadius: ${defaultWidgetConfig.borderRadius}): ${JSON.stringify(newShop.widget_config)}`);
 
       return {
         success: true,
@@ -596,7 +598,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : METTRE À JOUR UN SHOP (PUT /api/v1/shops/:id) - AVEC BORDERRADIUS
+  // ✅ ROUTE : METTRE À JOUR UN SHOP (PUT /api/v1/shops/:id) - LOGS CORRIGÉS
   fastify.put<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -605,11 +607,8 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       // ✅ VALIDATION
       const body = updateShopSchema.parse(request.body);
 
-      fastify.log.info(`📝 Mise à jour shop: ${id}`, {
-        hasWidgetConfig: !!body.widget_config,
-        hasAgentConfig: !!body.agent_config,
-        widgetUpdates: body.widget_config
-      });
+      // ✅ LOG CORRIGÉ POUR PINO
+      fastify.log.info(`📝 Mise à jour shop ${id} - widget: ${!!body.widget_config}, agent: ${!!body.agent_config}`);
 
       const existingShop = await prisma.shop.findFirst({
         where: { 
@@ -672,11 +671,8 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         
         updateData.widget_config = cleanWidgetConfig as Prisma.InputJsonObject;
         
-        fastify.log.info(`🎨 Widget config merger (borderRadius: ${cleanWidgetConfig.borderRadius}):`, {
-          existing: existingWidgetConfig,
-          updates: body.widget_config,
-          merged: cleanWidgetConfig
-        });
+        // ✅ LOG CORRIGÉ POUR PINO
+        fastify.log.info(`🎨 Widget config merger (borderRadius: ${cleanWidgetConfig.borderRadius}) - existant: ${!!existingWidgetConfig}, fusionné: ${!!cleanWidgetConfig}`);
       }
 
       // ✅ FUSION INTELLIGENTE DES CONFIGURATIONS AGENT
@@ -686,11 +682,8 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         
         updateData.agent_config = mergedAgentConfig as Prisma.InputJsonObject;
         
-        fastify.log.info(`🤖 Agent config merger:`, {
-          existing: existingAgentConfig,
-          updates: body.agent_config,
-          merged: mergedAgentConfig
-        });
+        // ✅ LOG CORRIGÉ POUR PINO
+        fastify.log.info(`🤖 Agent config merger - existant: ${!!existingAgentConfig}, fusionné: ${!!mergedAgentConfig}`);
       }
 
       const updatedShop = await prisma.shop.update({
@@ -716,11 +709,8 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         }
       });
 
-      fastify.log.info(`✅ Shop mis à jour avec succès:`, {
-        id,
-        newWidgetConfig: updatedShop.widget_config,
-        newAgentConfig: updatedShop.agent_config
-      });
+      // ✅ LOG CORRIGÉ POUR PINO
+      fastify.log.info(`✅ Shop ${id} mis à jour avec succès`);
 
       return {
         success: true,

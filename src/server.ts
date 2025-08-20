@@ -1,5 +1,5 @@
 // =====================================
-// SERVER.TS CORRIGÉ - SINGLETON PRISMA
+// SERVER.TS CORRIGÉ POUR RAILWAY
 // =====================================
 
 import Fastify from 'fastify'
@@ -8,14 +8,14 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import dotenv from 'dotenv'
 
-// ✅ IMPORT DU SINGLETON PRISMA - PLUS D'INSTANCE MULTIPLE
-import prisma, { testDatabaseConnection, getConnectionStatus } from './lib/prisma'
+// ✅ IMPORT DU SINGLETON PRISMA
+import prisma, { testDatabaseConnection } from './lib/prisma'
 
-// ✅ IMPORT DES NOUVEAUX MODULES SUPABASE
+// ✅ IMPORT DES MODULES SUPABASE
 import { supabaseServiceClient, supabaseAuthClient, testSupabaseConnection } from './lib/supabase'
 import { authenticate, optionalAuthenticate } from './middleware/auth'
 
-// ✅ IMPORT DE TOUTES LES ROUTES EXISTANTES
+// ✅ IMPORT DES ROUTES
 import billingRoutes from './routes/billing'
 import agentsRoutes from './routes/agents' 
 import productsRoutes from './routes/products'
@@ -47,7 +47,7 @@ for (const [key, value] of Object.entries(requiredEnvVars)) {
 
 console.log('✅ Variables d\'environnement validées')
 
-// Create Fastify instance
+// ✅ CREATE FASTIFY INSTANCE AVEC CONFIGURATION RAILWAY
 const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || 'info',
@@ -57,280 +57,345 @@ const fastify = Fastify({
         colorize: true
       }
     } : undefined
+  },
+  // ✅ CONFIGURATION SPÉCIALE POUR RAILWAY
+  trustProxy: true,
+  requestTimeout: 30000, // 30 secondes
+  keepAliveTimeout: 65000,
+  bodyLimit: 10 * 1024 * 1024 // 10MB
+})
+
+// ✅ GESTION GLOBALE DES ERREURS NON CAPTURÉES
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error)
+  fastify.log.fatal(error, 'Uncaught Exception')
+  process.exit(1)
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason)
+  fastify.log.fatal({ reason, promise }, 'Unhandled Rejection')
+  process.exit(1)
+})
+
+// ✅ GESTION ERREURS FASTIFY
+fastify.setErrorHandler(async (error, request, reply) => {
+  fastify.log.error(error, `Error handling request ${request.method} ${request.url}`)
+  
+  // ✅ GESTION SPÉCIFIQUE DES ERREURS COMMUNES
+  if (error.statusCode === 400) {
+    return reply.status(400).send({
+      success: false,
+      error: 'Requête invalide',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    })
   }
+  
+  if (error.statusCode === 404) {
+    return reply.status(404).send({
+      success: false,
+      error: 'Route non trouvée'
+    })
+  }
+  
+  // ✅ ERREUR GÉNÉRIQUE
+  return reply.status(500).send({
+    success: false,
+    error: 'Erreur interne du serveur',
+    details: process.env.NODE_ENV === 'development' ? error.message : undefined
+  })
 })
 
 // Register plugins
 async function registerPlugins() {
-  // Security
-  await fastify.register(helmet, {
-    contentSecurityPolicy: false
-  })
+  try {
+    // ✅ SECURITY AVEC CONFIGURATION ADAPTÉE
+    await fastify.register(helmet, {
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false
+    })
 
-  // ✅ CORS OPTIMISÉ POUR LE WIDGET EMBEDDABLE - CRITIQUE
-  await fastify.register(cors, {
-    origin: (origin, callback) => {
-      // ✅ IMPORTANT: Autoriser tous les domaines pour le widget embeddable
-      callback(null, true)
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-  })
+    // ✅ CORS OPTIMISÉ POUR WIDGET EMBEDDABLE - CRITIQUE
+    await fastify.register(cors, {
+      origin: (origin, callback) => {
+        // ✅ AUTORISER TOUS LES DOMAINES POUR LE WIDGET EMBEDDABLE
+        callback(null, true)
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+      allowedHeaders: [
+        'Content-Type', 
+        'Authorization', 
+        'X-Requested-With', 
+        'Accept',
+        'Origin',
+        'X-Auth-Token'
+      ],
+      // ✅ CONFIGURATION SPÉCIALE POUR OPTIONS
+      preflightContinue: false,
+      optionsSuccessStatus: 200
+    })
 
-  // ✅ RATE LIMITING ADAPTÉ AU WIDGET
-  await fastify.register(rateLimit, {
-    max: parseInt(process.env.RATE_LIMIT_MAX || '300'),
-    timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '60000'),
-    keyGenerator: (request) => {
-      return `${request.ip}-${request.headers['user-agent']?.slice(0, 50) || 'unknown'}`
-    }
-  })
+    // ✅ RATE LIMITING ADAPTÉ AU WIDGET
+    await fastify.register(rateLimit, {
+      max: parseInt(process.env.RATE_LIMIT_MAX || '500'),
+      timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '60000'),
+      keyGenerator: (request) => {
+        return `${request.ip}-${request.headers['user-agent']?.slice(0, 50) || 'unknown'}`
+      },
+      // ✅ GESTION D'ERREUR RATE LIMIT
+      errorResponseBuilder: function (request, context) {
+        return {
+          success: false,
+          error: 'Trop de requêtes',
+          retryAfter: context.after
+        }
+      }
+    })
+
+    console.log('✅ Plugins Fastify enregistrés avec succès')
+
+  } catch (error) {
+    console.error('❌ Erreur enregistrement plugins:', error)
+    throw error
+  }
 }
+
+// ✅ FONCTION POUR GÉRER LES REQUÊTES OPTIONS
+fastify.addHook('onRequest', async (request, reply) => {
+  if (request.method === 'OPTIONS') {
+    reply.header('Access-Control-Allow-Origin', '*')
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
+    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin')
+    reply.header('Access-Control-Max-Age', '86400')
+    return reply.status(200).send()
+  }
+})
 
 // Routes
 async function registerRoutes() {
-  
-  // ✅ HEALTH CHECK CORRIGÉ SANS PREPARED STATEMENTS
-  fastify.get('/health', async (request, reply) => {
-    const healthData = {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      version: process.env.npm_package_version || '1.0.0',
-      environment: process.env.NODE_ENV || 'development',
-      services: {
-        database: 'checking...',
-        openai: 'checking...',
-        supabase: 'checking...'
+  try {
+    
+    // ✅ HEALTH CHECK ROBUSTE
+    fastify.get('/health', async (request, reply) => {
+      const healthData = {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        version: process.env.npm_package_version || '1.0.0',
+        environment: process.env.NODE_ENV || 'development',
+        uptime: process.uptime(),
+        services: {
+          database: 'checking...',
+          openai: 'checking...',
+          supabase: 'checking...'
+        }
       }
-    }
 
-    // ✅ TEST DATABASE AVEC NOUVELLE MÉTHODE SANS CONFLITS
-    try {
-      const dbStatus = await testDatabaseConnection()
-      healthData.services.database = dbStatus.success ? 'ok' : 'error'
-      
-      if (!dbStatus.success) {
-        console.error('❌ Database health check failed:', dbStatus.error)
+      try {
+        // ✅ TEST DATABASE
+        const dbStatus = await testDatabaseConnection()
+        healthData.services.database = dbStatus.success ? 'ok' : 'error'
+        
+        if (!dbStatus.success) {
+          console.error('❌ Database health check failed:', dbStatus.error)
+          healthData.status = 'degraded'
+        }
+      } catch (error) {
+        console.error('❌ Database health check failed:', error)
+        healthData.services.database = 'error'
         healthData.status = 'degraded'
       }
-    } catch (error) {
-      console.error('❌ Database health check failed:', error)
-      healthData.services.database = 'error'
-      healthData.status = 'degraded'
-    }
 
-    // Test OpenAI
-    healthData.services.openai = process.env.OPENAI_API_KEY ? 'configured' : 'not_configured'
+      // ✅ TEST OPENAI
+      healthData.services.openai = process.env.OPENAI_API_KEY ? 'configured' : 'not_configured'
 
-    // ✅ TEST SUPABASE AVEC NOUVELLE FONCTION
-    const supabaseTest = await testSupabaseConnection()
-    healthData.services.supabase = supabaseTest.success ? 'ok' : 'error'
-    
-    if (!supabaseTest.success) {
-      console.error('❌ Supabase health check failed:', supabaseTest.error)
-      healthData.status = 'degraded'
-    }
-
-    return healthData
-  })
-
-  // ✅ ROUTE RACINE
-  fastify.get('/', async (request, reply) => {
-    return {
-      success: true,
-      message: 'ChatSeller API is running',
-      version: '1.3.0',
-      timestamp: new Date().toISOString(),
-      endpoints: {
-        health: '/health',
-        public: '/api/v1/public/* (NO AUTH)',
-        billing: '/api/v1/billing/* (NO AUTH - webhooks)',
-        auth: '/api/v1/auth/* (NO AUTH - auth endpoints)',
-        agents: '/api/v1/agents/* (PROTECTED)',
-        products: '/api/v1/products/* (PROTECTED)',
-        orders: '/api/v1/orders/* (PROTECTED)',
-        conversations: '/api/v1/conversations/* (PROTECTED)',
-        knowledgeBase: '/api/v1/knowledge-base/* (PROTECTED)',
-        shops: '/api/v1/shops/* (PROTECTED)',
-        chat: '/api/v1/chat/* (PROTECTED)'
-      }
-    }
-  })
-
-  // ✅ CRITIQUE : ROUTES PUBLIQUES EN PREMIER (SANS AUTHENTIFICATION)
-  fastify.register(async function (fastify) {
-    // ✅ RATE LIMITING SPÉCIFIQUE POUR LE WIDGET PUBLIC
-    await fastify.register(rateLimit, {
-      max: 500, // Plus permissif pour le widget public
-      timeWindow: '1 minute',
-      keyGenerator: (request) => {
-        // Identifier par IP + shopId pour éviter les abus
-        const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
-        return `public-${request.ip}-${shopId}`
-      }
-    })
-
-    // ✅ ENREGISTRER LES ROUTES PUBLIQUES SANS AUTH
-    fastify.register(publicRoutes)
-    
-    fastify.log.info('✅ Routes publiques enregistrées SANS AUTH: /api/v1/public/*')
-    
-  }, { prefix: '/api/v1/public' })
-
-  // ✅ ROUTES BILLING (SANS AUTHENTIFICATION - Stripe webhooks)
-  fastify.register(async function (fastify) {
-    await fastify.register(rateLimit, {
-      max: 100,
-      timeWindow: '1 minute'
-    })
-    
-    fastify.register(billingRoutes)
-    fastify.log.info('✅ Routes billing enregistrées SANS AUTH: /api/v1/billing/*')
-    
-  }, { prefix: '/api/v1/billing' })
-
-  // ✅ ROUTES D'AUTHENTIFICATION PUBLIQUES (SANS AUTH)
-  fastify.register(async function (fastify) {
-    
-    await fastify.register(rateLimit, {
-      max: 50,
-      timeWindow: '1 minute'
-    })
-    
-    // Route de login
-    fastify.post('/login', async (request, reply) => {
-      const { email, password } = request.body as any
-      
+      // ✅ TEST SUPABASE
       try {
-        const { data, error } = await supabaseAuthClient.auth.signInWithPassword({
-          email,
-          password,
-        })
-
-        if (error) throw error
-
-        return {
-          success: true,
-          user: data.user,
-          session: data.session
+        const supabaseTest = await testSupabaseConnection()
+        healthData.services.supabase = supabaseTest.success ? 'ok' : 'error'
+        
+        if (!supabaseTest.success) {
+          console.error('❌ Supabase health check failed:', supabaseTest.error)
+          healthData.status = 'degraded'
         }
-      } catch (error: any) {
-        return reply.status(401).send({
-          success: false,
-          error: error.message || 'Erreur de connexion'
-        })
+      } catch (error) {
+        healthData.services.supabase = 'error'
+        healthData.status = 'degraded'
+      }
+
+      const responseStatus = healthData.status === 'ok' ? 200 : 503
+      return reply.status(responseStatus).send(healthData)
+    })
+
+    // ✅ ROUTE RACINE AMÉLIORÉE
+    fastify.get('/', async (request, reply) => {
+      return {
+        success: true,
+        message: 'ChatSeller API is running',
+        version: '1.3.0',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV,
+        endpoints: {
+          health: '/health',
+          public: '/api/v1/public/* (NO AUTH)',
+          billing: '/api/v1/billing/* (NO AUTH - webhooks)',
+          auth: '/api/v1/auth/* (NO AUTH - auth endpoints)',
+          agents: '/api/v1/agents/* (PROTECTED)',
+          products: '/api/v1/products/* (PROTECTED)',
+          orders: '/api/v1/orders/* (PROTECTED)',
+          conversations: '/api/v1/conversations/* (PROTECTED)',
+          knowledgeBase: '/api/v1/knowledge-base/* (PROTECTED)',
+          shops: '/api/v1/shops/* (PROTECTED)',
+          chat: '/api/v1/chat/* (PROTECTED)'
+        }
       }
     })
 
-    // Route de signup
-    fastify.post('/signup', async (request, reply) => {
-      const { email, password, metadata } = request.body as any
+    // ✅ ROUTES PUBLIQUES (CRITICAL POUR LE WIDGET)
+    await fastify.register(async function (fastify) {
+      await fastify.register(rateLimit, {
+        max: 1000, // Plus permissif pour le widget public
+        timeWindow: '1 minute',
+        keyGenerator: (request) => {
+          const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
+          return `public-${request.ip}-${shopId}`
+        }
+      })
+
+      await fastify.register(publicRoutes)
+      fastify.log.info('✅ Routes publiques enregistrées SANS AUTH: /api/v1/public/*')
       
-      try {
-        const { data, error } = await supabaseAuthClient.auth.signUp({
-          email,
-          password,
-          options: {
-            data: metadata
+    }, { prefix: '/api/v1/public' })
+
+    // ✅ ROUTES BILLING
+    await fastify.register(async function (fastify) {
+      await fastify.register(rateLimit, {
+        max: 200,
+        timeWindow: '1 minute'
+      })
+      
+      await fastify.register(billingRoutes)
+      fastify.log.info('✅ Routes billing enregistrées SANS AUTH: /api/v1/billing/*')
+      
+    }, { prefix: '/api/v1/billing' })
+
+    // ✅ ROUTES D'AUTHENTIFICATION
+    await fastify.register(async function (fastify) {
+      
+      await fastify.register(rateLimit, {
+        max: 100,
+        timeWindow: '1 minute'
+      })
+      
+      // Route de login
+      fastify.post('/login', async (request, reply) => {
+        try {
+          const { email, password } = request.body as any
+          
+          const { data, error } = await supabaseAuthClient.auth.signInWithPassword({
+            email,
+            password,
+          })
+
+          if (error) throw error
+
+          return {
+            success: true,
+            user: data.user,
+            session: data.session
           }
-        })
-
-        if (error) throw error
-
-        return {
-          success: true,
-          user: data.user,
-          session: data.session
+        } catch (error: any) {
+          return reply.status(401).send({
+            success: false,
+            error: error.message || 'Erreur de connexion'
+          })
         }
-      } catch (error: any) {
-        return reply.status(400).send({
-          success: false,
-          error: error.message || 'Erreur lors de l\'inscription'
-        })
-      }
+      })
+
+      // Route de signup
+      fastify.post('/signup', async (request, reply) => {
+        try {
+          const { email, password, metadata } = request.body as any
+          
+          const { data, error } = await supabaseAuthClient.auth.signUp({
+            email,
+            password,
+            options: {
+              data: metadata
+            }
+          })
+
+          if (error) throw error
+
+          return {
+            success: true,
+            user: data.user,
+            session: data.session
+          }
+        } catch (error: any) {
+          return reply.status(400).send({
+            success: false,
+            error: error.message || 'Erreur lors de l\'inscription'
+          })
+        }
+      })
+      
+      fastify.log.info('✅ Routes auth enregistrées SANS AUTH: /api/v1/auth/*')
+      
+    }, { prefix: '/api/v1/auth' })
+
+    // ✅ ROUTES API AVEC AUTHENTIFICATION
+    await fastify.register(async function (fastify) {
+      
+      // ✅ MIDDLEWARE D'AUTH POUR TOUTES LES ROUTES PROTÉGÉES
+      fastify.addHook('preHandler', authenticate)
+      
+      // ✅ ENREGISTREMENT DES ROUTES PROTÉGÉES
+      await fastify.register(agentsRoutes, { prefix: '/agents' })
+      await fastify.register(productsRoutes, { prefix: '/products' })
+      await fastify.register(ordersRoutes, { prefix: '/orders' })
+      await fastify.register(shopsRoutes, { prefix: '/shops' })
+      await fastify.register(knowledgeBaseRoutes, { prefix: '/knowledge-base' })
+      await fastify.register(conversationsRoutes, { prefix: '/conversations' })
+      await fastify.register(chatRoutes, { prefix: '/chat' })
+
+      fastify.log.info('✅ Routes protégées enregistrées avec succès')
+
+    }, { prefix: '/api/v1' })
+
+    // ✅ FALLBACK 404
+    fastify.setNotFoundHandler(async (request, reply) => {
+      fastify.log.warn(`🔍 Route non trouvée: ${request.method} ${request.url}`)
+      return reply.status(404).send({
+        success: false,
+        error: 'Route not found',
+        method: request.method,
+        url: request.url,
+        availableEndpoints: [
+          'GET /health',
+          'GET /',
+          'GET /api/v1/public/shops/public/:shopId/config',
+          'POST /api/v1/public/chat',
+          'POST /api/v1/auth/login',
+          'POST /api/v1/auth/signup'
+        ]
+      })
     })
-    
-    fastify.log.info('✅ Routes auth enregistrées SANS AUTH: /api/v1/auth/*')
-    
-  }, { prefix: '/api/v1/auth' })
 
-  // ✅ ROUTES API AVEC AUTHENTIFICATION OBLIGATOIRE
-  fastify.register(async function (fastify) {
-    
-    // ✅ MIDDLEWARE D'AUTH POUR TOUTES LES ROUTES API PROTÉGÉES
-    fastify.addHook('preHandler', authenticate)
-    
-    // ✅ ROUTES AGENTS
-    fastify.register(agentsRoutes, { prefix: '/agents' })
-    fastify.log.info('✅ Routes agents enregistrées AVEC AUTH: /api/v1/agents/*')
+    console.log('✅ Routes enregistrées avec succès')
 
-    // ✅ ROUTES PRODUITS 
-    fastify.register(productsRoutes, { prefix: '/products' })
-    fastify.log.info('✅ Routes produits enregistrées AVEC AUTH: /api/v1/products/*')
-    
-    // ✅ ROUTES COMMANDES
-    fastify.register(ordersRoutes, { prefix: '/orders' })
-    fastify.log.info('✅ Routes commandes enregistrées AVEC AUTH: /api/v1/orders/*')
-
-    // ✅ ROUTES SHOPS
-    fastify.register(shopsRoutes, { prefix: '/shops' })
-    fastify.log.info('✅ Routes shops enregistrées AVEC AUTH: /api/v1/shops/*')
-
-    // ✅ ROUTES KNOWLEDGE BASE
-    fastify.register(knowledgeBaseRoutes, { prefix: '/knowledge-base' })
-    fastify.log.info('✅ Routes knowledge-base enregistrées AVEC AUTH: /api/v1/knowledge-base/*')
-
-    // ✅ ROUTES CONVERSATIONS
-    fastify.register(conversationsRoutes, { prefix: '/conversations' })
-    fastify.log.info('✅ Routes conversations enregistrées AVEC AUTH: /api/v1/conversations/*')
-
-    // ✅ ROUTES CHAT INTERNE (pour le dashboard)
-    fastify.register(chatRoutes, { prefix: '/chat' })
-    fastify.log.info('✅ Routes chat enregistrées AVEC AUTH: /api/v1/chat/*')
-
-  }, { prefix: '/api/v1' })
-
-  // ✅ ROUTE DE FALLBACK POUR DEBUG
-  fastify.setNotFoundHandler(async (request, reply) => {
-    fastify.log.warn(`🔍 Route non trouvée: ${request.method} ${request.url}`)
-    return reply.status(404).send({
-      success: false,
-      error: 'Route not found',
-      method: request.method,
-      url: request.url,
-      message: `Route ${request.method} ${request.url} not found`,
-      availableRoutes: [
-        'GET /health',
-        'GET /',
-        'POST /api/v1/auth/login (NO AUTH)',
-        'POST /api/v1/auth/signup (NO AUTH)',
-        'GET /api/v1/public/shops/public/:shopId/config (NO AUTH)',
-        'POST /api/v1/public/chat (NO AUTH)',
-        'POST /api/v1/billing/* (NO AUTH - webhooks)',
-        'GET /api/v1/agents/* (PROTECTED)',
-        'POST /api/v1/agents/* (PROTECTED)',
-        'GET /api/v1/products/* (PROTECTED)',
-        'POST /api/v1/products/* (PROTECTED)',
-        'GET /api/v1/orders/* (PROTECTED)',
-        'POST /api/v1/orders/* (PROTECTED)',
-        'GET /api/v1/conversations/* (PROTECTED)',
-        'POST /api/v1/conversations/* (PROTECTED)',
-        'GET /api/v1/knowledge-base/* (PROTECTED)',
-        'POST /api/v1/knowledge-base/* (PROTECTED)',
-        'GET /api/v1/shops/* (PROTECTED)',
-        'POST /api/v1/chat/* (PROTECTED)'
-      ]
-    })
-  })
+  } catch (error) {
+    console.error('❌ Erreur enregistrement routes:', error)
+    throw error
+  }
 }
 
-// ✅ GRACEFUL SHUTDOWN AMÉLIORÉ
-async function gracefulShutdown() {
+// ✅ GRACEFUL SHUTDOWN
+async function gracefulShutdown(signal: string) {
   try {
-    console.log('🛑 Arrêt du serveur en cours...')
+    console.log(`🛑 Arrêt du serveur (${signal}) en cours...`)
     
-    // Fermer les connexions Prisma proprement
+    // Fermer les connexions Prisma
     await prisma.$disconnect()
     console.log('✅ Connexions Prisma fermées')
     
@@ -345,91 +410,73 @@ async function gracefulShutdown() {
   }
 }
 
-// Start server
+// ✅ START SERVER FUNCTION
 async function start() {
   try {
-    // ✅ LOGS DE DEBUG RAILWAY
     console.log('🚀 === DÉMARRAGE CHATSELLER API ===')
     console.log('📊 Environment:', process.env.NODE_ENV)
     console.log('💾 Database URL présent:', !!process.env.DATABASE_URL)
-    console.log('🔗 Database URL preview:', process.env.DATABASE_URL?.substring(0, 80) + '...')
     console.log('🔑 Supabase URL présent:', !!process.env.SUPABASE_URL)
     console.log('🔐 Service Key présent:', !!process.env.SUPABASE_SERVICE_KEY)
     console.log('🤖 OpenAI Key présent:', !!process.env.OPENAI_API_KEY)
-    console.log('🚀 === RAILWAY PORT DEBUG ===')
-    console.log('🔌 PORT brut:', process.env.PORT)
-    console.log('🔌 PORT type:', typeof process.env.PORT)
-    console.log('🔌 Toutes les variables PORT-like:')
-    Object.keys(process.env).filter(key => 
-      key.toLowerCase().includes('port')
-    ).forEach(key => {
-      console.log(`   ${key}: "${process.env[key]}"`)
-    })
-    console.log('================================')
 
-    // ✅ TEST CONNEXION DATABASE AVANT DÉMARRAGE
+    // ✅ DÉTECTION PORT RAILWAY
+    const getPort = () => {
+      const portEnv = process.env.PORT
+      if (!portEnv) {
+        console.log('🔌 PORT non défini, utilisation du port 3001 par défaut')
+        return 3001
+      }
+      
+      const port = parseInt(portEnv, 10)
+      if (isNaN(port) || port < 1 || port > 65535) {
+        console.error('❌ PORT invalide:', portEnv)
+        console.log('🔌 Utilisation du port 3001 par défaut')
+        return 3001
+      }
+      
+      console.log('🔌 Port Railway détecté:', port)
+      return port
+    }
+
+    const port = getPort()
+    const host = '0.0.0.0'
+
+    // ✅ TEST CONNEXIONS AVANT DÉMARRAGE
     console.log('🔧 Test de connexion base de données...')
     const dbStatus = await testDatabaseConnection()
     
     if (!dbStatus.success) {
       console.error('❌ ERREUR CRITIQUE: Impossible de se connecter à la base de données')
-      console.error('🔍 DATABASE_URL:', process.env.DATABASE_URL?.substring(0, 50) + '...')
       console.error('📋 Erreur:', dbStatus.error)
-      process.exit(1)
+      throw new Error(`Database connection failed: ${dbStatus.error}`)
     }
     
     console.log('✅ Connexion base de données: OK')
 
-    // ✅ TEST CONNEXION SUPABASE AVEC FALLBACK
     console.log('🔧 Test de connexion Supabase...')
     const supabaseTest = await testSupabaseConnection()
     
     if (!supabaseTest.success) {
-      console.warn('⚠️ Supabase connection failed:', supabaseTest.error)
-      
-      // ✅ EN DÉVELOPPEMENT, ON CONTINUE SANS SUPABASE
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🚧 Mode développement : continuant sans Supabase...')
+      console.error('❌ ERREUR: Connexion Supabase échouée:', supabaseTest.error)
+      // Ne pas faire planter en production, mais logger l'erreur
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('⚠️ Continuant sans Supabase en mode dégradé...')
       } else {
-        // ✅ EN PRODUCTION, SUPABASE EST CRITIQUE
-        console.error('❌ ERREUR CRITIQUE: Impossible de se connecter à Supabase en production')
-        console.error('🔍 Vérifiez vos variables SUPABASE_URL et SUPABASE_SERVICE_KEY')
-        process.exit(1)
+        throw new Error(`Supabase connection failed: ${supabaseTest.error}`)
       }
     } else {
       console.log('✅ Connexion Supabase: OK')
     }
 
+    // ✅ ENREGISTRER PLUGINS ET ROUTES
     await registerPlugins()
     await registerRoutes()
 
-    const getPort = () => {
-    const portEnv = process.env.PORT
-    if (!portEnv) {
-      console.log('🔌 PORT non défini, utilisation du port 3001 par défaut')
-      return 3001
-    }
-    
-    const port = parseInt(portEnv, 10)
-    if (isNaN(port) || port < 1 || port > 65535) {
-      console.error('❌ PORT invalide:', portEnv)
-      console.log('🔌 Utilisation du port 3001 par défaut')
-      return 3001
-    }
-    
-    console.log('🔌 Port détecté:', port)
-    return port
-  }
-
-  const port = getPort()
-  const host = '0.0.0.0'
-
-  console.log('🌐 Host forcé à:', host)
-  console.log('🔌 Port final:', port)
-
+    // ✅ DÉMARRER LE SERVEUR
     await fastify.listen({ 
       port, 
-      host: '0.0.0.0',
+      host,
       listenTextResolver: (address) => {
         console.log(`🚀 Serveur démarré et accessible sur: ${address}`)
         console.log(`🌐 URL publique Railway: https://chatseller-api-production.up.railway.app`)
@@ -437,54 +484,22 @@ async function start() {
       }
     })
 
-    // ✅ AJOUT DE LOGS DE VÉRIFICATION
-    console.log('🔍 Configuration finale:')
-    console.log(`   Host: 0.0.0.0`)
-    console.log(`   Port: ${port}`)
-    console.log(`   Env: ${process.env.NODE_ENV}`)
-    console.log(`   Railway Port: ${process.env.PORT}`)
     console.log('✅ Application prête à recevoir le trafic Railway')
-    
     console.log(`🚀 ChatSeller API running on http://${host}:${port}`)
     console.log(`📖 Health check: http://${host}:${port}/health`)
-    console.log(`🏠 Root: http://${host}:${port}/`)
-    console.log('')
-    console.log('📌 ROUTES PUBLIQUES (sans authentification):')
-    console.log(`   🌐 Config shop: GET /api/v1/public/shops/public/:shopId/config`)
-    console.log(`   💬 Chat widget: POST /api/v1/public/chat`)
-    console.log(`   💳 Billing webhooks: POST /api/v1/billing/*`)
-    console.log(`   🔐 Auth: POST /api/v1/auth/login | /api/v1/auth/signup`)
-    console.log('')
-    console.log('🔒 ROUTES PROTÉGÉES (avec authentification):')
-    console.log(`   🤖 Agents: /api/v1/agents/*`)
-    console.log(`   📦 Products: /api/v1/products/*`)
-    console.log(`   🛒 Orders: /api/v1/orders/*`)
-    console.log(`   💬 Conversations: /api/v1/conversations/*`)
-    console.log(`   📚 Knowledge Base: /api/v1/knowledge-base/*`)
-    console.log(`   🏪 Shops: /api/v1/shops/*`)
-    console.log(`   💭 Chat interne: /api/v1/chat/*`)
     
   } catch (error) {
-    fastify.log.error(error)
     console.error('💥 Erreur fatale au démarrage:', error)
     process.exit(1)
   }
 }
 
-// Handle shutdown signals
-process.on('SIGTERM', gracefulShutdown)
-process.on('SIGINT', gracefulShutdown)
+// ✅ SIGNAL HANDLERS
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 
-// ✅ GESTION D'ERREURS NON CAPTURÉES
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error)
-  gracefulShutdown()
+// ✅ START
+start().catch((error) => {
+  console.error('💥 Impossible de démarrer le serveur:', error)
+  process.exit(1)
 })
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason)
-  gracefulShutdown()
-})
-
-// Start the server
-start()
