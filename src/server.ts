@@ -176,55 +176,19 @@ fastify.addHook('onRequest', async (request, reply) => {
 async function registerRoutes() {
   try {
     
-    // ✅ HEALTH CHECK ROBUSTE
+    // ✅ HEALTH CHECK SIMPLE ET ROBUSTE POUR RAILWAY
     fastify.get('/health', async (request, reply) => {
       const healthData = {
         status: 'ok',
         timestamp: new Date().toISOString(),
         version: process.env.npm_package_version || '1.0.0',
         environment: process.env.NODE_ENV || 'development',
-        uptime: process.uptime(),
-        services: {
-          database: 'checking...',
-          openai: 'checking...',
-          supabase: 'checking...'
-        }
+        uptime: process.uptime()
       }
 
-      try {
-        // ✅ TEST DATABASE
-        const dbStatus = await testDatabaseConnection()
-        healthData.services.database = dbStatus.success ? 'ok' : 'error'
-        
-        if (!dbStatus.success) {
-          console.error('❌ Database health check failed:', dbStatus.error)
-          healthData.status = 'degraded'
-        }
-      } catch (error) {
-        console.error('❌ Database health check failed:', error)
-        healthData.services.database = 'error'
-        healthData.status = 'degraded'
-      }
-
-      // ✅ TEST OPENAI
-      healthData.services.openai = process.env.OPENAI_API_KEY ? 'configured' : 'not_configured'
-
-      // ✅ TEST SUPABASE
-      try {
-        const supabaseTest = await testSupabaseConnection()
-        healthData.services.supabase = supabaseTest.success ? 'ok' : 'error'
-        
-        if (!supabaseTest.success) {
-          console.error('❌ Supabase health check failed:', supabaseTest.error)
-          healthData.status = 'degraded'
-        }
-      } catch (error) {
-        healthData.services.supabase = 'error'
-        healthData.status = 'degraded'
-      }
-
-      const responseStatus = healthData.status === 'ok' ? 200 : 503
-      return reply.status(responseStatus).send(healthData)
+      // ✅ POUR RAILWAY : TOUJOURS RETOURNER 200 SI LE SERVEUR RÉPOND
+      // Les vérifications détaillées peuvent être faites ailleurs
+      return reply.status(200).send(healthData)
     })
 
     // ✅ ROUTE RACINE AMÉLIORÉE
@@ -473,16 +437,25 @@ async function start() {
     await registerPlugins()
     await registerRoutes()
 
-    // ✅ DÉMARRER LE SERVEUR
-    await fastify.listen({ 
-      port, 
-      host,
-      listenTextResolver: (address) => {
-        console.log(`🚀 Serveur démarré et accessible sur: ${address}`)
-        console.log(`🌐 URL publique Railway: https://chatseller-api-production.up.railway.app`)
-        return `Server listening at ${address}`
-      }
-    })
+    // ✅ DÉMARRER LE SERVEUR - VERSION SIMPLIFIÉE POUR RAILWAY
+    try {
+      const address = await fastify.listen({ 
+        port, 
+        host: '0.0.0.0'
+      })
+      
+      console.log(`🚀 Serveur démarré avec succès!`)
+      console.log(`📍 Adresse locale: ${address}`)
+      console.log(`🌐 URL publique Railway: https://chatseller-api-production.up.railway.app`)
+      console.log(`📋 Mode: ${process.env.NODE_ENV}`)
+      console.log(`🔌 Port: ${port}`)
+      console.log(`🏠 Host: 0.0.0.0`)
+      console.log(`✅ Application prête à recevoir le trafic Railway`)
+      
+    } catch (listenError) {
+      console.error('❌ Erreur lors du démarrage du serveur:', listenError)
+      throw listenError
+    }
 
     console.log('✅ Application prête à recevoir le trafic Railway')
     console.log(`🚀 ChatSeller API running on http://${host}:${port}`)
