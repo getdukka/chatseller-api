@@ -1,5 +1,5 @@
 // =====================================
-// SERVER.TS - VERSION PRODUCTION SANS DÉPENDANCES EXTERNES
+// SERVER.TS - VERSION CORRIGÉE AVEC FIXES CHATGPT 5
 // =====================================
 
 import dotenv from 'dotenv'
@@ -10,10 +10,10 @@ import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 
-// ✅ SUPABASE CLIENT INTÉGRÉ (sans fichier externe)
+// ✅ SUPABASE CLIENT INTÉGRÉ
 import { createClient } from '@supabase/supabase-js'
 
-console.log('🚀 === DÉMARRAGE CHATSELLER API v1.4.0 (PRODUCTION) ===')
+console.log('🚀 === DÉMARRAGE CHATSELLER API v1.4.0 (CORRIGÉ) ===')
 
 // ✅ VALIDATION VARIABLES D'ENVIRONNEMENT
 const requiredEnvVars = {
@@ -51,16 +51,45 @@ const supabaseAuthClient = createClient(
 
 console.log('✅ Clients Supabase configurés')
 
-// ✅ CREATE FASTIFY INSTANCE
+// ✅ CREATE FASTIFY INSTANCE AVEC LOGGER AMÉLIORÉ
 const fastify = Fastify({
-  logger: {
-    level: process.env.LOG_LEVEL || 'info'
-  },
+  logger: process.env.NODE_ENV === 'production' ? { level: 'info' } : true,
   trustProxy: true,
   requestTimeout: 30000,
   keepAliveTimeout: 65000,
   bodyLimit: 10 * 1024 * 1024
 })
+
+// ✅ HEALTH CHECK EN PREMIER (AVANT TOUS LES PLUGINS)
+fastify.get('/health', async (_, reply) => {
+  return reply.code(200).send({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    version: '1.4.0',
+    environment: process.env.NODE_ENV || 'development',
+    uptime: Math.round(process.uptime()),
+    memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+  })
+})
+
+console.log('✅ Route /health enregistrée en priorité')
+
+// ✅ HANDLERS PROCESS NON AGRESSIFS EN PRODUCTION
+const shouldExitOnCrash = process.env.NODE_ENV !== 'production'
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error)
+  fastify.log?.fatal?.(error, 'Uncaught Exception')
+  if (shouldExitOnCrash) process.exit(1)
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason)
+  fastify.log?.fatal?.({ reason, promise }, 'Unhandled Rejection')
+  if (shouldExitOnCrash) process.exit(1)
+})
+
+console.log(`✅ Handlers process configurés (exit en crash: ${shouldExitOnCrash})`)
 
 // ✅ GESTION ERREURS FASTIFY
 fastify.setErrorHandler(async (error, request, reply) => {
@@ -126,7 +155,7 @@ async function registerPlugins() {
       crossOriginEmbedderPolicy: false
     })
 
-    // ✅ CORS AMÉLIORÉ
+    // ✅ CORS AMÉLIORÉ (SANS HOOK OPTIONS MANUEL)
     await fastify.register(cors, {
       origin: (origin, callback) => {
         const allowedOrigins = [
@@ -141,16 +170,20 @@ async function registerPlugins() {
           'https://chatseller-widget.vercel.app'
         ]
         
+        // Accepter les requêtes sans origin
         if (!origin) return callback(null, true)
         
+        // Accepter tous les subdomains chatseller et vercel
         if (origin.includes('.chatseller.app') || origin.includes('vercel.app')) {
           return callback(null, true)
         }
         
+        // Accepter localhost en développement
         if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
           return callback(null, true)
         }
         
+        // Vérifier liste blanche
         if (allowedOrigins.includes(origin)) {
           return callback(null, true)
         }
@@ -192,34 +225,11 @@ async function registerPlugins() {
   }
 }
 
-// ✅ GESTION OPTIONS GLOBALE
-fastify.addHook('onRequest', async (request, reply) => {
-  if (request.method === 'OPTIONS') {
-    reply.header('Access-Control-Allow-Origin', '*')
-    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
-    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin')
-    reply.header('Access-Control-Max-Age', '86400')
-    return reply.status(200).send()
-  }
-})
-
 // ✅ ROUTES INTÉGRÉES
 async function registerRoutes() {
   try {
     
-    // ✅ HEALTH CHECK ULTRA-RAPIDE
-    fastify.get('/health', async (request, reply) => {
-      return reply.status(200).send({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        version: '1.4.0',
-        environment: process.env.NODE_ENV || 'production',
-        uptime: Math.round(process.uptime()),
-        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
-      })
-    })
-
-    // ✅ HEALTH CHECK AVEC SUPABASE
+    // ✅ HEALTH CHECK COMPLET
     fastify.get('/health/full', async (request, reply) => {
       const healthData = {
         status: 'ok',
@@ -246,7 +256,7 @@ async function registerRoutes() {
     fastify.get('/', async (request, reply) => {
       return {
         success: true,
-        message: 'ChatSeller API is running (Production)',
+        message: 'ChatSeller API is running (Corrigé)',
         version: '1.4.0',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'production',
@@ -283,7 +293,6 @@ async function registerRoutes() {
         try {
           const { shopId } = request.params as any
           
-          // Configuration par défaut pour tous les shops
           const defaultConfig = {
             success: true,
             data: {
@@ -334,7 +343,6 @@ async function registerRoutes() {
         try {
           const { message, shopId } = request.body as any
           
-          // Réponse simulée intelligente
           let response = "Merci pour votre message ! Comment puis-je vous aider davantage ?"
           
           if (message.toLowerCase().includes('bonjour') || message.toLowerCase().includes('salut')) {
