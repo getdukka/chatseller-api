@@ -152,8 +152,9 @@ async function simpleSupabaseCheck(): Promise<boolean> {
 async function registerRoutes() {
   try {
     
-    // ✅ HEALTH CHECK ULTRA-SIMPLE
+    // ✅ HEALTH CHECK ULTRA-SIMPLE ET RAPIDE
     fastify.get('/health', async (request, reply) => {
+      // ✅ RÉPONSE IMMÉDIATE SANS VÉRIFICATIONS EXTERNES
       return reply.status(200).send({
         status: 'ok',
         timestamp: new Date().toISOString(),
