@@ -1,4 +1,8 @@
 // src/lib/supabase.ts - VERSION AMÉLIORÉE AVEC DEBUG
+// ✅ CHARGER .ENV EN PREMIER - CRITIQUE POUR TSX
+import dotenv from 'dotenv'
+dotenv.config()
+
 import { createClient } from '@supabase/supabase-js'
 
 // ✅ DEBUG DES VARIABLES D'ENVIRONNEMENT

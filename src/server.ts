@@ -2,10 +2,11 @@
 // SERVER.TS - VERSION SUPABASE PURE CORRIGÉE
 // =====================================
 
-// ✅ CHARGER .ENV EN PREMIER (AVANT TOUS LES IMPORTS)
+// ✅ CHARGER .ENV EN TOUT PREMIER (CRITIQUE POUR TSX)
 import dotenv from 'dotenv'
 dotenv.config()
 
+// ✅ MAINTENANT ON PEUT IMPORTER LE RESTE
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
