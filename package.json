@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "build:minimal": "tsc --incremental",
     "start": "node dist/server.js",
     "start:prod": "NODE_ENV=production PRISMA_DISABLE_PREPARED_STATEMENTS=true node dist/server.js",
     "start:railway": "NODE_ENV=production PRISMA_DISABLE_PREPARED_STATEMENTS=true node dist/server.js",
+    "start:railway-minimal": "NODE_ENV=production PRISMA_DISABLE_PREPARED_STATEMENTS=true node dist/server.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",

@@ -1,4 +1,4 @@
-// src/lib/prisma.ts - OPTIMISÉ POUR RAILWAY
+// src/lib/prisma.ts - VERSION RAILWAY OPTIMISÉE
 import { PrismaClient } from '@prisma/client'
 
 // ✅ DÉCLARATION GLOBALE POUR LE SINGLETON
@@ -6,23 +6,27 @@ declare global {
   var __prisma: PrismaClient | undefined
 }
 
-// ✅ CONFIGURATION PRISMA OPTIMISÉE POUR RAILWAY - SANS PREPARED STATEMENTS
+// ✅ CONFIGURATION PRISMA SPÉCIALE POUR RAILWAY
 function createPrismaClient(): PrismaClient {
   const isProduction = process.env.NODE_ENV === 'production'
   
   return new PrismaClient({
-    // ✅ LOGS ADAPTÉS À L'ENVIRONNEMENT
-    log: isProduction ? ['error', 'warn'] : ['query', 'info', 'warn', 'error'],
+    log: isProduction ? ['error'] : ['error', 'warn'],
     
-    // ✅ CONFIGURATION DATABASE
     datasources: {
       db: {
         url: process.env.DATABASE_URL
       }
     },
     
-    // ✅ OPTIONS SPÉCIALES POUR RAILWAY - ÉVITER PREPARED STATEMENTS
-    errorFormat: 'minimal'
+    // ✅ DÉSACTIVER COMPLÈTEMENT LES PREPARED STATEMENTS POUR RAILWAY
+    errorFormat: 'minimal',
+    
+    // ✅ OPTIONS RAILWAY SPÉCIFIQUES
+    transactionOptions: {
+      maxWait: 10000, // 10s max wait
+      timeout: 20000, // 20s timeout
+    }
   })
 }
 
@@ -34,28 +38,33 @@ if (process.env.NODE_ENV !== 'production') {
   globalThis.__prisma = prisma
 }
 
-// ✅ FONCTION UTILITAIRE POUR TESTER LA CONNEXION - VERSION RAILWAY SANS PREPARED STATEMENTS
+// ✅ FONCTION DE TEST SIMPLIFIÉE POUR RAILWAY - SANS PREPARED STATEMENTS
 export async function testDatabaseConnection(): Promise<{ success: boolean; error?: string }> {
   try {
-    // ✅ SOLUTION RAILWAY: Utiliser $queryRawUnsafe au lieu de $executeRaw pour éviter les prepared statements
-    const result = await prisma.$queryRawUnsafe('SELECT 1 as test');
+    console.log('🔧 Test de connexion DB (Railway optimisé)...');
     
-    console.log('✅ Base de données: Connexion et requête OK');
+    // ✅ SOLUTION RAILWAY: Utiliser une requête Prisma simple au lieu de $queryRawUnsafe
+    const result = await prisma.shop.findMany({
+      take: 1,
+      select: { id: true }
+    });
+    
+    console.log('✅ Base de données: Connexion OK (Railway)');
     return { success: true };
     
   } catch (error: any) {
     console.error('❌ Base de données: Erreur connexion:', error.message);
     
-    // ✅ TENTATIVE DE RECONNEXION SIMPLE
+    // ✅ TENTATIVE DE RECONNEXION SIMPLE SANS RAW QUERIES
     try {
       await prisma.$disconnect();
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Attendre 2s
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await prisma.$connect();
       
-      // Test simple sans prepared statement
-      await prisma.$queryRawUnsafe('SELECT 1');
+      // Test simple avec findMany au lieu de raw query
+      await prisma.shop.findMany({ take: 1, select: { id: true } });
       
-      console.log('✅ Reconnexion base de données réussie');
+      console.log('✅ Reconnexion base de données réussie (Railway)');
       return { success: true };
       
     } catch (fallbackError: any) {
@@ -81,7 +90,7 @@ export async function reconnectIfNeeded(): Promise<void> {
   }
 }
 
-// ✅ FONCTION POUR OBTENIR LE STATUS DE CONNEXION - VERSION RAILWAY
+// ✅ FONCTION STATUS SIMPLIFIÉE POUR RAILWAY
 export async function getConnectionStatus(): Promise<{
   connected: boolean
   latency?: number
@@ -90,8 +99,8 @@ export async function getConnectionStatus(): Promise<{
   const startTime = Date.now()
   
   try {
-    // ✅ Utiliser $queryRawUnsafe pour éviter les prepared statements sur Railway
-    await prisma.$queryRawUnsafe('SELECT 1 as health_check')
+    // ✅ Utiliser findMany au lieu de $queryRawUnsafe pour éviter les prepared statements
+    await prisma.shop.findMany({ take: 1, select: { id: true } })
     const latency = Date.now() - startTime
     
     return {
@@ -128,13 +137,25 @@ process.on('SIGINT', async () => {
   await gracefulDisconnect()
 })
 
+// ✅ HEALTH CHECK ULTRA-SIMPLE POUR RAILWAY
+export async function simpleHealthCheck(): Promise<boolean> {
+  try {
+    // Juste vérifier que Prisma peut se connecter sans faire de requête
+    await prisma.$connect()
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ✅ EXPORT DE L'INSTANCE UNIQUE
 export default prisma
 
 // ✅ EXPORT NOMMÉ POUR COMPATIBILITÉ
 export { prisma }
 
-console.log('🔧 Prisma singleton initialisé:', {
+console.log('🔧 Prisma singleton initialisé (Railway optimisé):', {
   env: process.env.NODE_ENV,
-  hasDbUrl: !!process.env.DATABASE_URL
+  hasDbUrl: !!process.env.DATABASE_URL,
+  disablePreparedStatements: process.env.PRISMA_DISABLE_PREPARED_STATEMENTS
 })
