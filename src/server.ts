@@ -82,6 +82,19 @@ fastify.setErrorHandler(async (error, request, reply) => {
   })
 })
 
+// ✅ HEALTH CHECK SUPABASE SIMPLIFIÉ ET RAPIDE
+async function simpleSupabaseCheck(): Promise<boolean> {
+  try {
+    const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/`, {
+      headers: { 'apikey': process.env.SUPABASE_SERVICE_KEY! },
+      signal: AbortSignal.timeout(3000) // 3s timeout max
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
 // Register plugins
 async function registerPlugins() {
   try {
@@ -90,9 +103,44 @@ async function registerPlugins() {
       crossOriginEmbedderPolicy: false
     })
 
-    // ✅ CORS OPTIMISÉ POUR WIDGET EMBEDDABLE
+    // ✅ CORS AMÉLIORÉ POUR PRODUCTION AVEC WIDGET EMBEDDABLE
     await fastify.register(cors, {
-      origin: true,
+      origin: (origin, callback) => {
+        // ✅ DOMAINES AUTORISÉS POUR CHATSELLER
+        const allowedOrigins = [
+          'https://dashboard.chatseller.app',
+          'https://chatseller.app', 
+          'https://docs.chatseller.app',
+          'https://widget.chatseller.app',
+          'http://localhost:3000',
+          'http://localhost:3002',
+          'http://localhost:8080',
+          'https://chatseller-dashboard.vercel.app',
+          'https://chatseller-widget.vercel.app'
+        ]
+        
+        // ✅ ACCEPTER LES REQUÊTES SANS ORIGIN (Postman, curl, etc.)
+        if (!origin) return callback(null, true)
+        
+        // ✅ ACCEPTER TOUS LES SUBDOMAINS CHATSELLER EN PRODUCTION
+        if (origin.includes('.chatseller.app') || origin.includes('vercel.app')) {
+          return callback(null, true)
+        }
+        
+        // ✅ ACCEPTER LOCALHOST EN DÉVELOPPEMENT
+        if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
+          return callback(null, true)
+        }
+        
+        // ✅ VÉRIFIER LISTE BLANCHE
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true)
+        }
+        
+        // ✅ LOGS POUR DÉBUGGER LES ORIGINS REJETÉES
+        console.log(`❌ Origin refusée: ${origin}`)
+        callback(new Error('Non autorisé par CORS'), false)
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
       allowedHeaders: [
@@ -101,8 +149,11 @@ async function registerPlugins() {
         'X-Requested-With', 
         'Accept',
         'Origin',
-        'X-Auth-Token'
-      ]
+        'X-Auth-Token',
+        'X-Shop-Id',
+        'User-Agent'
+      ],
+      optionsSuccessStatus: 200
     })
 
     await fastify.register(rateLimit, {
@@ -135,24 +186,11 @@ fastify.addHook('onRequest', async (request, reply) => {
   }
 })
 
-// ✅ HEALTH CHECK SIMPLE POUR SUPABASE
-async function simpleSupabaseCheck(): Promise<boolean> {
-  try {
-    const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/`, {
-      headers: { 'apikey': process.env.SUPABASE_SERVICE_KEY! },
-      signal: AbortSignal.timeout(5000)
-    })
-    return response.ok
-  } catch {
-    return false
-  }
-}
-
 // Routes
 async function registerRoutes() {
   try {
     
-    // ✅ HEALTH CHECK ULTRA-SIMPLE ET RAPIDE
+    // ✅ HEALTH CHECK ULTRA-SIMPLE ET RAPIDE (POUR RAILWAY)
     fastify.get('/health', async (request, reply) => {
       // ✅ RÉPONSE IMMÉDIATE SANS VÉRIFICATIONS EXTERNES
       return reply.status(200).send({
@@ -165,19 +203,22 @@ async function registerRoutes() {
       })
     })
 
-    // ✅ HEALTH CHECK AVEC SUPABASE (ROUTE SÉPARÉE)
-    fastify.get('/health/supabase', async (request, reply) => {
+    // ✅ HEALTH CHECK AVEC SUPABASE (ROUTE SÉPARÉE POUR MONITORING)
+    fastify.get('/health/full', async (request, reply) => {
       const healthData = {
         status: 'ok',
         timestamp: new Date().toISOString(),
         services: {
+          api: 'ok',
           supabase: 'checking...'
-        }
+        },
+        uptime: Math.round(process.uptime()),
+        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
       }
 
       try {
         const supabaseOk = await simpleSupabaseCheck()
-        healthData.services.supabase = supabaseOk ? 'ok' : 'error'
+        healthData.services.supabase = supabaseOk ? 'ok' : 'degraded'
       } catch {
         healthData.services.supabase = 'error'
       }
@@ -196,7 +237,7 @@ async function registerRoutes() {
         database: 'Supabase',
         endpoints: {
           health: '/health',
-          healthSupabase: '/health/supabase',
+          healthFull: '/health/full',
           public: '/api/v1/public/*',
           billing: '/api/v1/billing/*',
           auth: '/api/v1/auth/*',
@@ -316,7 +357,7 @@ async function registerRoutes() {
         url: request.url,
         availableEndpoints: [
           'GET /health',
-          'GET /health/supabase',
+          'GET /health/full',
           'GET /',
           'GET /api/v1/public/shops/public/:shopId/config',
           'POST /api/v1/public/chat',
