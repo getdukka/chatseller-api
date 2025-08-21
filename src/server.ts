@@ -1,14 +1,17 @@
 // =====================================
-// SERVER.TS - VERSION SUPABASE PURE
+// SERVER.TS - VERSION SUPABASE PURE CORRIGÉE
 // =====================================
+
+// ✅ CHARGER .ENV EN PREMIER (AVANT TOUS LES IMPORTS)
+import dotenv from 'dotenv'
+dotenv.config()
 
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
-import dotenv from 'dotenv'
 
-// ✅ IMPORT UNIQUEMENT SUPABASE
+// ✅ IMPORT DES MODULES SUPABASE
 import { supabaseServiceClient, supabaseAuthClient, testSupabaseConnection } from './lib/supabase'
 import { authenticate, optionalAuthenticate } from './middleware/auth'
 
@@ -23,9 +26,6 @@ import supportRoutes from './routes/support'
 import knowledgeBaseRoutes from './routes/knowledge-base'
 import conversationsRoutes from './routes/conversations'
 import chatRoutes from './routes/chat'
-
-// Load environment variables
-dotenv.config()
 
 // ✅ VALIDATION VARIABLES D'ENVIRONNEMENT (SANS PRISMA)
 const requiredEnvVars = {
@@ -197,12 +197,13 @@ async function registerRoutes() {
           healthSupabase: '/health/supabase',
           public: '/api/v1/public/*',
           billing: '/api/v1/billing/*',
-          auth: '/api/v1/auth/*'
+          auth: '/api/v1/auth/*',
+          support: '/api/v1/support/*'
         }
       }
     })
 
-    // ✅ ROUTES PUBLIQUES (CRITICAL POUR LE WIDGET)
+    // ✅ ROUTES PUBLIQUES (CRITICAL POUR LE WIDGET) - UNE SEULE FOIS
     await fastify.register(async function (fastify) {
       await fastify.register(rateLimit, {
         max: 1000,
@@ -212,27 +213,19 @@ async function registerRoutes() {
           return `public-${request.ip}-${shopId}`
         }
       })
+      
+      // ✅ ENREGISTRER ROUTES PUBLIQUES
       await fastify.register(publicRoutes)
-      
-      // ✅ AJOUTER CETTE LIGNE POUR LE SUPPORT
-      await fastify.register(supportRoutes, { prefix: '/support' })
-      
       fastify.log.info('✅ Routes publiques enregistrées: /api/v1/public/*')
+      
     }, { prefix: '/api/v1/public' })
 
-    // ✅ ROUTES PUBLIQUES (CRITICAL POUR LE WIDGET)
+    // ✅ ROUTES SUPPORT PUBLIQUES (SANS AUTH)
     await fastify.register(async function (fastify) {
-      await fastify.register(rateLimit, {
-        max: 1000,
-        timeWindow: '1 minute',
-        keyGenerator: (request) => {
-          const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
-          return `public-${request.ip}-${shopId}`
-        }
-      })
-      await fastify.register(publicRoutes)
-      fastify.log.info('✅ Routes publiques enregistrées: /api/v1/public/*')
-    }, { prefix: '/api/v1/public' })
+      await fastify.register(rateLimit, { max: 200, timeWindow: '1 minute' })
+      await fastify.register(supportRoutes)
+      fastify.log.info('✅ Routes support enregistrées: /api/v1/support/*')
+    }, { prefix: '/api/v1/support' })
 
     // ✅ ROUTES BILLING
     await fastify.register(async function (fastify) {
@@ -324,7 +317,10 @@ async function registerRoutes() {
           'GET /health/supabase',
           'GET /',
           'GET /api/v1/public/shops/public/:shopId/config',
-          'POST /api/v1/public/chat'
+          'POST /api/v1/public/chat',
+          'POST /api/v1/support/contact',
+          'POST /api/v1/auth/login',
+          'POST /api/v1/auth/signup'
         ]
       })
     })
