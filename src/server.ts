@@ -429,7 +429,7 @@ async function registerRoutes() {
       })
       
       // ✅ CONFIG PUBLIQUE SHOP (CRITICAL POUR WIDGET)
-      fastify.get<{ Params: { shopId: string } }>('/shops/public/:shopId/config', async (request, reply) => {
+      fastify.get('/shops/public/:shopId/config', async (request, reply) => {
         try {
           const { shopId } = request.params as any
           console.log(`🔍 [PUBLIC CONFIG] Récupération config pour shop: ${shopId}`)
@@ -535,8 +535,9 @@ async function registerRoutes() {
 
         } catch (error: any) {
           console.error(`❌ [PUBLIC CONFIG] Erreur: ${error.message}`)
-          console.log(`⚠️ Fallback activé pour shop ${request.params.shopId}`)
-          return getFallbackShopConfig(request.params.shopId)
+          const { shopId } = request.params as { shopId: string }
+          console.log(`⚠️ Fallback activé pour shop ${shopId}`)
+          return getFallbackShopConfig(shopId)
         }
       })
       
@@ -673,14 +674,175 @@ Comment puis-je vous aider ? 😊`
       
     }, { prefix: '/api/v1/auth' })
 
-    // ✅ ROUTES PROTÉGÉES (DASHBOARD)
+    // ✅ ROUTES PROTÉGÉES COMPLÈTES (DASHBOARD)
     await fastify.register(async function (fastify) {
       fastify.addHook('preHandler', authenticate)
       
-      // ✅ SHOPS
+      // ✅ GET SHOP PAR ID (ROUTE PRINCIPALE DU MIDDLEWARE)
+      interface ShopParams { id: string }
+      fastify.get<{ Params: ShopParams }>('/shops/:id', async (request, reply) => {
+        try {
+          const { id } = request.params
+          const user = request.user as any
+          
+          console.log(`🏪 [API] GET /shops/${id} appelé par user:`, user.id)
+          
+          // Sécurité : l'utilisateur ne peut accéder qu'à son propre shop
+          if (id !== user.id) {
+            return reply.status(403).send({
+              success: false,
+              error: 'Accès non autorisé'
+            })
+          }
+          
+          // Récupérer ou créer le shop
+          const shop = await getOrCreateShop(user)
+          
+          console.log(`✅ [API] Shop récupéré/créé:`, {
+            id: shop.id,
+            name: shop.name,
+            plan: shop.subscription_plan,
+            onboarding: shop.onboarding_completed
+          })
+          
+          return {
+            success: true,
+            data: shop
+          }
+        } catch (error: any) {
+          console.error(`❌ [API] Erreur GET /shops/${request.params.id}:`, error)
+          return reply.status(500).send({
+            success: false,
+            error: 'Erreur récupération shop'
+          })
+        }
+      })
+      
+      // ✅ UPDATE SHOP
+      interface UpdateShopParams { id: string }
+      fastify.put<{ Params: UpdateShopParams }>('/shops/:id', async (request, reply) => {
+        try {
+          const { id } = request.params as any
+          const user = request.user as any
+          const updateData = request.body as any
+          
+          console.log(`🔄 [API] PUT /shops/${id} appelé par user:`, user.id)
+          
+          // Sécurité
+          if (id !== user.id) {
+            return reply.status(403).send({
+              success: false,
+              error: 'Accès non autorisé'
+            })
+          }
+          
+          // Mise à jour du shop
+          const { data: updatedShop, error } = await supabaseServiceClient
+            .from('shops')
+            .update({
+              ...updateData,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', id)
+            .select()
+            .single()
+
+          if (error) {
+            throw error
+          }
+
+          console.log(`✅ [API] Shop mis à jour:`, updatedShop.id)
+
+          return {
+            success: true,
+            data: updatedShop
+          }
+        } catch (error: any) {
+          console.error(`❌ [API] Erreur PUT /shops/${request.params.id}:`, error)
+          return reply.status(500).send({
+            success: false,
+            error: 'Erreur mise à jour shop'
+          })
+        }
+      })
+      
+      // ✅ CREATE SHOP (pour les cas où il n'existe pas)
+      fastify.post('/shops', async (request, reply) => {
+        try {
+          const user = request.user as any
+          const shopData = request.body as any
+          
+          console.log(`🆕 [API] POST /shops appelé par user:`, user.id)
+          
+          // Créer le shop avec l'ID de l'utilisateur
+          const newShopData = {
+            id: user.id,
+            name: shopData.name || user.user_metadata?.name || user.email.split('@')[0] || 'Ma Boutique',
+            email: user.email,
+            subscription_plan: 'free',
+            is_active: true,
+            onboarding_completed: false,
+            widget_config: shopData.widget_config || {
+              theme: "modern",
+              language: "fr", 
+              position: "above-cta",
+              buttonText: "Parler à un conseiller",
+              primaryColor: "#3B82F6",
+              widgetSize: "medium",
+              borderRadius: "md",
+              animation: "fade",
+              autoOpen: false,
+              showAvatar: true,
+              soundEnabled: true,
+              mobileOptimized: true,
+              isActive: true
+            },
+            agent_config: shopData.agent_config || {
+              name: "Assistant ChatSeller",
+              title: "Assistant commercial",
+              avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
+              upsellEnabled: false,
+              welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
+              fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
+              collectPaymentMethod: true,
+              aiProvider: "openai",
+              temperature: 0.7,
+              maxTokens: 1000
+            },
+            ...shopData
+          }
+          
+          const { data: newShop, error } = await supabaseServiceClient
+            .from('shops')
+            .insert(newShopData)
+            .select()
+            .single()
+
+          if (error) {
+            throw error
+          }
+
+          console.log(`✅ [API] Shop créé:`, newShop.id)
+
+          return {
+            success: true,
+            data: newShop
+          }
+        } catch (error: any) {
+          console.error(`❌ [API] Erreur POST /shops:`, error)
+          return reply.status(500).send({
+            success: false,
+            error: 'Erreur création shop'
+          })
+        }
+      })
+      
+      // ✅ LISTE SHOPS (pour l'utilisateur connecté)
       fastify.get('/shops', async (request, reply) => {
         try {
           const user = request.user as any
+          console.log(`📋 [API] GET /shops appelé par user:`, user.id)
+          
           const shop = await getOrCreateShop(user)
           
           return {
@@ -688,45 +850,15 @@ Comment puis-je vous aider ? 😊`
             data: [shop]
           }
         } catch (error: any) {
+          console.error(`❌ [API] Erreur GET /shops:`, error)
           return reply.status(500).send({
             success: false,
-            error: 'Erreur récupération shop'
+            error: 'Erreur récupération shops'
           })
         }
       })
       
-      fastify.get('/shops/:id', async (request, reply) => {
-        try {
-          const { id } = request.params as any
-          const user = request.user as any
-          
-          const { data: shop, error } = await supabaseServiceClient
-            .from('shops')
-            .select('*')
-            .eq('id', id)
-            .eq('id', user.id) // Security: only own shop
-            .single()
-
-          if (error || !shop) {
-            return reply.status(404).send({
-              success: false,
-              error: 'Shop non trouvé'
-            })
-          }
-
-          return {
-            success: true,
-            data: shop
-          }
-        } catch (error: any) {
-          return reply.status(500).send({
-            success: false,
-            error: 'Erreur récupération shop'
-          })
-        }
-      })
-      
-      // ✅ AGENTS BASIQUES
+      // ✅ AGENTS
       fastify.get('/agents', async (request, reply) => {
         try {
           const user = request.user as any
