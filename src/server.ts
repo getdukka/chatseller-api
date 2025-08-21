@@ -1,442 +1,164 @@
 // =====================================
-// SERVER.TS - VERSION SUPABASE PURE CORRIGÉE
+// SERVER.TS - VERSION MINIMALISTE DIAGNOSTIC
 // =====================================
 
-// ✅ CHARGER .ENV EN TOUT PREMIER (CRITIQUE POUR TSX)
 import dotenv from 'dotenv'
 dotenv.config()
 
-// ✅ MAINTENANT ON PEUT IMPORTER LE RESTE
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
-import helmet from '@fastify/helmet'
-import rateLimit from '@fastify/rate-limit'
 
-// ✅ IMPORT DES MODULES SUPABASE
-import { supabaseServiceClient, supabaseAuthClient, testSupabaseConnection } from './lib/supabase'
-import { authenticate, optionalAuthenticate } from './middleware/auth'
+console.log('🚀 === DÉMARRAGE CHATSELLER API (VERSION DIAGNOSTIC) ===')
 
-// ✅ IMPORT DES ROUTES
-import billingRoutes from './routes/billing'
-import agentsRoutes from './routes/agents' 
-import productsRoutes from './routes/products'
-import publicRoutes from './routes/public' 
-import ordersRoutes from './routes/orders'
-import shopsRoutes from './routes/shops'
-import supportRoutes from './routes/support'
-import knowledgeBaseRoutes from './routes/knowledge-base'
-import conversationsRoutes from './routes/conversations'
-import chatRoutes from './routes/chat'
-
-// ✅ VALIDATION VARIABLES D'ENVIRONNEMENT (SANS PRISMA)
+// ✅ VALIDATION BASIQUE DES VARIABLES
 const requiredEnvVars = {
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
-  OPENAI_API_KEY: process.env.OPENAI_API_KEY 
 }
 
+console.log('🔍 Vérification variables d\'environnement...')
 for (const [key, value] of Object.entries(requiredEnvVars)) {
   if (!value) {
-    console.error(`❌ Variable d'environnement manquante: ${key}`)
-    process.exit(1)
+    console.error(`❌ Variable manquante: ${key}`)
+  } else {
+    console.log(`✅ ${key}: ${value.substring(0, 20)}...`)
   }
 }
 
-console.log('✅ Variables d\'environnement validées (Supabase)')
-
-// ✅ CREATE FASTIFY INSTANCE SIMPLIFIÉ
+// ✅ CREATE FASTIFY INSTANCE MINIMAL
 const fastify = Fastify({
-  logger: {
-    level: process.env.LOG_LEVEL || 'info'
-  },
-  trustProxy: true,
-  requestTimeout: 30000,
-  keepAliveTimeout: 65000,
-  bodyLimit: 10 * 1024 * 1024
+  logger: true,
+  trustProxy: true
 })
 
-// ✅ GESTION GLOBALE DES ERREURS
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error)
-  fastify.log.fatal(error, 'Uncaught Exception')
-  process.exit(1)
-})
+console.log('📦 Fastify instance créée')
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason)
-  fastify.log.fatal({ reason, promise }, 'Unhandled Rejection')
-  process.exit(1)
-})
-
-// ✅ GESTION ERREURS FASTIFY
+// ✅ GESTION ERREURS BASIQUE
 fastify.setErrorHandler(async (error, request, reply) => {
-  fastify.log.error(error, `Error handling request ${request.method} ${request.url}`)
-  
-  const statusCode = error.statusCode || 500
-  
-  return reply.status(statusCode).send({
+  console.error('❌ Erreur Fastify:', error)
+  return reply.status(500).send({
     success: false,
-    error: statusCode >= 500 ? 'Erreur interne du serveur' : error.message,
-    details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    error: 'Erreur serveur',
+    details: error.message
   })
 })
 
-// ✅ HEALTH CHECK SUPABASE SIMPLIFIÉ ET RAPIDE
-async function simpleSupabaseCheck(): Promise<boolean> {
-  try {
-    const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/`, {
-      headers: { 'apikey': process.env.SUPABASE_SERVICE_KEY! },
-      signal: AbortSignal.timeout(3000) // 3s timeout max
-    })
-    return response.ok
-  } catch {
-    return false
-  }
-}
+console.log('🛡️ Error handler configuré')
 
-// Register plugins
+// ✅ CORS SIMPLE
 async function registerPlugins() {
   try {
-    await fastify.register(helmet, {
-      contentSecurityPolicy: false,
-      crossOriginEmbedderPolicy: false
-    })
-
-    // ✅ CORS AMÉLIORÉ POUR PRODUCTION AVEC WIDGET EMBEDDABLE
+    console.log('🔧 Enregistrement CORS...')
     await fastify.register(cors, {
-      origin: (origin, callback) => {
-        // ✅ DOMAINES AUTORISÉS POUR CHATSELLER
-        const allowedOrigins = [
-          'https://dashboard.chatseller.app',
-          'https://chatseller.app', 
-          'https://docs.chatseller.app',
-          'https://widget.chatseller.app',
-          'http://localhost:3000',
-          'http://localhost:3002',
-          'http://localhost:8080',
-          'https://chatseller-dashboard.vercel.app',
-          'https://chatseller-widget.vercel.app'
-        ]
-        
-        // ✅ ACCEPTER LES REQUÊTES SANS ORIGIN (Postman, curl, etc.)
-        if (!origin) return callback(null, true)
-        
-        // ✅ ACCEPTER TOUS LES SUBDOMAINS CHATSELLER EN PRODUCTION
-        if (origin.includes('.chatseller.app') || origin.includes('vercel.app')) {
-          return callback(null, true)
-        }
-        
-        // ✅ ACCEPTER LOCALHOST EN DÉVELOPPEMENT
-        if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
-          return callback(null, true)
-        }
-        
-        // ✅ VÉRIFIER LISTE BLANCHE
-        if (allowedOrigins.includes(origin)) {
-          return callback(null, true)
-        }
-        
-        // ✅ LOGS POUR DÉBUGGER LES ORIGINS REJETÉES
-        console.log(`❌ Origin refusée: ${origin}`)
-        callback(new Error('Non autorisé par CORS'), false)
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-      allowedHeaders: [
-        'Content-Type', 
-        'Authorization', 
-        'X-Requested-With', 
-        'Accept',
-        'Origin',
-        'X-Auth-Token',
-        'X-Shop-Id',
-        'User-Agent'
-      ],
-      optionsSuccessStatus: 200
+      origin: true,
+      credentials: true
     })
-
-    await fastify.register(rateLimit, {
-      max: 500,
-      timeWindow: '1 minute',
-      keyGenerator: (request) => `${request.ip}-${request.headers['user-agent']?.slice(0, 50) || 'unknown'}`,
-      errorResponseBuilder: (request, context) => ({
-        success: false,
-        error: 'Trop de requêtes',
-        retryAfter: context.after
-      })
-    })
-
-    console.log('✅ Plugins Fastify enregistrés')
-
+    console.log('✅ CORS enregistré')
   } catch (error) {
-    console.error('❌ Erreur enregistrement plugins:', error)
+    console.error('❌ Erreur CORS:', error)
     throw error
   }
 }
 
-// ✅ GESTION OPTIONS GLOBALE
-fastify.addHook('onRequest', async (request, reply) => {
-  if (request.method === 'OPTIONS') {
-    reply.header('Access-Control-Allow-Origin', '*')
-    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
-    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin')
-    reply.header('Access-Control-Max-Age', '86400')
-    return reply.status(200).send()
-  }
-})
-
-// Routes
+// ✅ ROUTES MINIMALES
 async function registerRoutes() {
   try {
+    console.log('🛣️ Enregistrement routes...')
     
-    // ✅ HEALTH CHECK ULTRA-SIMPLE ET RAPIDE (POUR RAILWAY)
+    // Health check ultra-simple
     fastify.get('/health', async (request, reply) => {
-      // ✅ RÉPONSE IMMÉDIATE SANS VÉRIFICATIONS EXTERNES
-      return reply.status(200).send({
+      console.log('🏥 Health check appelé')
+      return {
         status: 'ok',
         timestamp: new Date().toISOString(),
-        version: '1.4.0',
-        environment: process.env.NODE_ENV || 'development',
-        uptime: Math.round(process.uptime()),
-        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
-      })
-    })
-
-    // ✅ HEALTH CHECK AVEC SUPABASE (ROUTE SÉPARÉE POUR MONITORING)
-    fastify.get('/health/full', async (request, reply) => {
-      const healthData = {
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        services: {
-          api: 'ok',
-          supabase: 'checking...'
-        },
-        uptime: Math.round(process.uptime()),
-        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+        version: '1.4.0-minimal',
+        environment: process.env.NODE_ENV || 'unknown',
+        uptime: Math.round(process.uptime())
       }
-
-      try {
-        const supabaseOk = await simpleSupabaseCheck()
-        healthData.services.supabase = supabaseOk ? 'ok' : 'degraded'
-      } catch {
-        healthData.services.supabase = 'error'
-      }
-
-      return reply.status(200).send(healthData)
     })
-
-    // ✅ ROUTE RACINE
+    
+    // Route racine
     fastify.get('/', async (request, reply) => {
+      console.log('🏠 Route racine appelée')
       return {
         success: true,
-        message: 'ChatSeller API is running (Supabase)',
-        version: '1.4.0',
+        message: 'ChatSeller API - Version diagnostic',
+        version: '1.4.0-minimal',
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV,
-        database: 'Supabase',
-        endpoints: {
-          health: '/health',
-          healthFull: '/health/full',
-          public: '/api/v1/public/*',
-          billing: '/api/v1/billing/*',
-          auth: '/api/v1/auth/*',
-          support: '/api/v1/support/*'
+        environment: process.env.NODE_ENV || 'unknown'
+      }
+    })
+    
+    // Test environnement
+    fastify.get('/test-env', async (request, reply) => {
+      console.log('🧪 Test environnement appelé')
+      return {
+        success: true,
+        environment: {
+          NODE_ENV: process.env.NODE_ENV || 'undefined',
+          PORT: process.env.PORT || 'undefined',
+          SUPABASE_URL: process.env.SUPABASE_URL ? 'défini' : 'manquant',
+          SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY ? 'défini' : 'manquant',
+          SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'défini' : 'manquant',
+          OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'défini' : 'manquant'
         }
       }
     })
-
-    // ✅ ROUTES PUBLIQUES (CRITICAL POUR LE WIDGET) - UNE SEULE FOIS
-    await fastify.register(async function (fastify) {
-      await fastify.register(rateLimit, {
-        max: 1000,
-        timeWindow: '1 minute',
-        keyGenerator: (request) => {
-          const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
-          return `public-${request.ip}-${shopId}`
-        }
-      })
-      
-      // ✅ ENREGISTRER ROUTES PUBLIQUES
-      await fastify.register(publicRoutes)
-      fastify.log.info('✅ Routes publiques enregistrées: /api/v1/public/*')
-      
-    }, { prefix: '/api/v1/public' })
-
-    // ✅ ROUTES SUPPORT PUBLIQUES (SANS AUTH)
-    await fastify.register(async function (fastify) {
-      await fastify.register(rateLimit, { max: 200, timeWindow: '1 minute' })
-      await fastify.register(supportRoutes)
-      fastify.log.info('✅ Routes support enregistrées: /api/v1/support/*')
-    }, { prefix: '/api/v1/support' })
-
-    // ✅ ROUTES BILLING
-    await fastify.register(async function (fastify) {
-      await fastify.register(rateLimit, { max: 200, timeWindow: '1 minute' })
-      await fastify.register(billingRoutes)
-      fastify.log.info('✅ Routes billing enregistrées: /api/v1/billing/*')
-    }, { prefix: '/api/v1/billing' })
-
-    // ✅ ROUTES D'AUTHENTIFICATION
-    await fastify.register(async function (fastify) {
-      await fastify.register(rateLimit, { max: 100, timeWindow: '1 minute' })
-      
-      fastify.post('/login', async (request, reply) => {
-        try {
-          const { email, password } = request.body as any
-          
-          const { data, error } = await supabaseAuthClient.auth.signInWithPassword({
-            email,
-            password,
-          })
-
-          if (error) throw error
-
-          return {
-            success: true,
-            user: data.user,
-            session: data.session
-          }
-        } catch (error: any) {
-          return reply.status(401).send({
-            success: false,
-            error: error.message || 'Erreur de connexion'
-          })
-        }
-      })
-
-      fastify.post('/signup', async (request, reply) => {
-        try {
-          const { email, password, metadata } = request.body as any
-          
-          const { data, error } = await supabaseAuthClient.auth.signUp({
-            email,
-            password,
-            options: { data: metadata }
-          })
-
-          if (error) throw error
-
-          return {
-            success: true,
-            user: data.user,
-            session: data.session
-          }
-        } catch (error: any) {
-          return reply.status(400).send({
-            success: false,
-            error: error.message || 'Erreur lors de l\'inscription'
-          })
-        }
-      })
-      
-      fastify.log.info('✅ Routes auth enregistrées: /api/v1/auth/*')
-    }, { prefix: '/api/v1/auth' })
-
-    // ✅ ROUTES API AVEC AUTHENTIFICATION
-    await fastify.register(async function (fastify) {
-      fastify.addHook('preHandler', authenticate)
-      
-      await fastify.register(agentsRoutes, { prefix: '/agents' })
-      await fastify.register(productsRoutes, { prefix: '/products' })
-      await fastify.register(ordersRoutes, { prefix: '/orders' })
-      await fastify.register(shopsRoutes, { prefix: '/shops' })
-      await fastify.register(knowledgeBaseRoutes, { prefix: '/knowledge-base' })
-      await fastify.register(conversationsRoutes, { prefix: '/conversations' })
-      await fastify.register(chatRoutes, { prefix: '/chat' })
-
-      fastify.log.info('✅ Routes protégées enregistrées avec succès')
-    }, { prefix: '/api/v1' })
-
-    // ✅ FALLBACK 404
-    fastify.setNotFoundHandler(async (request, reply) => {
-      return reply.status(404).send({
-        success: false,
-        error: 'Route not found',
-        method: request.method,
-        url: request.url,
-        availableEndpoints: [
-          'GET /health',
-          'GET /health/full',
-          'GET /',
-          'GET /api/v1/public/shops/public/:shopId/config',
-          'POST /api/v1/public/chat',
-          'POST /api/v1/support/contact',
-          'POST /api/v1/auth/login',
-          'POST /api/v1/auth/signup'
-        ]
-      })
-    })
-
-    console.log('✅ Routes enregistrées avec succès')
-
+    
+    console.log('✅ Routes enregistrées')
+    
   } catch (error) {
-    console.error('❌ Erreur enregistrement routes:', error)
+    console.error('❌ Erreur routes:', error)
     throw error
   }
 }
 
-// ✅ GRACEFUL SHUTDOWN SIMPLIFIÉ
-async function gracefulShutdown(signal: string) {
-  try {
-    console.log(`🛑 Arrêt du serveur (${signal}) en cours...`)
-    
-    await fastify.close()
-    console.log('✅ Serveur Fastify fermé')
-    
-    process.exit(0)
-  } catch (error) {
-    console.error('❌ Erreur lors de l\'arrêt:', error)
-    process.exit(1)
-  }
-}
-
-// ✅ START SERVER FUNCTION SIMPLIFIÉE
+// ✅ START FUNCTION SIMPLIFIÉE
 async function start() {
   try {
-    console.log('🚀 === DÉMARRAGE CHATSELLER API v1.4.0 (SUPABASE) ===')
-    console.log('📊 Environment:', process.env.NODE_ENV)
-    console.log('🗄️ Database: Supabase')
-
+    console.log('🔧 Enregistrement plugins...')
+    await registerPlugins()
+    
+    console.log('🛣️ Enregistrement routes...')
+    await registerRoutes()
+    
     const port = parseInt(process.env.PORT || '3001', 10)
     const host = '0.0.0.0'
-
-    console.log('🔌 Port Railway:', port)
-
-    // ✅ ENREGISTRER PLUGINS ET ROUTES
-    await registerPlugins()
-    await registerRoutes()
-
-    // ✅ DÉMARRER LE SERVEUR
+    
+    console.log(`🚀 Démarrage serveur sur ${host}:${port}...`)
+    
     const address = await fastify.listen({ port, host })
     
-    console.log(`🚀 Serveur démarré avec succès!`)
-    console.log(`📍 Adresse: ${address}`)
+    console.log(`✅ SERVEUR DÉMARRÉ AVEC SUCCÈS !`)
+    console.log(`📍 Adresse locale: ${address}`)
     console.log(`🌐 URL Railway: https://chatseller-api-production.up.railway.app`)
-    console.log(`✅ Application prête à recevoir le trafic`)
-    
-    // ✅ TEST SUPABASE EN ARRIÈRE-PLAN (non bloquant)
-    setTimeout(async () => {
-      try {
-        const supabaseTest = await testSupabaseConnection()
-        console.log(`🗄️ Supabase: ${supabaseTest.success ? '✅ OK' : '❌ ERROR'}`)
-      } catch (e) {
-        console.log('🗄️ Supabase: ❌ ERROR (non bloquant)')
-      }
-    }, 2000)
+    console.log(`🏥 Health check: https://chatseller-api-production.up.railway.app/health`)
+    console.log(`🧪 Test env: https://chatseller-api-production.up.railway.app/test-env`)
     
   } catch (error) {
-    console.error('💥 Erreur fatale au démarrage:', error)
+    console.error('💥 ERREUR FATALE AU DÉMARRAGE:', error)
+    console.error('Stack trace:', (error as Error).stack)
     process.exit(1)
   }
 }
 
-// ✅ SIGNAL HANDLERS
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
-process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+// ✅ GESTION SIGNAUX
+process.on('SIGTERM', async () => {
+  console.log('🛑 SIGTERM reçu, arrêt gracieux...')
+  await fastify.close()
+  process.exit(0)
+})
 
-// ✅ START
+process.on('SIGINT', async () => {
+  console.log('🛑 SIGINT reçu, arrêt gracieux...')
+  await fastify.close()
+  process.exit(0)
+})
+
+// ✅ DÉMARRAGE
+console.log('🎬 Lancement de l\'application...')
 start().catch((error) => {
-  console.error('💥 Impossible de démarrer le serveur:', error)
+  console.error('💥 IMPOSSIBLE DE DÉMARRER:', error)
   process.exit(1)
 })
