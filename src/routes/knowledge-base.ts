@@ -1,11 +1,9 @@
-// src/routes/knowledge-base.ts - VERSION CORRIGÉE POUR @FASTIFY/MULTIPART V6
+// src/routes/knowledge-base.ts - VERSION SUPABASE PURE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { PrismaClient, Prisma } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseServiceClient } from '../lib/supabase';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import prisma from '../lib/prisma'
 
 // ✅ CONFIGURATION DES LIMITES PAR PLAN
 const PLAN_LIMITS = {
@@ -26,7 +24,7 @@ const ALLOWED_MIME_TYPES = {
   'text/plain': '.txt'
 };
 
-// ✅ INTERFACES COMPLÈTES
+// ✅ INTERFACES ADAPTÉES POUR SUPABASE
 interface KnowledgeBaseDocument {
   id: string;
   shopId: string;
@@ -35,12 +33,11 @@ interface KnowledgeBaseDocument {
   contentType: 'manual' | 'file' | 'url' | 'website';
   sourceFile: string | null;
   sourceUrl: string | null;
-  metadata: Prisma.JsonValue;
+  metadata: Record<string, any>;
   tags: string[];
   isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  agents?: any[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface Shop {
@@ -49,8 +46,8 @@ interface Shop {
   email: string;
   subscription_plan: string;
   is_active: boolean;
-  createdAt: Date;
-  trial_ends_at?: Date | null;
+  created_at: string;
+  trial_ends_at?: string | null;
 }
 
 interface SafeMetadata {
@@ -69,11 +66,6 @@ interface SafeMetadata {
   contentLength?: number;
   [key: string]: any;
 }
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
 
 // ✅ SCHÉMAS DE VALIDATION
 const createKnowledgeBaseSchema = z.object({
@@ -112,7 +104,7 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   }
 
   const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await supabaseServiceClient.auth.getUser(token);
   
   if (error || !user) {
     throw new Error('Token invalide');
@@ -121,27 +113,25 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   return user;
 }
 
-// ✅ HELPER: Récupérer shop avec vérification plan et essai
+// ✅ HELPER: Récupérer shop avec vérification plan et essai (SUPABASE)
 async function getShopWithPlanCheck(user: any): Promise<{ shop: Shop; canAccess: boolean; reason?: string }> {
   try {
-    await prisma.$connect();
-    
-    const shop = await prisma.shop.findUnique({
-      where: { id: user.id }
-    }) as Shop | null;
+    const { data: shop, error } = await supabaseServiceClient
+      .from('shops')
+      .select('*')
+      .eq('id', user.id)
+      .single();
 
-    if (!shop) {
-      await prisma.$disconnect();
+    if (error || !shop) {
       return { shop: null as any, canAccess: false, reason: 'Shop non trouvé' };
     }
 
     // ✅ VÉRIFIER SI L'ESSAI GRATUIT EST EXPIRÉ
     const now = new Date();
-    const isTrialExpired = shop.trial_ends_at && now > shop.trial_ends_at;
+    const isTrialExpired = shop.trial_ends_at && now > new Date(shop.trial_ends_at);
     const isPaidPlan = ['starter', 'pro', 'enterprise'].includes(shop.subscription_plan);
 
     if (isTrialExpired && !isPaidPlan) {
-      await prisma.$disconnect();
       return { 
         shop, 
         canAccess: false, 
@@ -150,7 +140,6 @@ async function getShopWithPlanCheck(user: any): Promise<{ shop: Shop; canAccess:
     }
 
     if (!shop.is_active) {
-      await prisma.$disconnect();
       return { 
         shop, 
         canAccess: false, 
@@ -158,16 +147,14 @@ async function getShopWithPlanCheck(user: any): Promise<{ shop: Shop; canAccess:
       };
     }
 
-    await prisma.$disconnect();
     return { shop, canAccess: true };
 
   } catch (error) {
-    await prisma.$disconnect();
     throw error;
   }
 }
 
-// ✅ HELPER: Vérifier les limites du plan
+// ✅ HELPER: Vérifier les limites du plan (SUPABASE)
 async function checkPlanLimits(shopId: string, plan: string): Promise<{ 
   canAdd: boolean; 
   currentCount: number; 
@@ -176,13 +163,17 @@ async function checkPlanLimits(shopId: string, plan: string): Promise<{
 }> {
   const planConfig = PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
   
-  await prisma.$connect();
-  
-  const currentCount = await prisma.knowledgeBase.count({
-    where: { shopId }
-  });
-  
-  await prisma.$disconnect();
+  const { count, error } = await supabaseServiceClient
+    .from('knowledge_base')
+    .select('*', { count: 'exact', head: true })
+    .eq('shopId', shopId);
+
+  if (error) {
+    console.error('Erreur comptage documents:', error);
+    return { canAdd: false, currentCount: 0, limit: planConfig.documents, reason: 'Erreur lors de la vérification' };
+  }
+
+  const currentCount = count || 0;
 
   if (planConfig.documents === -1) {
     return { canAdd: true, currentCount, limit: -1 };
@@ -285,7 +276,7 @@ async function uploadFileToSupabase(fileData: any, shopId: string): Promise<{ pa
     const fileBuffer = await fileData.toBuffer();
     
     // ✅ UPLOAD VERS SUPABASE STORAGE
-    const { data, error } = await supabase.storage
+    const { data, error } = await supabaseServiceClient.storage
       .from('chatseller-files')
       .upload(filePath, fileBuffer, {
         contentType: fileData.mimetype,
@@ -299,7 +290,7 @@ async function uploadFileToSupabase(fileData: any, shopId: string): Promise<{ pa
     }
     
     // ✅ OBTENIR L'URL PUBLIQUE
-    const { data: { publicUrl } } = supabase.storage
+    const { data: { publicUrl } } = supabaseServiceClient.storage
       .from('chatseller-files')
       .getPublicUrl(filePath);
     
@@ -320,9 +311,6 @@ async function uploadFileToSupabase(fileData: any, shopId: string): Promise<{ pa
 async function extractTextFromFile(fileData: any, mimeType: string): Promise<{ content: string; wordCount: number }> {
   try {
     console.log('📄 Extraction de texte du fichier:', fileData.filename, mimeType);
-    
-    // Pour cette version, on fait une extraction basique
-    // En production, utiliser des librairies spécialisées comme pdf-parse, mammoth, etc.
     
     let content = '';
     
@@ -370,28 +358,27 @@ async function extractTextFromFile(fileData: any, mimeType: string): Promise<{ c
 }
 
 // ✅ HELPER: Créer métadonnées sécurisées
-function createSafeMetadata(base: SafeMetadata = {}): Prisma.InputJsonObject {
+function createSafeMetadata(base: SafeMetadata = {}): Record<string, any> {
   return {
     ...base,
     createdAt: new Date().toISOString()
-  } as Prisma.InputJsonObject;
+  };
 }
 
 // ✅ HELPER: Merger métadonnées existantes
-function mergeSafeMetadata(existing: Prisma.JsonValue, updates: SafeMetadata): Prisma.InputJsonObject {
-  const existingMeta = (existing as SafeMetadata) || {};
+function mergeSafeMetadata(existing: Record<string, any>, updates: SafeMetadata): Record<string, any> {
+  const existingMeta = existing || {};
   return {
     ...existingMeta,
     ...updates,
     lastModified: new Date().toISOString()
-  } as Prisma.InputJsonObject;
+  };
 }
 
 export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
   
-  // ✅ ENREGISTRER LE PLUGIN @FASTIFY/MULTIPART V6 - CORRECTION CRITIQUE
+  // ✅ ENREGISTRER LE PLUGIN @FASTIFY/MULTIPART V6
   await fastify.register(require('@fastify/multipart'), {
-    // Configuration pour @fastify/multipart v6
     attachFieldsToBody: true,
     limits: {
       fileSize: 100 * 1024 * 1024, // 100MB max
@@ -399,7 +386,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
   
-  // ✅ ROUTE : LISTE DES DOCUMENTS AVEC RESTRICTIONS PLAN
+  // ✅ ROUTE : LISTE DES DOCUMENTS AVEC RESTRICTIONS PLAN (SUPABASE)
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🔍 Récupération des documents de base de connaissances');
@@ -415,32 +402,32 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      
-      const documents = await prisma.knowledgeBase.findMany({
-        where: { shopId: shop.id },
-        include: {
-          agents: {
-            include: {
-              agent: {
-                select: {
-                  id: true,
-                  name: true,
-                  isActive: true
-                }
-              }
-            }
-          }
-        },
-        orderBy: { updatedAt: 'desc' }
-      });
+      // ✅ RÉCUPÉRER DOCUMENTS AVEC SUPABASE
+      const { data: documents, error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .select(`
+          *,
+          agent_knowledge_base!inner(
+            agent!inner(
+              id, name, isActive
+            )
+          )
+        `)
+        .eq('shopId', shop.id)
+        .order('updated_at', { ascending: false });
 
-      await prisma.$disconnect();
+      if (error) {
+        console.error('Erreur récupération documents:', error);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la récupération des documents'
+        });
+      }
 
       // ✅ OBTENIR LES LIMITES DU PLAN
       const planLimits = await checkPlanLimits(shop.id, shop.subscription_plan);
 
-      const formattedDocuments = documents.map((doc: any) => ({
+      const formattedDocuments = (documents || []).map((doc: any) => ({
         id: doc.id,
         title: doc.title,
         content: doc.content,
@@ -450,17 +437,17 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         tags: Array.isArray(doc.tags) ? doc.tags : [],
         isActive: doc.isActive,
         metadata: doc.metadata || {},
-        linkedAgents: doc.agents ? doc.agents.map((link: any) => link.agent) : [],
-        createdAt: doc.createdAt.toISOString(),
-        updatedAt: doc.updatedAt.toISOString()
+        linkedAgents: doc.agent_knowledge_base ? doc.agent_knowledge_base.map((link: any) => link.agent) : [],
+        createdAt: doc.created_at,
+        updatedAt: doc.updated_at
       }));
 
       return {
         success: true,
         data: formattedDocuments,
         meta: {
-          total: documents.length,
-          activeCount: documents.filter(doc => doc.isActive).length,
+          total: documents?.length || 0,
+          activeCount: documents?.filter(doc => doc.isActive).length || 0,
           plan: {
             name: shop.subscription_plan,
             limits: {
@@ -493,7 +480,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ NOUVELLE ROUTE : UPLOAD DE FICHIER - SYNTAXE @FASTIFY/MULTIPART V6
+  // ✅ NOUVELLE ROUTE : UPLOAD DE FICHIER (SUPABASE)
   fastify.post('/upload', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('📤 Upload de fichier KB');
@@ -523,7 +510,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER LE FICHIER UPLOADÉ - NOUVELLE SYNTAXE @FASTIFY/MULTIPART V6
+      // ✅ RÉCUPÉRER LE FICHIER UPLOADÉ
       const data = await (request as any).file();
       
       if (!data) {
@@ -562,9 +549,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       // ✅ EXTRAIRE LE CONTENU DU FICHIER
       const { content, wordCount } = await extractTextFromFile(data, data.mimetype);
 
-      // ✅ CRÉER LE DOCUMENT EN BASE
-      await prisma.$connect();
-
+      // ✅ CRÉER LE DOCUMENT EN BASE AVEC SUPABASE
       const metadata = createSafeMetadata({
         originalFileName: data.filename,
         fileSize: fileSize,
@@ -575,8 +560,9 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         processedAt: new Date().toISOString()
       });
 
-      const newDocument = await prisma.knowledgeBase.create({
-        data: {
+      const { data: newDocument, error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .insert({
           shopId: shop.id,
           title: data.filename || 'Fichier uploadé',
           content: content,
@@ -586,23 +572,17 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           tags: ['fichier', 'upload'],
           isActive: true,
           metadata: metadata
-        },
-        include: {
-          agents: {
-            include: {
-              agent: {
-                select: {
-                  id: true,
-                  name: true,
-                  isActive: true
-                }
-              }
-            }
-          }
-        }
-      });
+        })
+        .select()
+        .single();
 
-      await prisma.$disconnect();
+      if (error) {
+        console.error('Erreur création document:', error);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la création du document'
+        });
+      }
 
       fastify.log.info(`✅ Fichier KB uploadé avec succès: ${newDocument.id}`);
 
@@ -619,8 +599,8 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           isActive: newDocument.isActive,
           metadata: newDocument.metadata,
           linkedAgents: [],
-          createdAt: newDocument.createdAt.toISOString(),
-          updatedAt: newDocument.updatedAt.toISOString()
+          createdAt: newDocument.created_at,
+          updatedAt: newDocument.updated_at
         }
       };
 
@@ -642,7 +622,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ NOUVELLE ROUTE : TRAITEMENT D'UN SITE WEB
+  // ✅ NOUVELLE ROUTE : TRAITEMENT D'UN SITE WEB (SUPABASE)
   fastify.post('/website', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🌐 Traitement d\'un site web');
@@ -672,10 +652,9 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       // ✅ EXTRAIRE LE CONTENU DU SITE WEB
       const { title, content, metadata } = await extractContentFromUrl(body.url);
 
-      await prisma.$connect();
-
-      const newDocument = await prisma.knowledgeBase.create({
-        data: {
+      const { data: newDocument, error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .insert({
           shopId: shop.id,
           title: body.title || title,
           content: content,
@@ -685,10 +664,17 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           tags: body.tags.length > 0 ? body.tags : ['website', 'automatique'],
           isActive: true,
           metadata: createSafeMetadata(metadata)
-        }
-      });
+        })
+        .select()
+        .single();
 
-      await prisma.$disconnect();
+      if (error) {
+        console.error('Erreur création document website:', error);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la création du document'
+        });
+      }
 
       fastify.log.info(`✅ Site web traité et document créé: ${newDocument.id}`);
 
@@ -704,8 +690,8 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           tags: newDocument.tags,
           isActive: newDocument.isActive,
           metadata: newDocument.metadata,
-          createdAt: newDocument.createdAt.toISOString(),
-          updatedAt: newDocument.updatedAt.toISOString()
+          createdAt: newDocument.created_at,
+          updatedAt: newDocument.updated_at
         }
       };
 
@@ -735,7 +721,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UN DOCUMENT MANUEL
+  // ✅ ROUTE : CRÉER UN DOCUMENT MANUEL (SUPABASE)
   fastify.post('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🏗️ Création d\'un nouveau document KB');
@@ -766,16 +752,15 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-
       const metadata = createSafeMetadata({
         wordCount: body.content.split(' ').length,
         createdManually: true,
         contentType: body.contentType
       });
 
-      const newDocument = await prisma.knowledgeBase.create({
-        data: {
+      const { data: newDocument, error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .insert({
           shopId: shop.id,
           title: body.title,
           content: body.content,
@@ -785,23 +770,17 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           tags: body.tags,
           isActive: body.isActive,
           metadata: metadata
-        },
-        include: {
-          agents: {
-            include: {
-              agent: {
-                select: {
-                  id: true,
-                  name: true,
-                  isActive: true
-                }
-              }
-            }
-          }
-        }
-      });
+        })
+        .select()
+        .single();
 
-      await prisma.$disconnect();
+      if (error) {
+        console.error('Erreur création document manuel:', error);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la création du document'
+        });
+      }
 
       fastify.log.info(`✅ Document KB créé avec succès: ${newDocument.id}`);
 
@@ -818,8 +797,8 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           isActive: newDocument.isActive,
           metadata: newDocument.metadata,
           linkedAgents: [],
-          createdAt: newDocument.createdAt.toISOString(),
-          updatedAt: newDocument.updatedAt.toISOString()
+          createdAt: newDocument.created_at,
+          updatedAt: newDocument.updated_at
         }
       };
 
@@ -849,7 +828,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : EXTRAIRE CONTENU D'UNE URL (GARDE POUR COMPATIBILITÉ)
+  // ✅ ROUTE : EXTRAIRE CONTENU D'UNE URL (SUPABASE)
   fastify.post('/extract-url', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = await verifySupabaseAuth(request);
@@ -877,10 +856,9 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       // ✅ EXTRAIRE LE CONTENU DE L'URL
       const { title, content, metadata } = await extractContentFromUrl(body.url);
 
-      await prisma.$connect();
-
-      const newDocument = await prisma.knowledgeBase.create({
-        data: {
+      const { data: newDocument, error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .insert({
           shopId: shop.id,
           title: body.title || title,
           content: content,
@@ -890,10 +868,17 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           tags: [],
           isActive: true,
           metadata: createSafeMetadata(metadata)
-        }
-      });
+        })
+        .select()
+        .single();
 
-      await prisma.$disconnect();
+      if (error) {
+        console.error('Erreur création document URL:', error);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la création du document'
+        });
+      }
 
       fastify.log.info(`✅ Contenu extrait de l'URL et document créé: ${newDocument.id}`);
 
@@ -909,8 +894,8 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           tags: newDocument.tags,
           isActive: newDocument.isActive,
           metadata: newDocument.metadata,
-          createdAt: newDocument.createdAt.toISOString(),
-          updatedAt: newDocument.updatedAt.toISOString()
+          createdAt: newDocument.created_at,
+          updatedAt: newDocument.updated_at
         }
       };
 
@@ -933,7 +918,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR UN DOCUMENT
+  // ✅ ROUTE : OBTENIR UN DOCUMENT (SUPABASE)
   fastify.get<{ Params: { id: string } }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -948,36 +933,26 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
+      const { data: document, error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .select(`
+          *,
+          agent_knowledge_base(
+            agent(
+              id, name, isActive
+            )
+          )
+        `)
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const document = await prisma.knowledgeBase.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        },
-        include: {
-          agents: {
-            include: {
-              agent: {
-                select: {
-                  id: true,
-                  name: true,
-                  isActive: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!document) {
+      if (error || !document) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Document non trouvé' 
         });
       }
-
-      await prisma.$disconnect();
 
       return {
         success: true,
@@ -991,9 +966,9 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           tags: document.tags,
           isActive: document.isActive,
           metadata: document.metadata,
-          linkedAgents: document.agents ? document.agents.map((link: any) => link.agent) : [],
-          createdAt: document.createdAt.toISOString(),
-          updatedAt: document.updatedAt.toISOString()
+          linkedAgents: document.agent_knowledge_base ? document.agent_knowledge_base.map((link: any) => link.agent) : [],
+          createdAt: document.created_at,
+          updatedAt: document.updated_at
         }
       };
 
@@ -1015,7 +990,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : METTRE À JOUR UN DOCUMENT
+  // ✅ ROUTE : METTRE À JOUR UN DOCUMENT (SUPABASE)
   fastify.put<{ Params: { id: string } }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -1031,16 +1006,15 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
+      // ✅ VÉRIFIER SI LE DOCUMENT EXISTE
+      const { data: existingDocument, error: fetchError } = await supabaseServiceClient
+        .from('knowledge_base')
+        .select('*')
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const existingDocument = await prisma.knowledgeBase.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingDocument) {
+      if (fetchError || !existingDocument) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Document non trouvé' 
@@ -1048,7 +1022,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       }
 
       const updateData: any = {
-        updatedAt: new Date()
+        updated_at: new Date().toISOString()
       };
 
       if (body.title) updateData.title = body.title;
@@ -1061,12 +1035,20 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       if (body.tags) updateData.tags = body.tags;
       if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
-      const updatedDocument = await prisma.knowledgeBase.update({
-        where: { id },
-        data: updateData
-      });
+      const { data: updatedDocument, error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
 
-      await prisma.$disconnect();
+      if (error) {
+        console.error('Erreur mise à jour document:', error);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la mise à jour'
+        });
+      }
 
       return {
         success: true,
@@ -1080,8 +1062,8 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           tags: updatedDocument.tags,
           isActive: updatedDocument.isActive,
           metadata: updatedDocument.metadata,
-          createdAt: updatedDocument.createdAt.toISOString(),
-          updatedAt: updatedDocument.updatedAt.toISOString()
+          createdAt: updatedDocument.created_at,
+          updatedAt: updatedDocument.updated_at
         }
       };
 
@@ -1094,7 +1076,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : SUPPRIMER UN DOCUMENT
+  // ✅ ROUTE : SUPPRIMER UN DOCUMENT (SUPABASE)
   fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -1109,16 +1091,15 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
+      // ✅ RÉCUPÉRER LE DOCUMENT POUR VÉRIFICATION ET NETTOYAGE
+      const { data: existingDocument, error: fetchError } = await supabaseServiceClient
+        .from('knowledge_base')
+        .select('*')
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const existingDocument = await prisma.knowledgeBase.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingDocument) {
+      if (fetchError || !existingDocument) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Document non trouvé' 
@@ -1130,7 +1111,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         try {
           const metadata = existingDocument.metadata as SafeMetadata;
           if (metadata.storagePath) {
-            const { error: deleteError } = await supabase.storage
+            const { error: deleteError } = await supabaseServiceClient.storage
               .from('chatseller-files')
               .remove([metadata.storagePath]);
               
@@ -1145,11 +1126,19 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         }
       }
 
-      await prisma.knowledgeBase.delete({
-        where: { id }
-      });
+      // ✅ SUPPRIMER LE DOCUMENT
+      const { error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .delete()
+        .eq('id', id);
 
-      await prisma.$disconnect();
+      if (error) {
+        console.error('Erreur suppression document:', error);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la suppression'
+        });
+      }
 
       return { 
         success: true, 
@@ -1165,7 +1154,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : TOGGLE STATUT
+  // ✅ ROUTE : TOGGLE STATUT (SUPABASE)
   fastify.patch<{ Params: { id: string } }>('/:id/toggle', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -1181,31 +1170,38 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
+      // ✅ VÉRIFIER SI LE DOCUMENT EXISTE
+      const { data: existingDocument, error: fetchError } = await supabaseServiceClient
+        .from('knowledge_base')
+        .select('id')
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const existingDocument = await prisma.knowledgeBase.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingDocument) {
+      if (fetchError || !existingDocument) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Document non trouvé' 
         });
       }
 
-      const updatedDocument = await prisma.knowledgeBase.update({
-        where: { id },
-        data: { 
+      const { data: updatedDocument, error } = await supabaseServiceClient
+        .from('knowledge_base')
+        .update({ 
           isActive: body.isActive,
-          updatedAt: new Date()
-        }
-      });
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select('id, isActive, updated_at')
+        .single();
 
-      await prisma.$disconnect();
+      if (error) {
+        console.error('Erreur toggle document:', error);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la modification du statut'
+        });
+      }
 
       fastify.log.info(`✅ Statut document KB modifié: ${id} -> ${body.isActive ? 'actif' : 'inactif'}`);
 
@@ -1214,7 +1210,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         data: {
           id: updatedDocument.id,
           isActive: updatedDocument.isActive,
-          updatedAt: updatedDocument.updatedAt.toISOString()
+          updatedAt: updatedDocument.updated_at
         }
       };
 

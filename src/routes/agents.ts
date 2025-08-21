@@ -1,27 +1,24 @@
-// src/routes/agents.ts
+// src/routes/agents.ts - VERSION SUPABASE PURE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { PrismaClient, AgentType, AgentPersonality, Prisma } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
-import prisma from '../lib/prisma'
+import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+// ✅ TYPES SUPABASE (remplacer les types Prisma)
+type AgentType = 'general' | 'product_specialist' | 'support' | 'upsell';
+type AgentPersonality = 'professional' | 'friendly' | 'expert' | 'casual';
 
 const PLAN_LIMITS = {
   free: { agents: 1 },
-  starter: { agents: 1 }, // ✅ STARTER = 1 agent
-  professional: { agents: 3 }, // ✅ PRO = 3 agents  
-  pro: { agents: 3 }, // ✅ ALIAS POUR PRO
-  enterprise: { agents: -1 } // ✅ UNLIMITED
+  starter: { agents: 1 },
+  professional: { agents: 3 },
+  pro: { agents: 3 },
+  enterprise: { agents: -1 }
 };
 
-// ✅ SCHÉMAS CORRIGÉS AVEC TITLE ET SHOPID
+// ✅ SCHÉMAS ZOD (sans Prisma)
 const createAgentSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').max(255, 'Nom trop long'),
-  title: z.string().optional().default(''), // ✅ NOUVEAU: Titre personnalisable
+  title: z.string().optional().default(''),
   type: z.enum(['general', 'product_specialist', 'support', 'upsell']),
   personality: z.enum(['professional', 'friendly', 'expert', 'casual']),
   description: z.string().optional().nullable(),
@@ -29,8 +26,8 @@ const createAgentSchema = z.object({
   fallbackMessage: z.string().optional().nullable(),
   avatar: z.string().url().optional().nullable(),
   isActive: z.boolean().default(true),
-  config: z.record(z.any()).optional().transform(val => val as Prisma.InputJsonObject | undefined),
-  shopId: z.string().uuid().optional() // ✅ NOUVEAU: shopId depuis le frontend
+  config: z.record(z.any()).optional(),
+  shopId: z.string().uuid().optional()
 });
 
 const updateAgentSchema = createAgentSchema.partial();
@@ -54,6 +51,7 @@ function getDefaultTitle(type: string, customTitle?: string): string {
   return defaultTitles[type as keyof typeof defaultTitles] || 'Assistant commercial'
 }
 
+// ✅ HELPER: Vérification auth Supabase
 async function verifySupabaseAuth(request: FastifyRequest) {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -61,7 +59,7 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   }
 
   const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
   
   if (error || !user) {
     throw new Error('Token invalide');
@@ -70,32 +68,39 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   return user;
 }
 
+// ✅ HELPER: Récupérer ou créer shop avec Supabase
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   try {
-    await prisma.$connect();
-    
-    let shop = await prisma.shop.findUnique({
-      where: { id: user.id }
-    });
+    // Chercher par ID d'abord
+    let { data: shop, error } = await supabaseServiceClient
+      .from('shops')
+      .select('*')
+      .eq('id', user.id)
+      .single();
 
     if (shop) {
       return shop;
     }
 
-    shop = await prisma.shop.findUnique({
-      where: { email: user.email }
-    });
+    // Chercher par email si pas trouvé par ID
+    const { data: shopByEmail } = await supabaseServiceClient
+      .from('shops')
+      .select('*')
+      .eq('email', user.email)
+      .single();
 
-    if (shop) {
-      return shop;
+    if (shopByEmail) {
+      return shopByEmail;
     }
 
-    const newShop = await prisma.shop.create({
-      data: {
+    // Créer nouveau shop
+    const { data: newShop, error: createError } = await supabaseServiceClient
+      .from('shops')
+      .insert({
         id: user.id,
         name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
         email: user.email,
-        subscription_plan: 'starter', // ✅ DEFAULT STARTER POUR 1 AGENT
+        subscription_plan: 'starter',
         is_active: true,
         widget_config: {
           theme: "modern",
@@ -114,7 +119,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
         },
         agent_config: {
           name: "Assistant ChatSeller",
-          title: "Assistant commercial", // ✅ NOUVEAU: Titre par défaut
+          title: "Assistant commercial",
           avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
           upsellEnabled: false,
           welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
@@ -124,16 +129,23 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
           temperature: 0.7,
           maxTokens: 1000
         }
-      }
-    });
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      throw createError;
+    }
 
     return newShop;
 
-  } finally {
-    await prisma.$disconnect();
+  } catch (error) {
+    console.error('Erreur getOrCreateShop:', error);
+    throw error;
   }
 }
 
+// ✅ HELPER: Vérifier limites plan
 async function checkPlanLimits(shopId: string, currentCount: number, plan: string) {
   const limit = PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS]?.agents;
   
@@ -157,7 +169,7 @@ interface AgentKnowledgeBody {
 
 export default async function agentsRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE LISTE DES AGENTS (AVEC TITLE)
+  // ✅ ROUTE: LISTE DES AGENTS (SUPABASE)
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🔍 Récupération des agents');
@@ -172,44 +184,46 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      
-      const agents = await prisma.agent.findMany({
-        where: { shopId: shop.id },
-        include: {
-          knowledgeBase: {
-            include: {
-              knowledgeBase: {
-                select: {
-                  id: true,
-                  title: true,
-                  contentType: true,
-                  isActive: true
-                }
-              }
-            }
-          }
-        },
-        orderBy: { updatedAt: 'desc' }
-      });
+      // ✅ RÉCUPÉRER AGENTS AVEC SUPABASE
+      const { data: agents, error: agentsError } = await supabaseServiceClient
+        .from('agents')
+        .select(`
+          id, name, title, type, personality, description,
+          welcomeMessage, fallbackMessage, avatar, isActive, config,
+          createdAt, updatedAt,
+          agent_knowledge_base!inner(
+            knowledge_base!inner(
+              id, title, contentType, isActive
+            )
+          )
+        `)
+        .eq('shopId', shop.id)
+        .order('updatedAt', { ascending: false });
 
+      if (agentsError) {
+        throw agentsError;
+      }
+
+      // ✅ CALCULER STATISTIQUES POUR CHAQUE AGENT
       const agentsWithStats = await Promise.all(
-        agents.map(async (agent) => {
-          const conversations = await prisma.conversation.count({
-            where: { agentId: agent.id }
-          });
+        (agents || []).map(async (agent) => {
+          // Conversations count
+          const { count: conversations } = await supabaseServiceClient
+            .from('conversations')
+            .select('*', { count: 'exact', head: true })
+            .eq('agentId', agent.id);
           
-          const conversions = await prisma.conversation.count({
-            where: { 
-              agentId: agent.id,
-              conversionCompleted: true 
-            }
-          });
+          // Conversions count
+          const { count: conversions } = await supabaseServiceClient
+            .from('conversations')
+            .select('*', { count: 'exact', head: true })
+            .eq('agentId', agent.id)
+            .eq('conversionCompleted', true);
 
           return {
             id: agent.id,
             name: agent.name,
-            title: (agent as any).title || getDefaultTitle(agent.type), // ✅ NOUVEAU: Title
+            title: agent.title || getDefaultTitle(agent.type),
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
@@ -219,29 +233,26 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
             isActive: agent.isActive,
             config: agent.config,
             stats: {
-              conversations,
-              conversions
+              conversations: conversations || 0,
+              conversions: conversions || 0
             },
-            knowledgeBase: agent.knowledgeBase.map(kb => kb.knowledgeBase),
-            createdAt: agent.createdAt.toISOString(),
-            updatedAt: agent.updatedAt.toISOString()
+            knowledgeBase: agent.agent_knowledge_base?.map((akb: any) => akb.knowledge_base) || [],
+            createdAt: agent.createdAt,
+            updatedAt: agent.updatedAt
           };
         })
       );
-
-      await prisma.$disconnect();
 
       return {
         success: true,
         data: agentsWithStats,
         meta: {
-          total: agents.length,
+          total: agents?.length || 0,
           planLimit: PLAN_LIMITS[shop.subscription_plan as keyof typeof PLAN_LIMITS]?.agents || 1
         }
       };
 
     } catch (error: any) {
-      await prisma.$disconnect();
       fastify.log.error('❌ Get agents error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -259,7 +270,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE CRÉER UN AGENT (AVEC TITLE ET DEBUGGING AMÉLIORÉ)
+  // ✅ ROUTE: CRÉER UN AGENT (SUPABASE)
   fastify.post('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🏗️ Création d\'un nouvel agent');
@@ -274,10 +285,9 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ LOGGING DU BODY POUR DEBUG
       console.log('📥 [agents.ts] Body reçu:', JSON.stringify(request.body, null, 2));
       
-      // ✅ VALIDATION ZOD AVEC GESTION D'ERREURS DÉTAILLÉE
+      // ✅ VALIDATION ZOD
       let body;
       try {
         body = createAgentSchema.parse(request.body);
@@ -292,33 +302,32 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
+      // ✅ VÉRIFIER LIMITES PLAN AVEC SUPABASE
+      const { count: currentAgentsCount } = await supabaseServiceClient
+        .from('agents')
+        .select('*', { count: 'exact', head: true })
+        .eq('shopId', shop.id);
 
-      const currentAgentsCount = await prisma.agent.count({
-        where: { shopId: shop.id }
-      });
-
-      const canCreate = await checkPlanLimits(shop.id, currentAgentsCount, shop.subscription_plan || 'starter');
+      const canCreate = await checkPlanLimits(shop.id, currentAgentsCount || 0, shop.subscription_plan || 'starter');
       
       if (!canCreate) {
         const limit = PLAN_LIMITS[shop.subscription_plan as keyof typeof PLAN_LIMITS]?.agents || 1;
-        await prisma.$disconnect();
         return reply.status(403).send({ 
           success: false,
           error: `Plan ${shop.subscription_plan} limité à ${limit} agent(s). Passez au plan supérieur pour en créer plus.`,
           planLimit: limit,
-          currentCount: currentAgentsCount
+          currentCount: currentAgentsCount || 0
         });
       }
 
-      // ✅ GÉNÉRER TITRE AUTOMATIQUE SI VIDE
+      // ✅ GÉNÉRER TITRE AUTOMATIQUE
       const finalTitle = getDefaultTitle(body.type, body.title);
 
-      // ✅ CRÉATION AGENT AVEC TITRE
+      // ✅ CRÉER AGENT AVEC SUPABASE
       const agentData = {
         shopId: shop.id,
         name: body.name,
-        title: finalTitle, // ✅ NOUVEAU: Ajouter title
+        title: finalTitle,
         type: body.type as AgentType,
         personality: body.personality as AgentPersonality,
         description: body.description,
@@ -326,16 +335,20 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         fallbackMessage: body.fallbackMessage || "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
         avatar: body.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(body.name)}&background=3B82F6&color=fff`,
         isActive: body.isActive,
-        config: (body.config || {}) as Prisma.InputJsonObject
+        config: body.config || {}
       };
 
       console.log('💾 [agents.ts] Données agent à créer:', JSON.stringify(agentData, null, 2));
 
-      const newAgent = await prisma.agent.create({
-        data: agentData
-      });
+      const { data: newAgent, error: createError } = await supabaseServiceClient
+        .from('agents')
+        .insert(agentData)
+        .select()
+        .single();
 
-      await prisma.$disconnect();
+      if (createError) {
+        throw createError;
+      }
 
       fastify.log.info(`✅ Agent créé avec succès: ${newAgent.id}`);
 
@@ -344,7 +357,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         data: {
           id: newAgent.id,
           name: newAgent.name,
-          title: finalTitle, // ✅ NOUVEAU: Retourner le title
+          title: finalTitle,
           type: newAgent.type,
           personality: newAgent.personality,
           description: newAgent.description,
@@ -355,24 +368,13 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           config: newAgent.config,
           stats: { conversations: 0, conversions: 0 },
           knowledgeBase: [],
-          createdAt: newAgent.createdAt.toISOString(),
-          updatedAt: newAgent.updatedAt.toISOString()
+          createdAt: newAgent.createdAt,
+          updatedAt: newAgent.updatedAt
         }
       };
 
     } catch (error: any) {
-      await prisma.$disconnect();
       fastify.log.error('❌ Create agent error:', error);
-      
-      // ✅ GESTION D'ERREURS DÉTAILLÉE POUR DEBUG
-      if (error.name === 'ZodError') {
-        return reply.status(400).send({
-          success: false,
-          error: 'Données invalides',
-          details: error.errors,
-          received: request.body
-        });
-      }
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
         return reply.status(401).send({ 
@@ -381,8 +383,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ ERREUR PRISMA SPÉCIFIQUE
-      if (error.code === 'P2002') {
+      if (error.code === '23505') { // Unique constraint violation
         return reply.status(409).send({
           success: false,
           error: 'Un agent avec ce nom existe déjà pour votre boutique'
@@ -394,16 +395,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         error: 'Erreur lors de la création de l\'agent',
         details: process.env.NODE_ENV === 'development' ? {
           message: error.message,
-          stack: error.stack,
           code: error.code
         } : undefined
       });
     }
   });
 
-  // ✅ ROUTE GET CONFIG AGENT (CORRIGÉE AVEC TITLE)
+  // ✅ ROUTE: GET CONFIG AGENT (SUPABASE)
   fastify.get<{ Params: AgentParamsType }>('/:id/config', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -416,47 +415,58 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      isConnected = true;
+      // ✅ RÉCUPÉRER AGENT AVEC KNOWLEDGE BASE (SUPABASE)
+      const { data: agent, error: agentError } = await supabaseServiceClient
+        .from('agents')
+        .select(`
+          id, name, title, type, personality, description,
+          welcomeMessage, fallbackMessage, avatar, isActive, config,
+          agent_knowledge_base!inner(
+            knowledge_base!inner(
+              id, title, contentType, isActive, tags
+            )
+          )
+        `)
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const agent = await prisma.agent.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        },
-        include: {
-          knowledgeBase: {
-            include: {
-              knowledgeBase: {
-                select: {
-                  id: true,
-                  title: true,
-                  contentType: true,
-                  isActive: true,
-                  tags: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!agent) {
-        await prisma.$disconnect();
+      if (agentError || !agent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
         });
       }
 
-      // ✅ STRUCTURE CORRIGÉE AVEC TITLE
+      // ✅ CALCULER STATISTIQUES
+      let conversations = 0;
+      let conversions = 0;
+
+      try {
+        const { count: convCount } = await supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('agentId', agent.id);
+        
+        const { count: conversionCount } = await supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('agentId', agent.id)
+          .eq('conversionCompleted', true);
+
+        conversations = convCount || 0;
+        conversions = conversionCount || 0;
+      } catch (statsError) {
+        console.warn('⚠️ Erreur calcul statistiques:', statsError);
+      }
+
       const response = {
         success: true,
         data: {
           agent: {
             id: agent.id,
             name: agent.name,
-            title: (agent as any).title || getDefaultTitle(agent.type), // ✅ NOUVEAU: Title personnalisable
+            title: agent.title || getDefaultTitle(agent.type),
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
@@ -465,59 +475,29 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
             avatar: agent.avatar,
             isActive: agent.isActive,
             config: {
-              ...(agent.config as any || {}),
-              linkedKnowledgeBase: agent.knowledgeBase.map(kb => kb.knowledgeBase.id),
-              aiProvider: (agent.config as any)?.aiProvider || 'openai',
-              temperature: (agent.config as any)?.temperature || 0.7,
-              maxTokens: (agent.config as any)?.maxTokens || 1000,
-              systemPrompt: (agent.config as any)?.systemPrompt || '',
-              tone: (agent.config as any)?.tone || 'friendly'
+              ...(agent.config || {}),
+              linkedKnowledgeBase: agent.agent_knowledge_base?.map((akb: any) => akb.knowledge_base.id) || [],
+              aiProvider: agent.config?.aiProvider || 'openai',
+              temperature: agent.config?.temperature || 0.7,
+              maxTokens: agent.config?.maxTokens || 1000,
+              systemPrompt: agent.config?.systemPrompt || '',
+              tone: agent.config?.tone || 'friendly'
             },
-            totalConversations: 0,
-            totalConversions: 0,
+            totalConversations: conversations,
+            totalConversions: conversions,
             stats: {
-              conversations: 0,
-              conversions: 0
+              conversations,
+              conversions
             }
           },
-          knowledgeBase: agent.knowledgeBase.map(kb => kb.knowledgeBase)
+          knowledgeBase: agent.agent_knowledge_base?.map((akb: any) => akb.knowledge_base) || []
         }
       };
-
-      try {
-        const [conversations, conversions] = await Promise.all([
-          prisma.conversation.count({
-            where: { agentId: agent.id }
-          }),
-          prisma.conversation.count({
-            where: { 
-              agentId: agent.id,
-              conversionCompleted: true 
-            }
-          })
-        ]);
-
-        response.data.agent.totalConversations = conversations;
-        response.data.agent.totalConversions = conversions;
-        response.data.agent.stats = {
-          conversations,
-          conversions
-        };
-      } catch (statsError) {
-        console.warn('⚠️ Erreur calcul statistiques:', statsError);
-      }
-
-      await prisma.$disconnect();
-      isConnected = false;
 
       fastify.log.info(`✅ Configuration agent récupérée: ${id}`);
       return response;
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Get agent config error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -535,15 +515,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE UPDATE AGENT (CORRIGÉE AVEC TITLE)
+  // ✅ ROUTE: UPDATE AGENT (SUPABASE)
   fastify.put<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
       const shop = await getOrCreateShop(user, fastify);
       
-      // ✅ VALIDATION AVEC GESTION D'ERREURS
+      // ✅ VALIDATION
       let body;
       try {
         body = updateAgentSchema.parse(request.body);
@@ -563,51 +542,52 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      isConnected = true;
+      // ✅ VÉRIFIER EXISTENCE AGENT
+      const { data: existingAgent, error: findError } = await supabaseServiceClient
+        .from('agents')
+        .select('*')
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const existingAgent = await prisma.agent.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingAgent) {
-        await prisma.$disconnect();
+      if (findError || !existingAgent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
         });
       }
 
-      // ✅ CONSTRUIRE LES DONNÉES DE MISE À JOUR AVEC TITLE
+      // ✅ CONSTRUIRE DONNÉES UPDATE
       const updateData: any = {
         ...(body.name && { name: body.name }),
-        ...(body.type && { type: body.type as AgentType }),
-        ...(body.personality && { personality: body.personality as AgentPersonality }),
+        ...(body.type && { type: body.type }),
+        ...(body.personality && { personality: body.personality }),
         ...(body.description !== undefined && { description: body.description }),
         ...(body.welcomeMessage !== undefined && { welcomeMessage: body.welcomeMessage }),
         ...(body.fallbackMessage !== undefined && { fallbackMessage: body.fallbackMessage }),
         ...(body.avatar !== undefined && { avatar: body.avatar }),
         ...(body.isActive !== undefined && { isActive: body.isActive }),
-        ...(body.config !== undefined && { config: body.config as Prisma.InputJsonObject }),
-        updatedAt: new Date()
+        ...(body.config !== undefined && { config: body.config }),
+        updatedAt: new Date().toISOString()
       }
 
-      // ✅ NOUVEAU: Gestion du title
+      // ✅ GESTION DU TITLE
       if (body.title !== undefined) {
         const finalTitle = getDefaultTitle(body.type || existingAgent.type, body.title);
         updateData.title = finalTitle;
       }
 
-      const updatedAgent = await prisma.agent.update({
-        where: { id },
-        data: updateData
-      });
+      // ✅ UPDATE AVEC SUPABASE
+      const { data: updatedAgent, error: updateError } = await supabaseServiceClient
+        .from('agents')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
 
-      await prisma.$disconnect();
-      isConnected = false;
+      if (updateError) {
+        throw updateError;
+      }
 
       fastify.log.info(`✅ Agent modifié avec succès: ${updatedAgent.id}`);
 
@@ -616,7 +596,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         data: {
           id: updatedAgent.id,
           name: updatedAgent.name,
-          title: (updatedAgent as any).title || getDefaultTitle(updatedAgent.type), // ✅ NOUVEAU: Title
+          title: updatedAgent.title || getDefaultTitle(updatedAgent.type),
           type: updatedAgent.type,
           personality: updatedAgent.personality,
           description: updatedAgent.description,
@@ -625,25 +605,13 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           avatar: updatedAgent.avatar,
           isActive: updatedAgent.isActive,
           config: updatedAgent.config,
-          createdAt: updatedAgent.createdAt.toISOString(),
-          updatedAt: updatedAgent.updatedAt.toISOString()
+          createdAt: updatedAgent.createdAt,
+          updatedAt: updatedAgent.updatedAt
         }
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Update agent error:', error);
-      
-      if (error.name === 'ZodError') {
-        return reply.status(400).send({
-          success: false,
-          error: 'Données invalides',
-          details: error.errors
-        });
-      }
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
         return reply.status(401).send({ 
@@ -660,12 +628,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ Continuer avec toutes les autres routes existantes...
-  // (Les autres routes restent identiques à votre version originale)
-
-  // ✅ ROUTE : LIER UN AGENT À DES DOCUMENTS DE BASE DE CONNAISSANCE 
+  // ✅ ROUTE: LIER KNOWLEDGE BASE (SUPABASE)
   fastify.post<{ Params: AgentParamsType; Body: AgentKnowledgeBody }>('/:id/knowledge', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -679,41 +643,48 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      isConnected = true;
+      // ✅ VÉRIFIER AGENT EXISTE
+      const { data: existingAgent, error: findError } = await supabaseServiceClient
+        .from('agents')
+        .select('id')
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const existingAgent = await prisma.agent.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingAgent) {
-        await prisma.$disconnect();
+      if (findError || !existingAgent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
         });
       }
 
-      await prisma.agentKnowledgeBase.deleteMany({
-        where: { agentId: id }
-      });
+      // ✅ SUPPRIMER ANCIENNES LIAISONS
+      const { error: deleteError } = await supabaseServiceClient
+        .from('agent_knowledge_base')
+        .delete()
+        .eq('agentId', id);
 
-      if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
-        await prisma.agentKnowledgeBase.createMany({
-          data: knowledgeBaseIds.map((kbId, index) => ({
-            agentId: id,
-            knowledgeBaseId: kbId,
-            isActive: true,
-            priority: index
-          }))
-        });
+      if (deleteError) {
+        console.warn('Erreur suppression anciennes liaisons:', deleteError);
       }
 
-      await prisma.$disconnect();
-      isConnected = false;
+      // ✅ CRÉER NOUVELLES LIAISONS
+      if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
+        const linksData = knowledgeBaseIds.map((kbId, index) => ({
+          agentId: id,
+          knowledgeBaseId: kbId,
+          isActive: true,
+          priority: index
+        }));
+
+        const { error: insertError } = await supabaseServiceClient
+          .from('agent_knowledge_base')
+          .insert(linksData);
+
+        if (insertError) {
+          throw insertError;
+        }
+      }
 
       fastify.log.info(`✅ Base de connaissance liée à l'agent: ${id}`);
 
@@ -723,10 +694,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Link agent knowledge error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -744,9 +711,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE DELETE AGENT
+  // ✅ ROUTE: DELETE AGENT (SUPABASE)
   fastify.delete<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -759,30 +725,30 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      isConnected = true;
+      // ✅ VÉRIFIER AGENT EXISTE
+      const { data: existingAgent, error: findError } = await supabaseServiceClient
+        .from('agents')
+        .select('id')
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const existingAgent = await prisma.agent.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingAgent) {
-        await prisma.$disconnect();
+      if (findError || !existingAgent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
         });
       }
 
-      await prisma.agent.delete({
-        where: { id }
-      });
+      // ✅ SUPPRIMER AGENT
+      const { error: deleteError } = await supabaseServiceClient
+        .from('agents')
+        .delete()
+        .eq('id', id);
 
-      await prisma.$disconnect();
-      isConnected = false;
+      if (deleteError) {
+        throw deleteError;
+      }
 
       fastify.log.info(`✅ Agent supprimé avec succès: ${id}`);
 
@@ -792,10 +758,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Delete agent error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -813,9 +775,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE TOGGLE AGENT STATUS
+  // ✅ ROUTE: TOGGLE AGENT STATUS (SUPABASE)
   fastify.patch<{ Params: AgentParamsType }>('/:id/toggle', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -829,34 +790,35 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      isConnected = true;
+      // ✅ VÉRIFIER AGENT EXISTE
+      const { data: existingAgent, error: findError } = await supabaseServiceClient
+        .from('agents')
+        .select('id')
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const existingAgent = await prisma.agent.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingAgent) {
-        await prisma.$disconnect();
+      if (findError || !existingAgent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
         });
       }
 
-      const updatedAgent = await prisma.agent.update({
-        where: { id },
-        data: { 
+      // ✅ UPDATE STATUS
+      const { data: updatedAgent, error: updateError } = await supabaseServiceClient
+        .from('agents')
+        .update({ 
           isActive: body.isActive,
-          updatedAt: new Date()
-        }
-      });
+          updatedAt: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select('id, isActive, updatedAt')
+        .single();
 
-      await prisma.$disconnect();
-      isConnected = false;
+      if (updateError) {
+        throw updateError;
+      }
 
       fastify.log.info(`✅ Statut agent modifié: ${id} -> ${body.isActive ? 'actif' : 'inactif'}`);
 
@@ -865,15 +827,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         data: {
           id: updatedAgent.id,
           isActive: updatedAgent.isActive,
-          updatedAt: updatedAgent.updatedAt.toISOString()
+          updatedAt: updatedAgent.updatedAt
         }
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Toggle agent error:', error);
       
       if (error.name === 'ZodError') {
@@ -899,9 +857,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE DUPLICATE AGENT
+  // ✅ ROUTE: DUPLICATE AGENT (SUPABASE)
   fastify.post<{ Params: AgentParamsType }>('/:id/duplicate', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -914,49 +871,49 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      isConnected = true;
+      // ✅ VÉRIFIER LIMITES PLAN
+      const { count: currentAgentsCount } = await supabaseServiceClient
+        .from('agents')
+        .select('*', { count: 'exact', head: true })
+        .eq('shopId', shop.id);
 
-      const currentAgentsCount = await prisma.agent.count({
-        where: { shopId: shop.id }
-      });
-
-      const canCreate = await checkPlanLimits(shop.id, currentAgentsCount, shop.subscription_plan || 'starter');
+      const canCreate = await checkPlanLimits(shop.id, currentAgentsCount || 0, shop.subscription_plan || 'starter');
       
       if (!canCreate) {
         const limit = PLAN_LIMITS[shop.subscription_plan as keyof typeof PLAN_LIMITS]?.agents || 1;
-        await prisma.$disconnect();
         return reply.status(403).send({ 
           success: false,
           error: `Plan ${shop.subscription_plan} limité à ${limit} agent(s).`,
           planLimit: limit,
-          currentCount: currentAgentsCount
+          currentCount: currentAgentsCount || 0
         });
       }
 
-      const originalAgent = await prisma.agent.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        },
-        include: {
-          knowledgeBase: true
-        }
-      });
+      // ✅ RÉCUPÉRER AGENT ORIGINAL AVEC KNOWLEDGE BASE
+      const { data: originalAgent, error: findError } = await supabaseServiceClient
+        .from('agents')
+        .select(`
+          *, 
+          agent_knowledge_base(knowledgeBaseId, isActive, priority)
+        `)
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      if (!originalAgent) {
-        await prisma.$disconnect();
+      if (findError || !originalAgent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
         });
       }
 
-      const duplicatedAgent = await prisma.agent.create({
-        data: {
+      // ✅ CRÉER AGENT DUPLIQUÉ
+      const { data: duplicatedAgent, error: createError } = await supabaseServiceClient
+        .from('agents')
+        .insert({
           shopId: shop.id,
           name: `${originalAgent.name} (Copie)`,
-          title: (originalAgent as any).title || getDefaultTitle(originalAgent.type),
+          title: originalAgent.title || getDefaultTitle(originalAgent.type),
           type: originalAgent.type,
           personality: originalAgent.personality,
           description: originalAgent.description,
@@ -964,23 +921,32 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           fallbackMessage: originalAgent.fallbackMessage,
           avatar: originalAgent.avatar,
           isActive: false,
-          config: (originalAgent.config || {}) as Prisma.InputJsonObject
-        }
-      });
+          config: originalAgent.config || {}
+        })
+        .select()
+        .single();
 
-      if (originalAgent.knowledgeBase.length > 0) {
-        await prisma.agentKnowledgeBase.createMany({
-          data: originalAgent.knowledgeBase.map(kb => ({
-            agentId: duplicatedAgent.id,
-            knowledgeBaseId: kb.knowledgeBaseId,
-            isActive: kb.isActive,
-            priority: kb.priority
-          }))
-        });
+      if (createError) {
+        throw createError;
       }
 
-      await prisma.$disconnect();
-      isConnected = false;
+      // ✅ DUPLIQUER KNOWLEDGE BASE LINKS
+      if (originalAgent.agent_knowledge_base && originalAgent.agent_knowledge_base.length > 0) {
+        const linksData = originalAgent.agent_knowledge_base.map((kb: any) => ({
+          agentId: duplicatedAgent.id,
+          knowledgeBaseId: kb.knowledgeBaseId,
+          isActive: kb.isActive,
+          priority: kb.priority
+        }));
+
+        const { error: linkError } = await supabaseServiceClient
+          .from('agent_knowledge_base')
+          .insert(linksData);
+
+        if (linkError) {
+          console.warn('Erreur duplication knowledge base links:', linkError);
+        }
+      }
 
       fastify.log.info(`✅ Agent dupliqué avec succès: ${duplicatedAgent.id}`);
 
@@ -989,7 +955,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         data: {
           id: duplicatedAgent.id,
           name: duplicatedAgent.name,
-          title: (duplicatedAgent as any).title || getDefaultTitle(duplicatedAgent.type), // ✅ TITLE
+          title: duplicatedAgent.title || getDefaultTitle(duplicatedAgent.type),
           type: duplicatedAgent.type,
           personality: duplicatedAgent.personality,
           description: duplicatedAgent.description,
@@ -999,16 +965,12 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           isActive: duplicatedAgent.isActive,
           config: duplicatedAgent.config,
           stats: { conversations: 0, conversions: 0 },
-          createdAt: duplicatedAgent.createdAt.toISOString(),
-          updatedAt: duplicatedAgent.updatedAt.toISOString()
+          createdAt: duplicatedAgent.createdAt,
+          updatedAt: duplicatedAgent.updatedAt
         }
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Duplicate agent error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -1026,9 +988,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE GET AGENT KNOWLEDGE
+  // ✅ ROUTE: GET AGENT KNOWLEDGE (SUPABASE)
   fastify.get<{ Params: AgentParamsType }>('/:id/knowledge', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -1041,57 +1002,41 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      isConnected = true;
-
-      const agent = await prisma.agent.findFirst({
-        where: { 
+      // ✅ RÉCUPÉRER AGENT AVEC KNOWLEDGE BASE
+      const { data: agent, error: agentError } = await supabaseServiceClient
+        .from('agents')
+        .select(`
           id,
-          shopId: shop.id 
-        },
-        include: {
-          knowledgeBase: {
-            include: {
-              knowledgeBase: {
-                select: {
-                  id: true,
-                  title: true,
-                  contentType: true,
-                  isActive: true,
-                  tags: true,
-                  content: true,
-                  createdAt: true,
-                  updatedAt: true
-                }
-              }
-            }
-          }
-        }
-      });
+          agent_knowledge_base!inner(
+            priority, createdAt,
+            knowledge_base!inner(
+              id, title, contentType, isActive, tags, content, createdAt, updatedAt
+            )
+          )
+        `)
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      if (!agent) {
-        await prisma.$disconnect();
+      if (agentError || !agent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
         });
       }
 
-      const knowledgeBaseDocuments = agent.knowledgeBase.map(kb => ({
-        id: kb.knowledgeBase.id,
-        title: kb.knowledgeBase.title,
-        contentType: kb.knowledgeBase.contentType,
-        isActive: kb.knowledgeBase.isActive,
-        tags: kb.knowledgeBase.tags || [],
-        content: kb.knowledgeBase.content,
-        createdAt: kb.knowledgeBase.createdAt,
-        updatedAt: kb.knowledgeBase.updatedAt,
-        priority: kb.priority,
-        linkedAt: kb.createdAt
-      }));
-
-      await prisma.$disconnect();
-      isConnected = false;
+      const knowledgeBaseDocuments = agent.agent_knowledge_base?.map((akb: any) => ({
+        id: akb.knowledge_base.id,
+        title: akb.knowledge_base.title,
+        contentType: akb.knowledge_base.contentType,
+        isActive: akb.knowledge_base.isActive,
+        tags: akb.knowledge_base.tags || [],
+        content: akb.knowledge_base.content,
+        createdAt: akb.knowledge_base.createdAt,
+        updatedAt: akb.knowledge_base.updatedAt,
+        priority: akb.priority,
+        linkedAt: akb.createdAt
+      })) || [];
 
       fastify.log.info(`✅ Base de connaissance récupérée pour agent: ${id} (${knowledgeBaseDocuments.length} documents)`);
 
@@ -1101,10 +1046,6 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Get agent knowledge error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
@@ -1122,9 +1063,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE PUT KNOWLEDGE BASE
+  // ✅ ROUTE: PUT KNOWLEDGE BASE (SUPABASE)
   fastify.put<{ Params: AgentParamsType }>('/:id/knowledge-base', async (request, reply) => {
-    let isConnected = false;
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
@@ -1138,56 +1078,58 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
-      isConnected = true;
+      // ✅ VÉRIFIER AGENT EXISTE
+      const { data: existingAgent, error: findError } = await supabaseServiceClient
+        .from('agents')
+        .select('id')
+        .eq('id', id)
+        .eq('shopId', shop.id)
+        .single();
 
-      const existingAgent = await prisma.agent.findFirst({
-        where: { 
-          id,
-          shopId: shop.id 
-        }
-      });
-
-      if (!existingAgent) {
-        await prisma.$disconnect();
+      if (findError || !existingAgent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
         });
       }
 
-      await prisma.agentKnowledgeBase.deleteMany({
-        where: { agentId: id }
-      });
+      // ✅ SUPPRIMER ANCIENNES LIAISONS
+      const { error: deleteError } = await supabaseServiceClient
+        .from('agent_knowledge_base')
+        .delete()
+        .eq('agentId', id);
 
-      if (documentIds && documentIds.length > 0) {
-        await prisma.agentKnowledgeBase.createMany({
-          data: documentIds.map((kbId, index) => ({
-            agentId: id,
-            knowledgeBaseId: kbId,
-            isActive: true,
-            priority: index
-          }))
-        });
+      if (deleteError) {
+        console.warn('Erreur suppression anciennes liaisons:', deleteError);
       }
 
-      const linkedDocuments = await prisma.agentKnowledgeBase.findMany({
-        where: { agentId: id },
-        include: {
-          knowledgeBase: {
-            select: {
-              id: true,
-              title: true,
-              contentType: true,
-              isActive: true,
-              tags: true
-            }
-          }
-        }
-      });
+      // ✅ CRÉER NOUVELLES LIAISONS
+      if (documentIds && documentIds.length > 0) {
+        const linksData = documentIds.map((kbId, index) => ({
+          agentId: id,
+          knowledgeBaseId: kbId,
+          isActive: true,
+          priority: index
+        }));
 
-      await prisma.$disconnect();
-      isConnected = false;
+        const { error: insertError } = await supabaseServiceClient
+          .from('agent_knowledge_base')
+          .insert(linksData);
+
+        if (insertError) {
+          throw insertError;
+        }
+      }
+
+      // ✅ RÉCUPÉRER DOCUMENTS LIÉS
+      const { data: linkedDocuments, error: linkedError } = await supabaseServiceClient
+        .from('agent_knowledge_base')
+        .select(`
+          knowledge_base(id, title, contentType, isActive, tags)
+        `)
+        .eq('agentId', id);
+
+      const documents = linkedDocuments?.map((link: any) => link.knowledge_base) || [];
 
       fastify.log.info(`✅ Base de connaissance liée à l'agent: ${id}`);
 
@@ -1195,15 +1137,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         success: true,
         message: 'Base de connaissance mise à jour avec succès',
         data: {
-          documents: linkedDocuments.map(link => link.knowledgeBase)
+          documents
         }
       };
 
     } catch (error: any) {
-      if (isConnected) {
-        await prisma.$disconnect();
-      }
-      
       fastify.log.error('❌ Link agent knowledge error:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {

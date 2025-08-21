@@ -1,7 +1,6 @@
-// src/routes/analytics.ts - ROUTES ANALYTICS CORRIGÉES
+// src/routes/analytics.ts - VERSION SUPABASE PURE
 import { FastifyPluginAsync } from 'fastify'
-import { PrismaClient } from '@prisma/client'
-import prisma from '../lib/prisma'
+import { supabaseServiceClient } from '../lib/supabase'
 
 // ✅ INTERFACE TYPES
 interface AnalyticsQuery {
@@ -26,7 +25,7 @@ interface UsageStats {
   shopId: string
 }
 
-// ✅ PLUGIN ANALYTICS CORRIGÉ
+// ✅ PLUGIN ANALYTICS SUPABASE
 const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
   
   // ✅ GET /api/v1/analytics - Dashboard Analytics
@@ -38,44 +37,59 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const shopId = request.user.shopId
 
-      // ✅ STATS BASIQUES - 30 derniers jours (NOMS COLONNES CORRIGÉS)
+      // ✅ STATS BASIQUES - 30 derniers jours
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - 30)
+      const startDateISO = startDate.toISOString()
 
-      const [conversationsCount, ordersCount, agentsCount, documentsCount] = await Promise.all([
-        prisma.conversation.count({
-          where: {
-            shopId,
-            startedAt: { gte: startDate } // ✅ CORRIGÉ: startedAt au lieu de createdAt
-          }
-        }),
-        prisma.order.count({
-          where: {
-            shopId,
-            createdAt: { gte: startDate } // ✅ OK: createdAt existe pour orders
-          }
-        }),
-        prisma.agent.count({
-          where: { shopId }
-        }),
-        prisma.knowledgeBase.count({
-          where: { shopId }
-        })
+      // ✅ REQUÊTES SUPABASE PARALLÈLES
+      const [conversationsResult, ordersResult, agentsResult, documentsResult] = await Promise.all([
+        // Conversations count
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('startedAt', startDateISO),
+        
+        // Orders count
+        supabaseServiceClient
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('createdAt', startDateISO),
+        
+        // Agents count
+        supabaseServiceClient
+          .from('agents')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId),
+        
+        // Knowledge Base count
+        supabaseServiceClient
+          .from('knowledge_base')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
       ])
 
-      // ✅ REVENUS TOTAUX (CONVERSION DECIMAL CORRIGÉE)
-      const revenueResult = await prisma.order.aggregate({
-        _sum: { totalAmount: true },
-        where: {
-          shopId,
-          createdAt: { gte: startDate },
-          status: { in: ['completed', 'confirmed', 'paid'] }
-        }
-      })
+      const conversationsCount = conversationsResult.count || 0
+      const ordersCount = ordersResult.count || 0
+      const agentsCount = agentsResult.count || 0
+      const documentsCount = documentsResult.count || 0
 
-      // ✅ CONVERSION DECIMAL → NUMBER
-      const totalRevenue = revenueResult._sum.totalAmount ? 
-        parseFloat(revenueResult._sum.totalAmount.toString()) : 0
+      // ✅ REVENUS TOTAUX AVEC SUPABASE
+      const { data: revenueData, error: revenueError } = await supabaseServiceClient
+        .from('orders')
+        .select('totalAmount')
+        .eq('shopId', shopId)
+        .gte('createdAt', startDateISO)
+        .in('status', ['completed', 'confirmed', 'paid'])
+
+      let totalRevenue = 0
+      if (revenueData && !revenueError) {
+        totalRevenue = revenueData.reduce((sum, order) => {
+          return sum + (parseFloat(order.totalAmount?.toString() || '0'))
+        }, 0)
+      }
       
       const conversionRate = conversationsCount > 0 ? (ordersCount / conversationsCount) * 100 : 0
       const averageOrderValue = ordersCount > 0 ? totalRevenue / ordersCount : 0
@@ -105,7 +119,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/usage-stats - Usage Stats (CORRIGÉ)
+  // ✅ GET /api/v1/analytics/usage-stats - Usage Stats SUPABASE
   fastify.get<{
     Querystring: AnalyticsQuery
   }>('/usage-stats', async (request, reply) => {
@@ -123,65 +137,77 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const startOfMonth = new Date()
       startOfMonth.setDate(1)
       startOfMonth.setHours(0, 0, 0, 0)
+      const startOfMonthISO = startOfMonth.toISOString()
       
       const [
-        conversationsCount,
-        documentsCount,
-        agentsCount,
-        ordersCount,
-        revenueResult,
-        totalConversations,
-        activeConversations
+        conversationsResult,
+        documentsResult,
+        agentsResult,
+        ordersResult,
+        totalConversationsResult,
+        activeConversationsResult
       ] = await Promise.all([
-        // Conversations ce mois (CORRIGÉ: startedAt)
-        prisma.conversation.count({
-          where: {
-            shopId,
-            startedAt: { gte: startOfMonth }
-          }
-        }),
+        // Conversations ce mois
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('startedAt', startOfMonthISO),
+        
         // Documents total
-        prisma.knowledgeBase.count({
-          where: { shopId }
-        }),
+        supabaseServiceClient
+          .from('knowledge_base')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId),
+        
         // Agents total
-        prisma.agent.count({
-          where: { shopId }
-        }),
+        supabaseServiceClient
+          .from('agents')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId),
+        
         // Commandes ce mois
-        prisma.order.count({
-          where: {
-            shopId,
-            createdAt: { gte: startOfMonth }
-          }
-        }),
-        // Revenus ce mois
-        prisma.order.aggregate({
-          where: {
-            shopId,
-            createdAt: { gte: startOfMonth },
-            status: { in: ['completed', 'paid'] }
-          },
-          _sum: { totalAmount: true }
-        }),
+        supabaseServiceClient
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('createdAt', startOfMonthISO),
+        
         // Total conversations (toutes périodes)
-        prisma.conversation.count({
-          where: { shopId }
-        }),
-        // Conversations actives (dernières 24h) - CORRIGÉ: lastActivity
-        prisma.conversation.count({
-          where: {
-            shopId,
-            lastActivity: {
-              gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
-            }
-          }
-        })
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId),
+        
+        // Conversations actives (dernières 24h)
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('lastActivity', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
       ])
 
-      // ✅ CONVERSION DECIMAL → NUMBER CORRIGÉE
-      const totalRevenue = revenueResult._sum.totalAmount ? 
-        parseFloat(revenueResult._sum.totalAmount.toString()) : 0
+      const conversationsCount = conversationsResult.count || 0
+      const documentsCount = documentsResult.count || 0
+      const agentsCount = agentsResult.count || 0
+      const ordersCount = ordersResult.count || 0
+      const totalConversations = totalConversationsResult.count || 0
+      const activeConversations = activeConversationsResult.count || 0
+
+      // ✅ REVENUS CE MOIS AVEC SUPABASE
+      const { data: revenueData, error: revenueError } = await supabaseServiceClient
+        .from('orders')
+        .select('totalAmount')
+        .eq('shopId', shopId)
+        .gte('createdAt', startOfMonthISO)
+        .in('status', ['completed', 'paid'])
+
+      let totalRevenue = 0
+      if (revenueData && !revenueError) {
+        totalRevenue = revenueData.reduce((sum, order) => {
+          return sum + (parseFloat(order.totalAmount?.toString() || '0'))
+        }, 0)
+      }
         
       const conversionRate = conversationsCount > 0 ? (ordersCount / conversationsCount) * 100 : 0
 
@@ -224,7 +250,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/detailed - Stats détaillées (CORRIGÉ)
+  // ✅ GET /api/v1/analytics/detailed - Stats détaillées SUPABASE
   fastify.get<{
     Querystring: AnalyticsQuery
   }>('/detailed', async (request, reply) => {
@@ -257,54 +283,52 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
           startDate.setDate(startDate.getDate() - 30)
       }
 
-      // ✅ RÉCUPÉRER L'HISTORIQUE DES CONVERSATIONS PAR JOUR (CORRIGÉ)
-      const conversations = await prisma.conversation.findMany({
-        where: {
-          shopId,
-          startedAt: { gte: startDate } // ✅ CORRIGÉ: startedAt
-        },
-        select: {
-          startedAt: true, // ✅ CORRIGÉ: startedAt
-          id: true
-        },
-        orderBy: { startedAt: 'asc' } // ✅ CORRIGÉ: startedAt
-      })
+      const startDateISO = startDate.toISOString()
 
-      // ✅ RÉCUPÉRER L'HISTORIQUE DES COMMANDES PAR JOUR  
-      const orders = await prisma.order.findMany({
-        where: {
-          shopId,
-          createdAt: { gte: startDate }
-        },
-        select: {
-          createdAt: true,
-          id: true,
-          totalAmount: true
-        },
-        orderBy: { createdAt: 'asc' }
-      })
+      // ✅ RÉCUPÉRER L'HISTORIQUE DES CONVERSATIONS AVEC SUPABASE
+      const { data: conversations, error: convError } = await supabaseServiceClient
+        .from('conversations')
+        .select('startedAt, id')
+        .eq('shopId', shopId)
+        .gte('startedAt', startDateISO)
+        .order('startedAt', { ascending: true })
 
-      // ✅ GROUPER PAR JOUR (CORRIGÉ)
-      const conversationsByDay = conversations.reduce((acc: any, conv) => {
-        const date = conv.startedAt.toISOString().split('T')[0] // ✅ CORRIGÉ: startedAt
+      if (convError) {
+        console.error('Erreur conversations:', convError)
+      }
+
+      // ✅ RÉCUPÉRER L'HISTORIQUE DES COMMANDES AVEC SUPABASE  
+      const { data: orders, error: ordersError } = await supabaseServiceClient
+        .from('orders')
+        .select('createdAt, id, totalAmount')
+        .eq('shopId', shopId)
+        .gte('createdAt', startDateISO)
+        .order('createdAt', { ascending: true })
+
+      if (ordersError) {
+        console.error('Erreur orders:', ordersError)
+      }
+
+      // ✅ GROUPER PAR JOUR
+      const conversationsByDay = (conversations || []).reduce((acc: any, conv) => {
+        const date = new Date(conv.startedAt).toISOString().split('T')[0]
         acc[date] = (acc[date] || 0) + 1
         return acc
       }, {})
 
-      const ordersByDay = orders.reduce((acc: any, order) => {
-        const date = order.createdAt.toISOString().split('T')[0]
+      const ordersByDay = (orders || []).reduce((acc: any, order) => {
+        const date = new Date(order.createdAt).toISOString().split('T')[0]
         if (!acc[date]) {
           acc[date] = { count: 0, revenue: 0 }
         }
         acc[date].count += 1
-        // ✅ CONVERSION DECIMAL CORRIGÉE
-        acc[date].revenue += order.totalAmount ? parseFloat(order.totalAmount.toString()) : 0
+        acc[date].revenue += parseFloat(order.totalAmount?.toString() || '0')
         return acc
       }, {})
 
-      // ✅ CALCUL REVENUS TOTAL CORRIGÉ
-      const totalRevenue = orders.reduce((sum, order) => {
-        return sum + (order.totalAmount ? parseFloat(order.totalAmount.toString()) : 0)
+      // ✅ CALCUL REVENUS TOTAL
+      const totalRevenue = (orders || []).reduce((sum, order) => {
+        return sum + parseFloat(order.totalAmount?.toString() || '0')
       }, 0)
 
       const detailedStats = {
@@ -324,10 +348,10 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         })),
         
         performance: {
-          totalConversations: conversations.length,
-          totalOrders: orders.length,
+          totalConversations: conversations?.length || 0,
+          totalOrders: orders?.length || 0,
           totalRevenue: Math.round(totalRevenue * 100) / 100,
-          averageOrderValue: orders.length > 0 ? Math.round((totalRevenue / orders.length) * 100) / 100 : 0
+          averageOrderValue: orders && orders.length > 0 ? Math.round((totalRevenue / orders.length) * 100) / 100 : 0
         }
       }
 
@@ -352,7 +376,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/dashboard - Analytics dashboard (CORRIGÉ)
+  // ✅ GET /api/v1/analytics/dashboard - Analytics dashboard SUPABASE
   fastify.get('/dashboard', async (request, reply) => {
     try {
       if (!request.user) {
@@ -366,66 +390,70 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
       const previous30Days = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
 
-      const [currentStats, previousStats] = await Promise.all([
-        // Stats période actuelle (CORRIGÉ)
-        Promise.all([
-          prisma.conversation.count({
-            where: { shopId, startedAt: { gte: last30Days } } // ✅ CORRIGÉ: startedAt
-          }),
-          prisma.order.count({
-            where: { shopId, createdAt: { gte: last30Days } }
-          }),
-          prisma.order.aggregate({
-            where: { 
-              shopId, 
-              createdAt: { gte: last30Days },
-              status: { in: ['completed', 'paid'] }
-            },
-            _sum: { totalAmount: true }
-          })
-        ]),
-        // Stats période précédente (CORRIGÉ)
-        Promise.all([
-          prisma.conversation.count({
-            where: { 
-              shopId, 
-              startedAt: { // ✅ CORRIGÉ: startedAt
-                gte: previous30Days,
-                lt: last30Days
-              }
-            }
-          }),
-          prisma.order.count({
-            where: { 
-              shopId, 
-              createdAt: { 
-                gte: previous30Days,
-                lt: last30Days
-              }
-            }
-          }),
-          prisma.order.aggregate({
-            where: { 
-              shopId, 
-              createdAt: { 
-                gte: previous30Days,
-                lt: last30Days
-              },
-              status: { in: ['completed', 'paid'] }
-            },
-            _sum: { totalAmount: true }
-          })
-        ])
+      const last30DaysISO = last30Days.toISOString()
+      const previous30DaysISO = previous30Days.toISOString()
+
+      // ✅ STATS PÉRIODE ACTUELLE AVEC SUPABASE
+      const [currentConvResult, currentOrdersResult] = await Promise.all([
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('startedAt', last30DaysISO),
+        
+        supabaseServiceClient
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('createdAt', last30DaysISO)
       ])
 
-      const [currentConv, currentOrders, currentRevenue] = currentStats
-      const [previousConv, previousOrders, previousRevenue] = previousStats
+      // ✅ STATS PÉRIODE PRÉCÉDENTE AVEC SUPABASE
+      const [previousConvResult, previousOrdersResult] = await Promise.all([
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('startedAt', previous30DaysISO)
+          .lt('startedAt', last30DaysISO),
+        
+        supabaseServiceClient
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .gte('createdAt', previous30DaysISO)
+          .lt('createdAt', last30DaysISO)
+      ])
 
-      // ✅ CONVERSION DECIMAL → NUMBER CORRIGÉE
-      const currentRevenueAmount = currentRevenue._sum.totalAmount ? 
-        parseFloat(currentRevenue._sum.totalAmount.toString()) : 0
-      const previousRevenueAmount = previousRevenue._sum.totalAmount ? 
-        parseFloat(previousRevenue._sum.totalAmount.toString()) : 0
+      const currentConv = currentConvResult.count || 0
+      const currentOrders = currentOrdersResult.count || 0
+      const previousConv = previousConvResult.count || 0
+      const previousOrders = previousOrdersResult.count || 0
+
+      // ✅ REVENUS PÉRIODE ACTUELLE AVEC SUPABASE
+      const { data: currentRevenueData } = await supabaseServiceClient
+        .from('orders')
+        .select('totalAmount')
+        .eq('shopId', shopId)
+        .gte('createdAt', last30DaysISO)
+        .in('status', ['completed', 'paid'])
+
+      // ✅ REVENUS PÉRIODE PRÉCÉDENTE AVEC SUPABASE
+      const { data: previousRevenueData } = await supabaseServiceClient
+        .from('orders')
+        .select('totalAmount')
+        .eq('shopId', shopId)
+        .gte('createdAt', previous30DaysISO)
+        .lt('createdAt', last30DaysISO)
+        .in('status', ['completed', 'paid'])
+
+      const currentRevenueAmount = (currentRevenueData || []).reduce((sum, order) => {
+        return sum + parseFloat(order.totalAmount?.toString() || '0')
+      }, 0)
+
+      const previousRevenueAmount = (previousRevenueData || []).reduce((sum, order) => {
+        return sum + parseFloat(order.totalAmount?.toString() || '0')
+      }, 0)
 
       // ✅ CALCULER LES VARIATIONS
       const conversionGrowth = previousConv > 0 

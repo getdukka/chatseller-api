@@ -1,13 +1,10 @@
-// src/routes/chat.ts 
+// src/routes/chat.ts - VERSION SUPABASE PURE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
 import OpenAI from 'openai';
-import { Decimal } from '@prisma/client/runtime/library';
-import prisma from '../lib/prisma'
 
-// ✅ AJOUT: Interface pour la config agent
+// ✅ INTERFACE POUR LA CONFIG AGENT
 interface AgentConfig {
   aiProvider?: 'openai' | 'claude';
   temperature?: number;
@@ -21,19 +18,14 @@ interface AgentConfig {
   urgencyEnabled?: boolean;
 }
 
-// ✅ AJOUT: Interface pour les messages
+// ✅ INTERFACE POUR LES MESSAGES
 interface ConversationMessage {
   id: string;
   role: string;
   content: string;
-  createdAt: Date;
-  metadata?: any;
+  created_at: string;
+  action_data?: any;
 }
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
 
 // ✅ INITIALISATION OPENAI
 const openai = new OpenAI({
@@ -71,7 +63,7 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   }
 
   const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
   
   if (error || !user) {
     throw new Error('Token invalide');
@@ -80,24 +72,32 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   return user;
 }
 
-// ✅ HELPER: Récupérer ou créer shop
+// ✅ HELPER: Récupérer ou créer shop (SUPABASE)
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   try {
-    await prisma.$connect();
-    
-    let shop = await prisma.shop.findUnique({
-      where: { id: user.id }
-    });
+    // ✅ CHERCHER LE SHOP EXISTANT
+    let { data: shop, error } = await supabaseServiceClient
+      .from('shops')
+      .select('*')
+      .eq('id', user.id)
+      .single();
 
-    if (!shop) {
-      shop = await prisma.shop.findUnique({
-        where: { email: user.email }
-      });
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      // Essayer par email
+      const { data: shopByEmail } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .eq('email', user.email)
+        .single();
+      
+      shop = shopByEmail;
     }
 
     if (!shop) {
-      shop = await prisma.shop.create({
-        data: {
+      // ✅ CRÉER LE SHOP S'IL N'EXISTE PAS
+      const { data: newShop, error: createError } = await supabaseServiceClient
+        .from('shops')
+        .insert({
           id: user.id,
           name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
           email: user.email,
@@ -118,18 +118,29 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
             fallbackMessage: "Je transmets votre question à notre équipe.",
             collectPaymentMethod: true
           }
-        }
-      });
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        fastify.log.error('❌ Erreur création shop');
+        console.error('Détails erreur shop:', createError);
+        throw new Error('Impossible de créer le shop');
+      }
+
+      shop = newShop;
     }
 
     return shop;
 
-  } finally {
-    await prisma.$disconnect();
+  } catch (error) {
+    fastify.log.error('❌ Erreur getOrCreateShop');
+    console.error('Détails erreur getOrCreateShop:', error);
+    throw error;
   }
 }
 
-// ✅ HELPER: Appel Claude AI (Plan Pro) - CORRIGÉ
+// ✅ HELPER: Appel Claude AI (Plan Pro)
 async function callClaudeAI(messages: any[], systemPrompt: string, temperature = 0.7) {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -155,7 +166,6 @@ async function callClaudeAI(messages: any[], systemPrompt: string, temperature =
       throw new Error(`Claude API Error: ${response.status}`);
     }
 
-    // ✅ CORRECTION: Typer la réponse JSON
     const data = await response.json() as {
       content: Array<{ text: string }>
     };
@@ -226,7 +236,7 @@ CONTENU: ${kb.content ? kb.content.substring(0, 1000) : 'Contenu non disponible'
 Utilise ces informations pour répondre aux questions sur les produits, l'entreprise, les politiques, etc.`;
   }
 
-  // ✅ AJOUTER LES INSTRUCTIONS PERSONNALISÉES - CORRIGÉ
+  // ✅ AJOUTER LES INSTRUCTIONS PERSONNALISÉES
   const agentConfig = agent.config as AgentConfig;
   if (agentConfig?.specificInstructions && agentConfig.specificInstructions.length > 0) {
     systemPrompt += `\n\nINSTRUCTIONS PERSONNALISÉES:
@@ -263,32 +273,23 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         });
       }
 
-      await prisma.$connect();
+      // ✅ RÉCUPÉRER L'AGENT AVEC SA BASE DE CONNAISSANCES (SUPABASE)
+      const { data: agent, error: agentError } = await supabaseServiceClient
+        .from('agents')
+        .select(`
+          id, name, type, personality, description,
+          welcomeMessage, fallbackMessage, avatar, config,
+          agent_knowledge_base!inner(
+            knowledge_base!inner(
+              id, title, content, contentType, isActive
+            )
+          )
+        `)
+        .eq('id', body.agentId)
+        .eq('shopId', shop.id)
+        .single();
 
-      // ✅ RÉCUPÉRER L'AGENT AVEC SA BASE DE CONNAISSANCES
-      const agent = await prisma.agent.findFirst({
-        where: { 
-          id: body.agentId,
-          shopId: shop.id 
-        },
-        include: {
-          knowledgeBase: {
-            include: {
-              knowledgeBase: {
-                select: {
-                  id: true,
-                  title: true,
-                  content: true,
-                  contentType: true,
-                  isActive: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!agent) {
+      if (agentError || !agent) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Agent non trouvé' 
@@ -296,9 +297,9 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
-      const knowledgeBase = agent.knowledgeBase
-        .filter(kb => kb.knowledgeBase.isActive)
-        .map(kb => kb.knowledgeBase);
+      const knowledgeBase = agent.agent_knowledge_base
+        .filter((akb: any) => akb.knowledge_base.isActive)
+        .map((akb: any) => akb.knowledge_base);
 
       // ✅ CONSTRUIRE LE PROMPT SYSTÈME
       const systemPrompt = buildSystemPrompt(agent, knowledgeBase);
@@ -311,7 +312,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         }
       ];
 
-      // ✅ CHOISIR LE PROVIDER IA - CORRIGÉ
+      // ✅ CHOISIR LE PROVIDER IA
       const agentConfig = agent.config as AgentConfig;
       const aiProvider = agentConfig?.aiProvider || 'openai';
       const temperature = agentConfig?.temperature || 0.7;
@@ -331,8 +332,6 @@ export default async function chatRoutes(fastify: FastifyInstance) {
 
       const responseTime = Date.now() - startTime;
 
-      await prisma.$disconnect();
-
       fastify.log.info(`✅ Test IA réussi avec ${provider} en ${responseTime}ms`);
 
       return {
@@ -351,7 +350,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ Erreur test IA:', error);
+      fastify.log.error('❌ Erreur test IA');
+      console.error('Détails erreur test IA:', error);
       
       if (error.message === 'Token manquant' || error.message === 'Token invalide') {
         return reply.status(401).send({ 
@@ -377,105 +377,124 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       
       const body = sendMessageSchema.parse(request.body);
 
-      await prisma.$connect();
+      // ✅ RÉCUPÉRER LE SHOP ET SES AGENTS (SUPABASE)
+      const { data: shop, error: shopError } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .eq('id', body.shopId)
+        .single();
 
-      // ✅ RÉCUPÉRER LE SHOP ET L'AGENT
-      const shop = await prisma.shop.findUnique({
-        where: { id: body.shopId },
-        include: {
-          agents: {
-            where: { isActive: true },
-            include: {
-              knowledgeBase: {
-                include: {
-                  knowledgeBase: {
-                    select: {
-                      id: true,
-                      title: true,
-                      content: true,
-                      contentType: true,
-                      isActive: true
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!shop || !shop.is_active) {
+      if (shopError || !shop || !shop.is_active) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Shop non trouvé ou inactif' 
         });
       }
 
-      // ✅ SÉLECTIONNER L'AGENT (Premier actif ou celui spécifié)
-      let agent = null;
-      if (body.agentId) {
-        agent = shop.agents.find(a => a.id === body.agentId);
-      } else {
-        agent = shop.agents[0]; // Premier agent actif
-      }
+      // ✅ RÉCUPÉRER LES AGENTS ACTIFS
+      const { data: agents, error: agentsError } = await supabaseServiceClient
+        .from('agents')
+        .select(`
+          id, name, type, personality, description,
+          welcomeMessage, fallbackMessage, avatar, config,
+          agent_knowledge_base!inner(
+            knowledge_base!inner(
+              id, title, content, contentType, isActive
+            )
+          )
+        `)
+        .eq('shopId', shop.id)
+        .eq('isActive', true);
 
-      if (!agent) {
+      if (agentsError || !agents || agents.length === 0) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Aucun agent actif trouvé' 
         });
       }
 
-      // ✅ GÉRER LA CONVERSATION - CORRIGÉ
-      let conversation = null;
-      if (body.conversationId) {
-        conversation = await prisma.conversation.findUnique({
-          where: { id: body.conversationId },
-          include: { messages: true }
+      // ✅ SÉLECTIONNER L'AGENT (Premier actif ou celui spécifié)
+      let agent = null;
+      if (body.agentId) {
+        agent = agents.find(a => a.id === body.agentId);
+      } else {
+        agent = agents[0]; // Premier agent actif
+      }
+
+      if (!agent) {
+        return reply.status(404).send({ 
+          success: false, 
+          error: 'Agent spécifié non trouvé' 
         });
       }
 
-      if (!conversation) {
-  conversation = await prisma.conversation.create({
-    data: {
-      shopId: shop.id,
-      agentId: agent.id,
-      status: 'active',
-      // ✅ UTILISER LES VRAIS CHAMPS DE TON SCHEMA
-      visitorIp: request.ip,
-      visitorUserAgent: request.headers['user-agent'] || '',
-      productId: body.productContext?.id || null,
-      productName: body.productContext?.name || null,
-      productUrl: body.productContext?.url || null,
-      productPrice: body.productContext?.price ? new Decimal(body.productContext.price) : null,
-      // ✅ UTILISER customerData au lieu de metadata
-      customerData: {
-        userAgent: request.headers['user-agent'] || '',
-        ip: request.ip,
-        productContext: body.productContext || {}
+      // ✅ GÉRER LA CONVERSATION (SUPABASE)
+      let conversation = null;
+      if (body.conversationId) {
+        const { data: existingConv } = await supabaseServiceClient
+          .from('conversations')
+          .select('*, messages(*)')
+          .eq('id', body.conversationId)
+          .single();
+        conversation = existingConv;
       }
-    },
-    include: { messages: true }
-  });
-}
+
+      if (!conversation) {
+        // ✅ CRÉER NOUVELLE CONVERSATION
+        const { data: newConv, error: convError } = await supabaseServiceClient
+          .from('conversations')
+          .insert({
+            shopId: shop.id,
+            agentId: agent.id,
+            status: 'active',
+            visitorIp: request.ip,
+            visitorUserAgent: request.headers['user-agent'] || '',
+            productId: body.productContext?.id || null,
+            productName: body.productContext?.name || null,
+            productUrl: body.productContext?.url || null,
+            productPrice: body.productContext?.price || null,
+            customerData: {
+              userAgent: request.headers['user-agent'] || '',
+              ip: request.ip,
+              productContext: body.productContext || {}
+            }
+          })
+          .select('*, messages(*)')
+          .single();
+
+        if (convError) {
+          fastify.log.error('❌ Erreur création conversation');
+          console.error('Détails erreur conversation:', convError);
+          return reply.status(500).send({ 
+            success: false, 
+            error: 'Erreur création conversation' 
+          });
+        }
+
+        conversation = newConv;
+      }
 
       // ✅ SAUVEGARDER LE MESSAGE UTILISATEUR
-      await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        role: 'user',
-        content: body.message,
-        contentType: 'text', // ✅ Champ requis dans ton schema
-        // ✅ Pas de metadata dans Message selon ton schema
+      const { error: msgError } = await supabaseServiceClient
+        .from('messages')
+        .insert({
+          conversationId: conversation.id,
+          role: 'user',
+          content: body.message,
+          contentType: 'text'
+        });
+
+      if (msgError) {
+        fastify.log.error('❌ Erreur sauvegarde message');
+        console.error('Détails erreur message:', msgError);
       }
-    });
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
-      const knowledgeBase = agent.knowledgeBase
-        .filter(kb => kb.knowledgeBase.isActive)
-        .map(kb => kb.knowledgeBase);
+      const knowledgeBase = agent.agent_knowledge_base
+        .filter((akb: any) => akb.knowledge_base.isActive)
+        .map((akb: any) => akb.knowledge_base);
 
-      // ✅ CONSTRUIRE L'HISTORIQUE DE LA CONVERSATION - CORRIGÉ
+      // ✅ CONSTRUIRE L'HISTORIQUE DE LA CONVERSATION
       const conversationHistory = (conversation.messages || []).map((msg: ConversationMessage) => ({
         role: msg.role,
         content: msg.content
@@ -490,7 +509,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ CONSTRUIRE LE PROMPT SYSTÈME
       const systemPrompt = buildSystemPrompt(agent, knowledgeBase, body.productContext);
 
-      // ✅ GÉNÉRER LA RÉPONSE IA - CORRIGÉ
+      // ✅ GÉNÉRER LA RÉPONSE IA
       const agentConfig = agent.config as AgentConfig;
       const aiProvider = agentConfig?.aiProvider || 'openai';
       const temperature = agentConfig?.temperature || 0.7;
@@ -507,27 +526,29 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ SAUVEGARDER LA RÉPONSE IA
-      await prisma.message.create({
-        data: {
+      const { error: aiMsgError } = await supabaseServiceClient
+        .from('messages')
+        .insert({
           conversationId: conversation.id,
           role: 'assistant',
           content: aiResponse,
           contentType: 'text',
-          responseTimeMs: Date.now() - startTime, // ✅ Champ dans ton schema
-          modelUsed: provider, // ✅ Champ dans ton schema
+          responseTimeMs: Date.now() - startTime,
+          modelUsed: provider,
           tokensUsed: 0, // À calculer si possible
-          // ✅ Utiliser actionData pour les métadonnées
           actionData: {
             provider: provider,
             temperature: temperature,
             timestamp: new Date().toISOString()
           }
-        }
-      });
+        });
+
+      if (aiMsgError) {
+        fastify.log.error('❌ Erreur sauvegarde réponse IA');
+        console.error('Détails erreur IA:', aiMsgError);
+      }
 
       const responseTime = Date.now() - startTime;
-
-      await prisma.$disconnect();
 
       fastify.log.info(`✅ Message traité avec ${provider} en ${responseTime}ms`);
 
@@ -547,7 +568,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ Erreur chat message:', error);
+      fastify.log.error('❌ Erreur chat message');
+      console.error('Détails erreur chat message:', error);
       
       return reply.status(500).send({
         success: false,
@@ -602,7 +624,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ Erreur analyse intention:', error);
+      fastify.log.error('❌ Erreur analyse intention');
+      console.error('Détails erreur analyse intention:', error);
       
       return reply.status(500).send({
         success: false,

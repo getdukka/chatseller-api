@@ -1,9 +1,8 @@
-// src/routes/conversations.ts - VERSION CORRIGÉE AVEC TYPES LOGS
+// src/routes/conversations.ts - VERSION SUPABASE PURE
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { PrismaClient } from '@prisma/client'
-import prisma from '../lib/prisma'
+import { supabaseServiceClient } from '../lib/supabase'
 
 // ✅ SCHÉMAS DE VALIDATION
 const conversationCreateSchema = z.object({
@@ -42,37 +41,39 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`📞 Récupération conversations pour shop: ${shopId}`)
 
-      await prisma.$connect()
+      // ✅ REQUÊTE SUPABASE : Récupérer conversations avec dernier message
+      const { data: conversations, error } = await supabaseServiceClient
+        .from('conversations')
+        .select(`
+          *,
+          messages!conversations_messages_conversationId_fkey (
+            id, content, role, createdAt, tokensUsed, responseTimeMs
+          )
+        `)
+        .eq('shopId', shopId)
+        .order('startedAt', { ascending: false })
 
-      const conversations = await prisma.conversation.findMany({
-        where: {
-          shopId: shopId
-        },
-        include: {
-          messages: {
-            take: 1,
-            orderBy: {
-              createdAt: 'desc'
-            }
-          }
-        },
-        orderBy: {
-          startedAt: 'desc'
-        }
-      })
+      if (error) {
+        throw new Error(`Supabase error: ${error.message}`)
+      }
 
-      await prisma.$disconnect()
+      // ✅ TRAITEMENT : Garder seulement le dernier message pour chaque conversation
+      const conversationsWithLastMessage = conversations?.map(conv => ({
+        ...conv,
+        messages: conv.messages
+          ?.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          ?.slice(0, 1) || []
+      })) || []
 
-      fastify.log.info(`✅ Conversations trouvées: ${conversations.length}`)
+      fastify.log.info(`✅ Conversations trouvées: ${conversationsWithLastMessage.length}`)
 
       return {
         success: true,
-        data: conversations,
-        count: conversations.length
+        data: conversationsWithLastMessage,
+        count: conversationsWithLastMessage.length
       }
 
     } catch (error: any) {
-      // ✅ CORRECTION: Typage correct pour le logger
       fastify.log.error({
         error: error.message || 'Erreur inconnue',
         stack: error.stack
@@ -103,29 +104,34 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`🔍 Récupération conversation: ${conversationId}`)
 
-      await prisma.$connect()
+      // ✅ REQUÊTE SUPABASE : Récupérer conversation avec tous les messages
+      const { data: conversation, error } = await supabaseServiceClient
+        .from('conversations')
+        .select(`
+          *,
+          messages!conversations_messages_conversationId_fkey (
+            id, content, role, createdAt, tokensUsed, responseTimeMs, modelUsed
+          )
+        `)
+        .eq('id', conversationId)
+        .eq('shopId', shopId)
+        .single()
 
-      const conversation = await prisma.conversation.findFirst({
-        where: {
-          id: conversationId,
-          shopId: shopId
-        },
-        include: {
-          messages: {
-            orderBy: {
-              createdAt: 'asc'
-            }
-          }
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Conversation non trouvée'
+          })
         }
-      })
+        throw new Error(`Supabase error: ${error.message}`)
+      }
 
-      await prisma.$disconnect()
-
-      if (!conversation) {
-        return reply.status(404).send({
-          success: false,
-          error: 'Conversation non trouvée'
-        })
+      // ✅ TRAITEMENT : Trier les messages par date de création
+      if (conversation.messages) {
+        conversation.messages.sort((a: any, b: any) => 
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        )
       }
 
       return {
@@ -134,7 +140,6 @@ async function conversationsRoutes(fastify: FastifyInstance) {
       }
 
     } catch (error: any) {
-      // ✅ CORRECTION: Typage correct pour le logger
       fastify.log.error({
         conversationId: request.params.conversationId,
         error: error.message || 'Erreur inconnue',
@@ -167,10 +172,10 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`➕ Création conversation pour shop: ${userShopId}`)
 
-      await prisma.$connect()
-
-      const newConversation = await prisma.conversation.create({
-        data: {
+      // ✅ CRÉATION SUPABASE : Nouvelle conversation
+      const { data: newConversation, error } = await supabaseServiceClient
+        .from('conversations')
+        .insert({
           shopId: userShopId,
           visitorId: visitorId,
           agentId: agentId || null,
@@ -179,16 +184,19 @@ async function conversationsRoutes(fastify: FastifyInstance) {
           productPrice: productPrice || null,
           productUrl: productUrl || null,
           status: 'active',
-          startedAt: new Date(),
-          lastActivity: new Date(),
+          startedAt: new Date().toISOString(),
+          lastActivity: new Date().toISOString(),
           messageCount: 0,
           conversionCompleted: false,
           visitorIp: request.ip,
           visitorUserAgent: request.headers['user-agent'] || null
-        }
-      })
+        })
+        .select()
+        .single()
 
-      await prisma.$disconnect()
+      if (error) {
+        throw new Error(`Supabase error: ${error.message}`)
+      }
 
       fastify.log.info(`✅ Conversation créée: ${newConversation.id}`)
 
@@ -198,7 +206,6 @@ async function conversationsRoutes(fastify: FastifyInstance) {
       }
 
     } catch (error: any) {
-      // ✅ CORRECTION: Typage correct pour le logger
       fastify.log.error({
         shopId: request.body,
         error: error.message || 'Erreur inconnue',
@@ -231,35 +238,38 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`✏️ Mise à jour conversation: ${conversationId}`)
 
-      await prisma.$connect()
+      // ✅ VÉRIFICATION SUPABASE : Conversation appartient au shop
+      const { data: existingConversation, error: checkError } = await supabaseServiceClient
+        .from('conversations')
+        .select('id, shopId')
+        .eq('id', conversationId)
+        .eq('shopId', shopId)
+        .single()
 
-      // Vérifier que la conversation appartient au shop
-      const existingConversation = await prisma.conversation.findFirst({
-        where: {
-          id: conversationId,
-          shopId: shopId
+      if (checkError) {
+        if (checkError.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Conversation non trouvée'
+          })
         }
-      })
-
-      if (!existingConversation) {
-        await prisma.$disconnect()
-        return reply.status(404).send({
-          success: false,
-          error: 'Conversation non trouvée'
-        })
+        throw new Error(`Supabase error: ${checkError.message}`)
       }
 
-      const updatedConversation = await prisma.conversation.update({
-        where: {
-          id: conversationId
-        },
-        data: {
+      // ✅ MISE À JOUR SUPABASE : Conversation
+      const { data: updatedConversation, error: updateError } = await supabaseServiceClient
+        .from('conversations')
+        .update({
           ...updateData,
-          lastActivity: new Date()
-        }
-      })
+          lastActivity: new Date().toISOString()
+        })
+        .eq('id', conversationId)
+        .select()
+        .single()
 
-      await prisma.$disconnect()
+      if (updateError) {
+        throw new Error(`Supabase error: ${updateError.message}`)
+      }
 
       return {
         success: true,
@@ -267,7 +277,6 @@ async function conversationsRoutes(fastify: FastifyInstance) {
       }
 
     } catch (error: any) {
-      // ✅ CORRECTION: Typage correct pour le logger
       fastify.log.error({
         conversationId: request.params.conversationId,
         updateData: request.body,
@@ -278,6 +287,138 @@ async function conversationsRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la mise à jour de la conversation'
+      })
+    }
+  })
+
+  // ==========================================
+  // 🗑️ DELETE /api/v1/conversations/:id - SUPPRESSION
+  // ==========================================
+  fastify.delete<{ Params: { conversationId: string } }>('/:conversationId', async (request, reply) => {
+    try {
+      const { conversationId } = request.params
+      const user = request.user as any
+      const shopId = user?.shop_id || user?.id
+
+      if (!shopId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Shop ID non trouvé'
+        })
+      }
+
+      fastify.log.info(`🗑️ Suppression conversation: ${conversationId}`)
+
+      // ✅ VÉRIFICATION ET SUPPRESSION SUPABASE
+      const { data: deletedConversation, error } = await supabaseServiceClient
+        .from('conversations')
+        .delete()
+        .eq('id', conversationId)
+        .eq('shopId', shopId)
+        .select()
+        .single()
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Conversation non trouvée'
+          })
+        }
+        throw new Error(`Supabase error: ${error.message}`)
+      }
+
+      fastify.log.info(`✅ Conversation supprimée: ${conversationId}`)
+
+      return {
+        success: true,
+        message: 'Conversation supprimée avec succès',
+        data: { id: conversationId }
+      }
+
+    } catch (error: any) {
+      fastify.log.error({
+        conversationId: request.params.conversationId,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur suppression conversation')
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la suppression de la conversation'
+      })
+    }
+  })
+
+  // ==========================================
+  // 📊 GET /api/v1/conversations/stats - STATISTIQUES
+  // ==========================================
+  fastify.get('/stats', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user as any
+      const shopId = user?.shop_id || user?.id
+
+      if (!shopId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Shop ID non trouvé'
+        })
+      }
+
+      fastify.log.info(`📊 Récupération stats conversations pour shop: ${shopId}`)
+
+      // ✅ REQUÊTES SUPABASE : Statistiques
+      const [
+        { count: totalConversations },
+        { count: activeConversations },
+        { count: completedConversions }
+      ] = await Promise.all([
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId),
+        
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .eq('status', 'active'),
+        
+        supabaseServiceClient
+          .from('conversations')
+          .select('*', { count: 'exact', head: true })
+          .eq('shopId', shopId)
+          .eq('conversionCompleted', true)
+      ])
+
+      // ✅ CALCUL TAUX CONVERSION
+      const conversionRate = totalConversations && totalConversations > 0 
+        ? ((completedConversions || 0) / totalConversations * 100).toFixed(2)
+        : '0.00'
+
+      const stats = {
+        totalConversations: totalConversations || 0,
+        activeConversations: activeConversations || 0,
+        completedConversions: completedConversions || 0,
+        conversionRate: `${conversionRate}%`
+      }
+
+      fastify.log.info(stats, '✅ Stats conversations calculées')
+
+      return {
+        success: true,
+        data: stats
+      }
+
+    } catch (error: any) {
+      fastify.log.error({
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur récupération stats conversations')
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la récupération des statistiques'
       })
     }
   })

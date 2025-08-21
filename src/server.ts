@@ -1,5 +1,5 @@
 // =====================================
-// SERVER.TS CORRIGÉ POUR RAILWAY V2
+// SERVER.TS - VERSION SUPABASE PURE
 // =====================================
 
 import Fastify from 'fastify'
@@ -8,11 +8,8 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import dotenv from 'dotenv'
 
-// ✅ IMPORT DU SINGLETON PRISMA CORRIGÉ
-import prisma, { simpleHealthCheck, getConnectionStatus } from './lib/prisma'
-
-// ✅ IMPORT DES MODULES SUPABASE
-import { supabaseServiceClient, supabaseAuthClient } from './lib/supabase'
+// ✅ IMPORT UNIQUEMENT SUPABASE
+import { supabaseServiceClient, supabaseAuthClient, testSupabaseConnection } from './lib/supabase'
 import { authenticate, optionalAuthenticate } from './middleware/auth'
 
 // ✅ IMPORT DES ROUTES
@@ -22,6 +19,7 @@ import productsRoutes from './routes/products'
 import publicRoutes from './routes/public' 
 import ordersRoutes from './routes/orders'
 import shopsRoutes from './routes/shops'
+import supportRoutes from './routes/support'
 import knowledgeBaseRoutes from './routes/knowledge-base'
 import conversationsRoutes from './routes/conversations'
 import chatRoutes from './routes/chat'
@@ -29,9 +27,8 @@ import chatRoutes from './routes/chat'
 // Load environment variables
 dotenv.config()
 
-// ✅ VALIDATION VARIABLES D'ENVIRONNEMENT
+// ✅ VALIDATION VARIABLES D'ENVIRONNEMENT (SANS PRISMA)
 const requiredEnvVars = {
-  DATABASE_URL: process.env.DATABASE_URL,
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
@@ -45,9 +42,9 @@ for (const [key, value] of Object.entries(requiredEnvVars)) {
   }
 }
 
-console.log('✅ Variables d\'environnement validées')
+console.log('✅ Variables d\'environnement validées (Supabase)')
 
-// ✅ CREATE FASTIFY INSTANCE OPTIMISÉ RAILWAY
+// ✅ CREATE FASTIFY INSTANCE SIMPLIFIÉ
 const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || 'info'
@@ -71,7 +68,7 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1)
 })
 
-// ✅ GESTION ERREURS FASTIFY SIMPLIFIÉE
+// ✅ GESTION ERREURS FASTIFY
 fastify.setErrorHandler(async (error, request, reply) => {
   fastify.log.error(error, `Error handling request ${request.method} ${request.url}`)
   
@@ -94,7 +91,7 @@ async function registerPlugins() {
 
     // ✅ CORS OPTIMISÉ POUR WIDGET EMBEDDABLE
     await fastify.register(cors, {
-      origin: true, // Autoriser tous les domaines pour le widget
+      origin: true,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
       allowedHeaders: [
@@ -137,48 +134,48 @@ fastify.addHook('onRequest', async (request, reply) => {
   }
 })
 
+// ✅ HEALTH CHECK SIMPLE POUR SUPABASE
+async function simpleSupabaseCheck(): Promise<boolean> {
+  try {
+    const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/`, {
+      headers: { 'apikey': process.env.SUPABASE_SERVICE_KEY! },
+      signal: AbortSignal.timeout(5000)
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
 // Routes
 async function registerRoutes() {
   try {
     
-    // ✅ HEALTH CHECK ULTRA-SIMPLE POUR RAILWAY
+    // ✅ HEALTH CHECK ULTRA-SIMPLE
     fastify.get('/health', async (request, reply) => {
       return reply.status(200).send({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        version: '1.3.1',
+        version: '1.4.0',
         environment: process.env.NODE_ENV || 'development',
         uptime: Math.round(process.uptime()),
         memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
       })
     })
 
-    // ✅ HEALTH CHECK AVEC DB (ROUTE SÉPARÉE)
-    fastify.get('/health/db', async (request, reply) => {
+    // ✅ HEALTH CHECK AVEC SUPABASE (ROUTE SÉPARÉE)
+    fastify.get('/health/supabase', async (request, reply) => {
       const healthData = {
         status: 'ok',
         timestamp: new Date().toISOString(),
         services: {
-          database: 'checking...',
           supabase: 'checking...'
         }
       }
 
-      // Test DB rapide
       try {
-        const dbOk = await simpleHealthCheck()
-        healthData.services.database = dbOk ? 'ok' : 'error'
-      } catch {
-        healthData.services.database = 'error'
-      }
-
-      // Test Supabase rapide
-      try {
-        const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/`, {
-          headers: { 'apikey': process.env.SUPABASE_SERVICE_KEY! },
-          signal: AbortSignal.timeout(3000)
-        })
-        healthData.services.supabase = response.ok ? 'ok' : 'error'
+        const supabaseOk = await simpleSupabaseCheck()
+        healthData.services.supabase = supabaseOk ? 'ok' : 'error'
       } catch {
         healthData.services.supabase = 'error'
       }
@@ -190,13 +187,14 @@ async function registerRoutes() {
     fastify.get('/', async (request, reply) => {
       return {
         success: true,
-        message: 'ChatSeller API is running',
-        version: '1.3.1',
+        message: 'ChatSeller API is running (Supabase)',
+        version: '1.4.0',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV,
+        database: 'Supabase',
         endpoints: {
           health: '/health',
-          healthDb: '/health/db',
+          healthSupabase: '/health/supabase',
           public: '/api/v1/public/*',
           billing: '/api/v1/billing/*',
           auth: '/api/v1/auth/*'
@@ -215,12 +213,32 @@ async function registerRoutes() {
         }
       })
       await fastify.register(publicRoutes)
+      
+      // ✅ AJOUTER CETTE LIGNE POUR LE SUPPORT
+      await fastify.register(supportRoutes, { prefix: '/support' })
+      
+      fastify.log.info('✅ Routes publiques enregistrées: /api/v1/public/*')
+    }, { prefix: '/api/v1/public' })
+
+    // ✅ ROUTES PUBLIQUES (CRITICAL POUR LE WIDGET)
+    await fastify.register(async function (fastify) {
+      await fastify.register(rateLimit, {
+        max: 1000,
+        timeWindow: '1 minute',
+        keyGenerator: (request) => {
+          const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
+          return `public-${request.ip}-${shopId}`
+        }
+      })
+      await fastify.register(publicRoutes)
+      fastify.log.info('✅ Routes publiques enregistrées: /api/v1/public/*')
     }, { prefix: '/api/v1/public' })
 
     // ✅ ROUTES BILLING
     await fastify.register(async function (fastify) {
       await fastify.register(rateLimit, { max: 200, timeWindow: '1 minute' })
       await fastify.register(billingRoutes)
+      fastify.log.info('✅ Routes billing enregistrées: /api/v1/billing/*')
     }, { prefix: '/api/v1/billing' })
 
     // ✅ ROUTES D'AUTHENTIFICATION
@@ -275,6 +293,8 @@ async function registerRoutes() {
           })
         }
       })
+      
+      fastify.log.info('✅ Routes auth enregistrées: /api/v1/auth/*')
     }, { prefix: '/api/v1/auth' })
 
     // ✅ ROUTES API AVEC AUTHENTIFICATION
@@ -289,6 +309,7 @@ async function registerRoutes() {
       await fastify.register(conversationsRoutes, { prefix: '/conversations' })
       await fastify.register(chatRoutes, { prefix: '/chat' })
 
+      fastify.log.info('✅ Routes protégées enregistrées avec succès')
     }, { prefix: '/api/v1' })
 
     // ✅ FALLBACK 404
@@ -297,7 +318,14 @@ async function registerRoutes() {
         success: false,
         error: 'Route not found',
         method: request.method,
-        url: request.url
+        url: request.url,
+        availableEndpoints: [
+          'GET /health',
+          'GET /health/supabase',
+          'GET /',
+          'GET /api/v1/public/shops/public/:shopId/config',
+          'POST /api/v1/public/chat'
+        ]
       })
     })
 
@@ -309,13 +337,10 @@ async function registerRoutes() {
   }
 }
 
-// ✅ GRACEFUL SHUTDOWN
+// ✅ GRACEFUL SHUTDOWN SIMPLIFIÉ
 async function gracefulShutdown(signal: string) {
   try {
     console.log(`🛑 Arrêt du serveur (${signal}) en cours...`)
-    
-    await prisma.$disconnect()
-    console.log('✅ Connexions Prisma fermées')
     
     await fastify.close()
     console.log('✅ Serveur Fastify fermé')
@@ -330,9 +355,9 @@ async function gracefulShutdown(signal: string) {
 // ✅ START SERVER FUNCTION SIMPLIFIÉE
 async function start() {
   try {
-    console.log('🚀 === DÉMARRAGE CHATSELLER API v1.3.1 ===')
+    console.log('🚀 === DÉMARRAGE CHATSELLER API v1.4.0 (SUPABASE) ===')
     console.log('📊 Environment:', process.env.NODE_ENV)
-    console.log('🔌 PRISMA_DISABLE_PREPARED_STATEMENTS:', process.env.PRISMA_DISABLE_PREPARED_STATEMENTS)
+    console.log('🗄️ Database: Supabase')
 
     const port = parseInt(process.env.PORT || '3001', 10)
     const host = '0.0.0.0'
@@ -351,13 +376,13 @@ async function start() {
     console.log(`🌐 URL Railway: https://chatseller-api-production.up.railway.app`)
     console.log(`✅ Application prête à recevoir le trafic`)
     
-    // ✅ TEST CONNEXIONS EN ARRIÈRE-PLAN (non bloquant)
+    // ✅ TEST SUPABASE EN ARRIÈRE-PLAN (non bloquant)
     setTimeout(async () => {
       try {
-        const dbOk = await simpleHealthCheck()
-        console.log(`🗄️ Database: ${dbOk ? '✅ OK' : '❌ ERROR'}`)
+        const supabaseTest = await testSupabaseConnection()
+        console.log(`🗄️ Supabase: ${supabaseTest.success ? '✅ OK' : '❌ ERROR'}`)
       } catch (e) {
-        console.log('🗄️ Database: ❌ ERROR (non bloquant)')
+        console.log('🗄️ Supabase: ❌ ERROR (non bloquant)')
       }
     }, 2000)
     

@@ -1,9 +1,7 @@
-// src/routes/shops.ts - VERSION CORRIGÉE LOGS PINO
+// src/routes/shops.ts - VERSION SUPABASE PURE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
-import prisma from '../lib/prisma'
+import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
 
 // ✅ INTERFACES POUR CONFIGURATIONS
 interface WidgetConfig {
@@ -13,7 +11,7 @@ interface WidgetConfig {
   buttonText?: string;
   primaryColor?: string;
   widgetSize?: string;
-  borderRadius?: string; // ✅ AJOUT BORDERRADIUS
+  borderRadius?: string;
   animation?: string;
   autoOpen?: boolean;
   showAvatar?: boolean;
@@ -35,7 +33,8 @@ interface AgentConfig {
   maxTokens?: number;
 }
 
-interface AgentWithKnowledgeBase {
+// ✅ INTERFACE SIMPLIFIÉE POUR SUPABASE
+interface SupabaseAgent {
   id: string;
   name: string;
   type: string | null;
@@ -46,16 +45,7 @@ interface AgentWithKnowledgeBase {
   fallbackMessage: string | null;
   isActive: boolean;
   config: any;
-  knowledgeBase: Array<{
-    knowledgeBase: {
-      id: string;
-      title: string;
-      content: string | null;
-      contentType: string;
-      tags: string[];
-      isActive: boolean;
-    }
-  }>;
+  agent_knowledge_base?: any[]; // ✅ Type flexible pour Supabase
 }
 
 interface ShopWithAgents {
@@ -64,20 +54,14 @@ interface ShopWithAgents {
   email: string;
   domain: string | null;
   subscription_plan: string | null;
-  widget_config: Prisma.JsonValue | null;
-  agent_config: Prisma.JsonValue | null;
+  widget_config: any;
+  agent_config: any;
   is_active: boolean | null;
-  updatedAt: Date | null;
-  agents: AgentWithKnowledgeBase[];
+  updated_at: string | null;
+  agents?: SupabaseAgent[];
 }
 
-// ✅ SUPABASE
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
-
-// ✅ SCHÉMAS DE VALIDATION RENFORCÉS
+// ✅ SCHÉMAS DE VALIDATION
 const updateShopSchema = z.object({
   name: z.string().optional(),
   domain: z.string().nullable().optional(),
@@ -86,7 +70,6 @@ const updateShopSchema = z.object({
   subscription_plan: z.enum(['free', 'starter', 'pro', 'professional', 'enterprise']).optional(),
   onboarding_completed: z.boolean().optional(),
   onboarding_completed_at: z.string().datetime().nullable().optional(),
-  // ✅ VALIDATION WIDGET CONFIG AVEC BORDERRADIUS
   widget_config: z.object({
     primaryColor: z.string().optional(),
     buttonText: z.string().optional(),
@@ -94,7 +77,7 @@ const updateShopSchema = z.object({
     theme: z.string().optional(),
     language: z.string().optional(),
     widgetSize: z.string().optional(),
-    borderRadius: z.string().optional(), // ✅ AJOUT
+    borderRadius: z.string().optional(),
     animation: z.string().optional(),
     autoOpen: z.boolean().optional(),
     showAvatar: z.boolean().optional(),
@@ -134,7 +117,7 @@ const createShopSchema = z.object({
     buttonText: z.string().optional(),
     primaryColor: z.string().optional(),
     widgetSize: z.string().optional(),
-    borderRadius: z.string().optional(), // ✅ AJOUT
+    borderRadius: z.string().optional(),
     animation: z.string().optional(),
     autoOpen: z.boolean().optional(),
     showAvatar: z.boolean().optional(),
@@ -153,7 +136,7 @@ const createShopSchema = z.object({
   }).optional()
 });
 
-// ✅ HELPER FUNCTIONS
+// ✅ HELPER FUNCTIONS SUPABASE
 async function verifySupabaseAuth(request: FastifyRequest) {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -161,7 +144,7 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   }
 
   const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
   
   if (error || !user) {
     throw new Error('Token invalide');
@@ -172,23 +155,18 @@ async function verifySupabaseAuth(request: FastifyRequest) {
 
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   try {
-    let shop = await prisma.shop.findUnique({
-      where: { id: user.id }
-    });
+    // ✅ CHERCHER SHOP EXISTANT AVEC SUPABASE
+    const { data: existingShop, error: findError } = await supabaseServiceClient
+      .from('shops')
+      .select('*')
+      .or(`id.eq.${user.id},email.eq.${user.email}`)
+      .single();
 
-    if (shop) {
-      return shop;
+    if (!findError && existingShop) {
+      return existingShop;
     }
 
-    shop = await prisma.shop.findUnique({
-      where: { email: user.email }
-    });
-
-    if (shop) {
-      return shop;
-    }
-
-    // ✅ CONFIGURATION WIDGET PAR DÉFAUT AVEC BORDERRADIUS
+    // ✅ CONFIGURATION PAR DÉFAUT
     const defaultWidgetConfig = {
       theme: "modern",
       language: "fr", 
@@ -196,7 +174,7 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
       buttonText: "Parler à un conseiller",
       primaryColor: "#3B82F6",
       widgetSize: "medium",
-      borderRadius: "md", // ✅ AJOUT
+      borderRadius: "md",
       animation: "fade",
       autoOpen: false,
       showAvatar: true,
@@ -217,17 +195,24 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
       maxTokens: 1000
     };
 
-    const newShop = await prisma.shop.create({
-      data: {
+    // ✅ CRÉER NOUVEAU SHOP AVEC SUPABASE
+    const { data: newShop, error: createError } = await supabaseServiceClient
+      .from('shops')
+      .insert({
         id: user.id,
         name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
         email: user.email,
         subscription_plan: 'free',
         is_active: true,
-        widget_config: defaultWidgetConfig as Prisma.InputJsonObject,
-        agent_config: defaultAgentConfig as Prisma.InputJsonObject
-      }
-    });
+        widget_config: defaultWidgetConfig,
+        agent_config: defaultAgentConfig
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      throw createError;
+    }
 
     return newShop;
 
@@ -243,7 +228,6 @@ function mergeConfigIntelligent(existing: any, updates: any): any {
   if (!existing) return updates;
   if (!updates) return existing;
   
-  // Fusion profonde pour éviter la perte de données
   const merged = { ...existing };
   
   Object.keys(updates).forEach(key => {
@@ -266,7 +250,7 @@ interface ShopQueryType {
 
 export default async function shopsRoutes(fastify: FastifyInstance) {
   
-  // ✅ CORRECTION PRINCIPALE : ROUTE PUBLIQUE CONFIG CORRIGÉE
+  // ✅ ROUTE PUBLIQUE CONFIG (SUPABASE SEULEMENT)
   fastify.get<{ Params: ShopParamsType; Querystring: ShopQueryType }>('/public/:id/config', async (request, reply) => {
     try {
       const { id: shopId } = request.params;
@@ -274,7 +258,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`🔍 [PUBLIC] Récupération config publique shop: ${shopId}, agent: ${agentId || 'auto'}`);
 
-      // ✅ VALIDATION UUID SHOPID
+      // ✅ VALIDATION UUID
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(shopId)) {
         fastify.log.warn(`⚠️ [PUBLIC] ShopId invalide: ${shopId}`);
@@ -284,38 +268,14 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const shop = await prisma.shop.findUnique({
-        where: { id: shopId },
-        include: {
-          agents: {
-            where: agentId ? { id: agentId } : { isActive: true },
-            include: {
-              knowledgeBase: {
-                include: {
-                  knowledgeBase: {
-                    select: {
-                      id: true,
-                      title: true,
-                      content: true,
-                      contentType: true,
-                      tags: true,
-                      isActive: true
-                    }
-                  }
-                },
-                where: {
-                  knowledgeBase: {
-                    isActive: true
-                  }
-                }
-              }
-            },
-            orderBy: { createdAt: 'asc' }
-          }
-        }
-      }) as ShopWithAgents | null;
+      // ✅ RÉCUPÉRER SHOP AVEC SUPABASE
+      const { data: shop, error: shopError } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .eq('id', shopId)
+        .single();
 
-      if (!shop || !shop.is_active) {
+      if (shopError || !shop || !shop.is_active) {
         fastify.log.warn(`⚠️ [PUBLIC] Shop non trouvé ou inactif: ${shopId}`);
         return reply.status(404).send({
           success: false,
@@ -323,11 +283,36 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      let selectedAgent: AgentWithKnowledgeBase | null = null;
+      // ✅ RÉCUPÉRER AGENTS AVEC KNOWLEDGE BASE
+      let agentsQuery = supabaseServiceClient
+        .from('agents')
+        .select(`
+          id, name, type, personality, description, avatar,
+          welcomeMessage, fallbackMessage, isActive, config,
+          agent_knowledge_base!inner(
+            knowledge_base!inner(
+              id, title, content, contentType, tags, isActive
+            )
+          )
+        `)
+        .eq('shopId', shopId);
+
       if (agentId) {
-        selectedAgent = shop.agents.find((agent: AgentWithKnowledgeBase) => agent.id === agentId) || null;
+        agentsQuery = agentsQuery.eq('id', agentId);
       } else {
-        selectedAgent = shop.agents.find((agent: AgentWithKnowledgeBase) => agent.isActive) || shop.agents[0] || null;
+        agentsQuery = agentsQuery.eq('isActive', true);
+      }
+
+      const { data: agents, error: agentError } = await agentsQuery.order('created_at', { ascending: true });
+
+      let selectedAgent: SupabaseAgent | null = null;
+      
+      if (agents && agents.length > 0) {
+        if (agentId) {
+          selectedAgent = agents.find((agent: any) => agent.id === agentId) || null;
+        } else {
+          selectedAgent = agents.find((agent: any) => agent.isActive) || agents[0] || null;
+        }
       }
 
       if (!selectedAgent) {
@@ -341,7 +326,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       const widgetConfig = shop.widget_config as WidgetConfig | null;
       const agentConfig = selectedAgent.config as AgentConfig | null;
 
-      // ✅ CONFIGURATION PUBLIQUE COMPLÈTE AVEC BORDERRADIUS
+      // ✅ CONFIGURATION PUBLIQUE COMPLÈTE
       const publicConfig = {
         shop: {
           id: shop.id,
@@ -349,14 +334,13 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           name: shop.name,
           domain: shop.domain,
           subscription_plan: shop.subscription_plan,
-          // ✅ TOUTES LES PROPRIÉTÉS WIDGET EXPOSÉES + BORDERRADIUS
           primaryColor: widgetConfig?.primaryColor || '#3B82F6',
           buttonText: widgetConfig?.buttonText || 'Parler à un conseiller',
           position: widgetConfig?.position || 'above-cta',
           theme: widgetConfig?.theme || 'modern',
           language: widgetConfig?.language || 'fr',
           widgetSize: widgetConfig?.widgetSize || 'medium',
-          borderRadius: widgetConfig?.borderRadius || 'md', // ✅ AJOUT BORDERRADIUS
+          borderRadius: widgetConfig?.borderRadius || 'md',
           animation: widgetConfig?.animation || 'fade',
           autoOpen: widgetConfig?.autoOpen || false,
           showAvatar: widgetConfig?.showAvatar !== false,
@@ -381,7 +365,9 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           aiProvider: agentConfig?.aiProvider || 'openai',
           temperature: agentConfig?.temperature || 0.7,
           maxTokens: agentConfig?.maxTokens || 1000,
-          knowledgeBase: selectedAgent.knowledgeBase?.map((kb: { knowledgeBase: any }) => kb.knowledgeBase) || []
+          knowledgeBase: selectedAgent.agent_knowledge_base?.map((akb: any) => 
+            akb.knowledge_base ? akb.knowledge_base : akb
+          ) || []
         }
       };
 
@@ -403,7 +389,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR UN SHOP (GET /api/v1/shops/:id) - LOGS CORRIGÉS
+  // ✅ ROUTE : OBTENIR UN SHOP (SUPABASE SEULEMENT)
   fastify.get<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -411,47 +397,45 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`🔍 Récupération shop: ${id}`);
 
-      const shop = await prisma.shop.findFirst({
-        where: { 
-          id,
-          OR: [
-            { id: user.id },
-            { email: user.email }
-          ]
-        },
-        include: {
-          agents: {
-            include: {
-              knowledgeBase: {
-                include: {
-                  knowledgeBase: {
-                    select: {
-                      id: true,
-                      title: true,
-                      contentType: true,
-                      isActive: true
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
+      // ✅ RÉCUPÉRER SHOP AVEC AGENTS
+      const { data: shop, error: shopError } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .or(`id.eq.${id},email.eq.${user.email}`)
+        .eq('id', id)
+        .single();
 
-      if (!shop) {
+      if (shopError || !shop) {
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
         });
       }
 
-      // ✅ LOG CORRIGÉ POUR PINO
+      // ✅ RÉCUPÉRER AGENTS DU SHOP
+      const { data: agents, error: agentsError } = await supabaseServiceClient
+        .from('agents')
+        .select(`
+          id, name, type, personality, description, avatar,
+          welcomeMessage, fallbackMessage, isActive, config, created_at,
+          agent_knowledge_base!inner(
+            knowledge_base!inner(
+              id, title, contentType, isActive
+            )
+          )
+        `)
+        .eq('shopId', id);
+
+      const shopWithAgents = {
+        ...shop,
+        agents: agents || []
+      };
+
       fastify.log.info(`✅ Shop récupéré avec widget_config: ${JSON.stringify(shop.widget_config)}`);
 
       return {
         success: true,
-        data: shop
+        data: shopWithAgents
       };
 
     } catch (error: any) {
@@ -472,12 +456,12 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UN SHOP (POST /api/v1/shops) - LOGS CORRIGÉS
+  // ✅ ROUTE : CRÉER UN SHOP (SUPABASE SEULEMENT)
   fastify.post('/', async (request, reply) => {
     try {
       const user = await verifySupabaseAuth(request);
       
-      // ✅ SI AUCUN BODY OU BODY VIDE, UTILISER getOrCreateShop
+      // ✅ SI AUCUN BODY, UTILISER getOrCreateShop
       if (!request.body || Object.keys(request.body as object).length === 0) {
         fastify.log.info(`🏗️ Création automatique shop pour: ${user.email}`);
         const shop = await getOrCreateShop(user, fastify);
@@ -494,16 +478,11 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       fastify.log.info(`🏗️ Création shop custom pour: ${user.email}`);
 
       // ✅ VÉRIFIER SI LE SHOP EXISTE DÉJÀ
-      const existingShop = await prisma.shop.findFirst({
-        where: {
-          OR: [
-            { id: body.id },
-            { id: user.id },
-            { email: body.email },
-            { email: user.email }
-          ]
-        }
-      });
+      const { data: existingShop } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .or(`id.eq.${body.id},email.eq.${body.email}`)
+        .single();
 
       if (existingShop) {
         fastify.log.info(`✅ Shop existant retourné: ${existingShop.id}`);
@@ -515,7 +494,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         };
       }
 
-      // ✅ CRÉER NOUVEAU SHOP AVEC CONFIGS PAR DÉFAUT AVEC BORDERRADIUS
+      // ✅ CRÉER NOUVEAU SHOP
       const defaultWidgetConfig = {
         theme: "modern",
         language: "fr", 
@@ -523,7 +502,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         buttonText: "Parler à un conseiller",
         primaryColor: "#3B82F6",
         widgetSize: "medium",
-        borderRadius: "md", // ✅ AJOUT
+        borderRadius: "md",
         animation: "fade",
         autoOpen: false,
         showAvatar: true,
@@ -546,8 +525,9 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         ...body.agent_config
       };
 
-      const newShop = await prisma.shop.create({
-        data: {
+      const { data: newShop, error: createError } = await supabaseServiceClient
+        .from('shops')
+        .insert({
           id: body.id,
           name: body.name,
           email: body.email,
@@ -557,13 +537,17 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           subscription_plan: body.subscription_plan,
           is_active: body.is_active,
           onboarding_completed: body.onboarding_completed, 
-          onboarding_completed_at: body.onboarding_completed_at ? new Date(body.onboarding_completed_at) : null, 
-          widget_config: defaultWidgetConfig as Prisma.InputJsonObject,
-          agent_config: defaultAgentConfig as Prisma.InputJsonObject
-        }
-      });
+          onboarding_completed_at: body.onboarding_completed_at ? body.onboarding_completed_at : null, 
+          widget_config: defaultWidgetConfig,
+          agent_config: defaultAgentConfig
+        })
+        .select()
+        .single();
 
-      // ✅ LOG CORRIGÉ POUR PINO
+      if (createError) {
+        throw createError;
+      }
+
       fastify.log.info(`✅ Shop créé avec widget_config (borderRadius: ${defaultWidgetConfig.borderRadius}): ${JSON.stringify(newShop.widget_config)}`);
 
       return {
@@ -598,7 +582,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : METTRE À JOUR UN SHOP (PUT /api/v1/shops/:id) - LOGS CORRIGÉS
+  // ✅ ROUTE : METTRE À JOUR UN SHOP (SUPABASE SEULEMENT)
   fastify.put<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -607,20 +591,17 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       // ✅ VALIDATION
       const body = updateShopSchema.parse(request.body);
 
-      // ✅ LOG CORRIGÉ POUR PINO
       fastify.log.info(`📝 Mise à jour shop ${id} - widget: ${!!body.widget_config}, agent: ${!!body.agent_config}`);
 
-      const existingShop = await prisma.shop.findFirst({
-        where: { 
-          id,
-          OR: [
-            { id: user.id },
-            { email: user.email }
-          ]
-        }
-      });
+      // ✅ VÉRIFIER QUE LE SHOP EXISTE
+      const { data: existingShop, error: findError } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .or(`id.eq.${user.id},email.eq.${user.email}`)
+        .eq('id', id)
+        .single();
 
-      if (!existingShop) {
+      if (findError || !existingShop) {
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
@@ -629,7 +610,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       // ✅ PRÉPARER LES DONNÉES DE MISE À JOUR
       const updateData: any = {
-        updatedAt: new Date()
+        updated_at: new Date().toISOString()
       };
 
       if (body.name !== undefined) updateData.name = body.name;
@@ -639,14 +620,13 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       if (body.subscription_plan !== undefined) updateData.subscription_plan = body.subscription_plan;
       if (body.onboarding_completed !== undefined) updateData.onboarding_completed = body.onboarding_completed;
       if (body.onboarding_completed_at !== undefined) {
-        updateData.onboarding_completed_at = body.onboarding_completed_at ? new Date(body.onboarding_completed_at) : null;
+        updateData.onboarding_completed_at = body.onboarding_completed_at ? body.onboarding_completed_at : null;
       }
 
-      // ✅ FUSION INTELLIGENTE DES CONFIGURATIONS WIDGET AVEC BORDERRADIUS
+      // ✅ FUSION INTELLIGENTE DES CONFIGURATIONS WIDGET
       if (body.widget_config) {
         const existingWidgetConfig = existingShop.widget_config as WidgetConfig | null;
         
-        // ✅ VALIDATION ET NETTOYAGE DES DONNÉES WIDGET
         const cleanWidgetConfig = {
           ...existingWidgetConfig,
           ...body.widget_config
@@ -669,9 +649,8 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           cleanWidgetConfig.isActive = Boolean(cleanWidgetConfig.isActive);
         }
         
-        updateData.widget_config = cleanWidgetConfig as Prisma.InputJsonObject;
+        updateData.widget_config = cleanWidgetConfig;
         
-        // ✅ LOG CORRIGÉ POUR PINO
         fastify.log.info(`🎨 Widget config merger (borderRadius: ${cleanWidgetConfig.borderRadius}) - existant: ${!!existingWidgetConfig}, fusionné: ${!!cleanWidgetConfig}`);
       }
 
@@ -680,41 +659,47 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         const existingAgentConfig = existingShop.agent_config as AgentConfig | null;
         const mergedAgentConfig = mergeConfigIntelligent(existingAgentConfig, body.agent_config);
         
-        updateData.agent_config = mergedAgentConfig as Prisma.InputJsonObject;
+        updateData.agent_config = mergedAgentConfig;
         
-        // ✅ LOG CORRIGÉ POUR PINO
         fastify.log.info(`🤖 Agent config merger - existant: ${!!existingAgentConfig}, fusionné: ${!!mergedAgentConfig}`);
       }
 
-      const updatedShop = await prisma.shop.update({
-        where: { id },
-        data: updateData,
-        include: {
-          agents: {
-            include: {
-              knowledgeBase: {
-                include: {
-                  knowledgeBase: {
-                    select: {
-                      id: true,
-                      title: true,
-                      contentType: true,
-                      isActive: true
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
+      // ✅ METTRE À JOUR AVEC SUPABASE
+      const { data: updatedShop, error: updateError } = await supabaseServiceClient
+        .from('shops')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
 
-      // ✅ LOG CORRIGÉ POUR PINO
+      if (updateError) {
+        throw updateError;
+      }
+
+      // ✅ RÉCUPÉRER AGENTS POUR RÉPONSE COMPLÈTE
+      const { data: agents } = await supabaseServiceClient
+        .from('agents')
+        .select(`
+          id, name, type, personality, description, avatar,
+          welcomeMessage, fallbackMessage, isActive, config, created_at,
+          agent_knowledge_base!inner(
+            knowledge_base!inner(
+              id, title, contentType, isActive
+            )
+          )
+        `)
+        .eq('shopId', id);
+
+      const shopWithAgents = {
+        ...updatedShop,
+        agents: agents || []
+      };
+
       fastify.log.info(`✅ Shop ${id} mis à jour avec succès`);
 
       return {
         success: true,
-        data: updatedShop,
+        data: shopWithAgents,
         message: 'Shop mis à jour avec succès'
       };
 
@@ -744,86 +729,98 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR LES STATISTIQUES D'UN SHOP (GET /api/v1/shops/:id/stats)
+  // ✅ ROUTE : OBTENIR LES STATISTIQUES D'UN SHOP (SUPABASE SEULEMENT)
   fastify.get<{ Params: ShopParamsType }>('/:id/stats', async (request, reply) => {
     try {
       const { id } = request.params;
       const user = await verifySupabaseAuth(request);
 
-      const shop = await prisma.shop.findFirst({
-        where: { 
-          id,
-          OR: [
-            { id: user.id },
-            { email: user.email }
-          ]
-        }
-      });
+      // ✅ VÉRIFIER LE SHOP
+      const { data: shop, error: shopError } = await supabaseServiceClient
+        .from('shops')
+        .select('id')
+        .or(`id.eq.${user.id},email.eq.${user.email}`)
+        .eq('id', id)
+        .single();
 
-      if (!shop) {
+      if (shopError || !shop) {
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
         });
       }
 
-      const [totalConversations, totalMessages, totalAgents, activeAgents, totalOrders] = await Promise.all([
-        prisma.conversation.count({
-          where: { shopId: id }
-        }),
-        prisma.message.count({
-          where: { 
-            conversation: { shopId: id } 
-          }
-        }),
-        prisma.agent.count({
-          where: { shopId: id }
-        }),
-        prisma.agent.count({
-          where: { 
-            shopId: id,
-            isActive: true 
-          }
-        }),
-        prisma.order.count({
-          where: { shopId: id }
-        })
-      ]);
-
+      // ✅ CALCULER STATISTIQUES AVEC SUPABASE
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      let conversationsLast30Days = 0;
-      let messagesLast30Days = 0;
-      let ordersLast30Days = 0;
+      const [conversationsResult, messagesResult, agentsResult, ordersResult] = await Promise.all([
+        // Total conversations
+        supabaseServiceClient
+          .from('conversations')
+          .select('id', { count: 'exact', head: true })
+          .eq('shopId', id),
+        
+        // Total messages
+        supabaseServiceClient
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .in('conversationId', [
+            supabaseServiceClient
+              .from('conversations')
+              .select('id')
+              .eq('shopId', id)
+          ]),
+        
+        // Total agents
+        supabaseServiceClient
+          .from('agents')
+          .select('id, isActive', { count: 'exact', head: true })
+          .eq('shopId', id),
+        
+        // Total orders
+        supabaseServiceClient
+          .from('orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('shopId', id)
+      ]);
 
-      try {
-        [conversationsLast30Days, messagesLast30Days, ordersLast30Days] = await Promise.all([
-          prisma.conversation.count({
-            where: { 
-              shopId: id,
-              startedAt: { gte: thirtyDaysAgo }
-            }
-          }),
-          prisma.message.count({
-            where: { 
-              conversation: { shopId: id },
-              createdAt: { gte: thirtyDaysAgo }
-            }
-          }),
-          prisma.order.count({
-            where: { 
-              shopId: id,
-              createdAt: { gte: thirtyDaysAgo }
-            }
-          })
-        ]);
-      } catch (error) {
-        console.warn('Champ de date non trouvé, utilisation des totaux...');
-        conversationsLast30Days = totalConversations;
-        messagesLast30Days = totalMessages;
-        ordersLast30Days = totalOrders;
-      }
+      const totalConversations = conversationsResult.count || 0;
+      const totalMessages = messagesResult.count || 0;
+      const totalOrders = ordersResult.count || 0;
+
+      // ✅ AGENTS ACTIFS
+      const { data: agentsData } = await supabaseServiceClient
+        .from('agents')
+        .select('isActive')
+        .eq('shopId', id);
+
+      const totalAgents = agentsData?.length || 0;
+      const activeAgents = agentsData?.filter(agent => agent.isActive).length || 0;
+
+      // ✅ STATISTIQUES DERNIERS 30 JOURS
+      const [conversationsLast30Result, messagesLast30Result, ordersLast30Result] = await Promise.all([
+        supabaseServiceClient
+          .from('conversations')
+          .select('id', { count: 'exact', head: true })
+          .eq('shopId', id)
+          .gte('created_at', thirtyDaysAgo.toISOString()),
+        
+        supabaseServiceClient
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .gte('created_at', thirtyDaysAgo.toISOString()),
+        
+        supabaseServiceClient
+          .from('orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('shopId', id)
+          .gte('created_at', thirtyDaysAgo.toISOString())
+      ]);
+
+      const conversationsLast30Days = conversationsLast30Result.count || 0;
+      const messagesLast30Days = messagesLast30Result.count || 0;
+      const ordersLast30Days = ordersLast30Result.count || 0;
 
       const stats = {
         total: {
@@ -869,38 +866,44 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : LISTE DES SHOPS DE L'UTILISATEUR (GET /api/v1/shops)
+  // ✅ ROUTE : LISTE DES SHOPS DE L'UTILISATEUR (SUPABASE SEULEMENT)
   fastify.get('/', async (request, reply) => {
     try {
       const user = await verifySupabaseAuth(request);
 
       fastify.log.info(`🔍 Récupération shops pour: ${user.email}`);
 
-      const shops = await prisma.shop.findMany({
-        where: {
-          OR: [
-            { id: user.id },
-            { email: user.email }
-          ]
-        },
-        include: {
-          agents: {
-            select: {
-              id: true,
-              name: true,
-              isActive: true,
-              createdAt: true
-            }
-          }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
+      // ✅ RÉCUPÉRER SHOPS AVEC AGENTS
+      const { data: shops, error: shopsError } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .or(`id.eq.${user.id},email.eq.${user.email}`)
+        .order('created_at', { ascending: false });
+
+      if (shopsError) {
+        throw shopsError;
+      }
+
+      // ✅ RÉCUPÉRER AGENTS POUR CHAQUE SHOP
+      const shopsWithAgents = await Promise.all(
+        (shops || []).map(async (shop) => {
+          const { data: agents } = await supabaseServiceClient
+            .from('agents')
+            .select('id, name, isActive, created_at')
+            .eq('shopId', shop.id);
+          
+          return {
+            ...shop,
+            agents: agents || []
+          };
+        })
+      );
 
       return {
         success: true,
-        data: shops,
+        data: shopsWithAgents,
         meta: {
-          total: shops.length
+          total: shopsWithAgents.length
         }
       };
 
@@ -922,7 +925,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ NOUVELLE ROUTE : TEST DE CONFIGURATION WIDGET
+  // ✅ ROUTE : TEST DE CONFIGURATION WIDGET (SUPABASE SEULEMENT)
   fastify.get<{ Params: ShopParamsType }>('/:id/widget-config', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -930,22 +933,14 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`🎨 Test récupération widget config pour shop: ${id}`);
 
-      const shop = await prisma.shop.findFirst({
-        where: { 
-          id,
-          OR: [
-            { id: user.id },
-            { email: user.email }
-          ]
-        },
-        select: {
-          id: true,
-          widget_config: true,
-          updatedAt: true
-        }
-      });
+      const { data: shop, error: shopError } = await supabaseServiceClient
+        .from('shops')
+        .select('id, widget_config, updated_at')
+        .or(`id.eq.${user.id},email.eq.${user.email}`)
+        .eq('id', id)
+        .single();
 
-      if (!shop) {
+      if (shopError || !shop) {
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
@@ -957,7 +952,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         data: {
           shopId: shop.id,
           widget_config: shop.widget_config,
-          lastUpdated: shop.updatedAt
+          lastUpdated: shop.updated_at
         }
       };
 

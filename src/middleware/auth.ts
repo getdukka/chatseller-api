@@ -1,4 +1,4 @@
-// src/middleware/auth.ts
+// src/middleware/auth.ts - VERSION SUPABASE PURE
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { supabaseAuthClient } from '../lib/supabase'
 
@@ -17,7 +17,7 @@ declare module 'fastify' {
   }
 }
 
-// ✅ MIDDLEWARE D'AUTHENTIFICATION RENFORCÉ
+// ✅ MIDDLEWARE D'AUTHENTIFICATION SUPABASE SEULEMENT
 export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
   try {
     const authHeader = request.headers.authorization
@@ -121,24 +121,21 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   }
 }
 
-// ✅ MIDDLEWARE OPTIONNEL RENFORCÉ
+// ✅ MIDDLEWARE OPTIONNEL SUPABASE SEULEMENT
 export async function optionalAuthenticate(request: FastifyRequest, reply: FastifyReply) {
   try {
     const authHeader = request.headers.authorization
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      // Pas d'auth requise, continuer sans utilisateur
       return
     }
 
     const token = authHeader.replace('Bearer ', '').trim()
     
     if (!token || token.length < 10) {
-      // Token invalide mais auth optionnelle, continuer
       return
     }
 
-    // ✅ TENTATIVE AUTH AVEC TIMEOUT
     try {
       const authPromise = supabaseAuthClient.auth.getUser(token)
       const timeoutPromise = new Promise((_, reject) => 
@@ -162,12 +159,10 @@ export async function optionalAuthenticate(request: FastifyRequest, reply: Fasti
       }
     } catch (authError) {
       console.warn('⚠️ [AUTH] Erreur auth optionnelle (ignorée):', authError)
-      // Ignorer les erreurs pour l'auth optionnelle
     }
 
   } catch (error: any) {
     console.warn('⚠️ [AUTH] Erreur middleware optionnel (ignorée):', error.message)
-    // Ignorer complètement les erreurs pour l'auth optionnelle
   }
 }
 

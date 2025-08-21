@@ -1,8 +1,7 @@
-// src/routes/orders.ts - SYSTÈME DE COLLECTE DE COMMANDES CONVERSATIONNELLE
+// src/routes/orders.ts - VERSION SUPABASE PURE
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
-import prisma from '../lib/prisma'
+import { supabaseServiceClient } from '../lib/supabase'; // ✅ UNIQUEMENT SUPABASE
 
 // ✅ SCHÉMAS DE VALIDATION
 const orderStepSchema = z.object({
@@ -234,7 +233,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       };
       
     } catch (error: any) {
-      fastify.log.error('❌ Start order error:', error);
+      fastify.log.error(`❌ Start order error: ${error.message}`);
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors du démarrage de la commande'
@@ -331,7 +330,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       };
       
     } catch (error: any) {
-      fastify.log.error('❌ Process step error:', error);
+      fastify.log.error(`❌ Process step error: ${error.message}`);
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors du traitement de l\'étape'
@@ -339,59 +338,89 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Finaliser et sauvegarder la commande
+  // ✅ ROUTE : Finaliser et sauvegarder la commande (VERSION SUPABASE)
   fastify.post<{ Body: typeof completeOrderSchema._type }>('/complete', async (request, reply) => {
     try {
       const { conversationId, orderData } = completeOrderSchema.parse(request.body);
       
       fastify.log.info(`✅ Finalisation commande pour conversation: ${conversationId}`);
       
-      await prisma.$connect();
+      // ✅ RÉCUPÉRER INFORMATIONS DE LA CONVERSATION AVEC SUPABASE
+      const { data: conversation, error: convError } = await supabaseServiceClient
+        .from('conversations')
+        .select('shopId, agentId')
+        .eq('id', conversationId)
+        .single();
+
+      if (convError || !conversation) {
+        fastify.log.error(`❌ Conversation non trouvée: ${convError?.message || 'Conversation inexistante'}`);
+        return reply.status(404).send({
+          success: false,
+          error: 'Conversation non trouvée'
+        });
+      }
       
-      // Créer la commande en base de données
-      const order = await prisma.order.create({
-        data: {
+      // ✅ CRÉER LA COMMANDE AVEC SUPABASE
+      const { data: order, error: orderError } = await supabaseServiceClient
+        .from('orders')
+        .insert({
           conversationId: conversationId,
-          shopId: '', // À récupérer depuis la conversation
+          shopId: conversation.shopId,
           customerName: orderData.customer.name,
           customerPhone: orderData.customer.phone,
-          customerEmail: orderData.customer.email,
-          customerAddress: orderData.customer.address,
+          customerEmail: orderData.customer.email || null,
+          customerAddress: orderData.customer.address || null,
           productItems: orderData.products,
           totalAmount: orderData.totalAmount,
+          currency: 'XOF',
           paymentMethod: orderData.paymentMethod,
-          notes: orderData.notes,
-          status: 'pending'
-        }
-      });
+          notes: orderData.notes || null,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+        .select()
+        .single();
       
-      // Mettre à jour la conversation comme convertie
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { 
+      if (orderError) {
+        fastify.log.error(`❌ Erreur création commande: ${orderError.message}`);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la création de la commande'
+        });
+      }
+      
+      // ✅ METTRE À JOUR LA CONVERSATION AVEC SUPABASE
+      const { error: updateError } = await supabaseServiceClient
+        .from('conversations')
+        .update({ 
           conversionCompleted: true,
-          completedAt: new Date()
-        }
-      });
+          completedAt: new Date().toISOString()
+        })
+        .eq('id', conversationId);
       
-      // Nettoyer le workflow temporaire
+      if (updateError) {
+        fastify.log.warn(`⚠️ Erreur mise à jour conversation: ${updateError.message}`);
+        // Ne pas bloquer pour cette erreur
+      }
+      
+      // ✅ NETTOYER LE WORKFLOW TEMPORAIRE
       orderWorkflows.delete(conversationId);
       
-      await prisma.$disconnect();
-      
-      const confirmationMessage = `🎉 **Commande confirmée !**\n\nVotre commande n°${order.id.slice(-8)} a été enregistrée avec succès.\n\nNous vous contacterons au ${orderData.customer.phone} pour confirmer les détails.\n\nMerci pour votre confiance ! 😊`;
+      const orderNumber = order.id.slice(-8);
+      const confirmationMessage = `🎉 **Commande confirmée !**\n\nVotre commande n°${orderNumber} a été enregistrée avec succès.\n\nNous vous contacterons au ${orderData.customer.phone} pour confirmer les détails.\n\nMerci pour votre confiance ! 😊`;
       
       return {
         success: true,
         data: {
           orderId: order.id,
           message: confirmationMessage,
-          orderNumber: order.id.slice(-8)
+          orderNumber: orderNumber
         }
       };
       
     } catch (error: any) {
-      fastify.log.error('❌ Complete order error:', error);
+      fastify.log.error(`❌ Complete order error: ${error.message}`);
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la finalisation de la commande'
@@ -446,7 +475,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       };
       
     } catch (error: any) {
-      fastify.log.error('❌ Analyze intent error:', error);
+      fastify.log.error(`❌ Analyze intent error: ${error.message}`);
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de l\'analyse de l\'intention'
@@ -476,10 +505,194 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       };
       
     } catch (error: any) {
-      fastify.log.error('❌ Get workflow error:', error);
+      fastify.log.error(`❌ Get workflow error: ${error.message}`);
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la récupération du workflow'
+      });
+    }
+  });
+
+  // ✅ ROUTE : Lister les commandes d'une boutique (VERSION SUPABASE)
+  fastify.get<{ 
+    Querystring: { 
+      page?: number;
+      limit?: number;
+      status?: string;
+    } 
+  }>('/list', async (request, reply) => {
+    try {
+      const { page = 1, limit = 20, status } = request.query;
+      const shopId = request.user?.shopId;
+
+      if (!shopId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Shop ID requis'
+        });
+      }
+
+      // ✅ CONSTRUIRE LA REQUÊTE SUPABASE
+      let query = supabaseServiceClient
+        .from('orders')
+        .select('*')
+        .eq('shopId', shopId)
+        .order('createdAt', { ascending: false });
+
+      // Filtrer par statut si spécifié
+      if (status) {
+        query = query.eq('status', status);
+      }
+
+      // Pagination
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+      query = query.range(from, to);
+
+      const { data: orders, error, count } = await query;
+
+      if (error) {
+        fastify.log.error(`❌ Erreur récupération commandes: ${error.message}`);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la récupération des commandes'
+        });
+      }
+
+      return {
+        success: true,
+        data: {
+          orders: orders || [],
+          pagination: {
+            page,
+            limit,
+            total: count || 0,
+            pages: Math.ceil((count || 0) / limit)
+          }
+        }
+      };
+
+    } catch (error: any) {
+      fastify.log.error(`❌ List orders error: ${error.message}`);
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la récupération des commandes'
+      });
+    }
+  });
+
+  // ✅ ROUTE : Obtenir les détails d'une commande (VERSION SUPABASE)
+  fastify.get<{ 
+    Params: { orderId: string } 
+  }>('/details/:orderId', async (request, reply) => {
+    try {
+      const { orderId } = request.params;
+      const shopId = request.user?.shopId;
+
+      if (!shopId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Shop ID requis'
+        });
+      }
+
+      // ✅ RÉCUPÉRER LA COMMANDE AVEC SUPABASE
+      const { data: order, error } = await supabaseServiceClient
+        .from('orders')
+        .select(`
+          *,
+          conversations (
+            id,
+            visitorId,
+            productName,
+            createdAt
+          )
+        `)
+        .eq('id', orderId)
+        .eq('shopId', shopId)
+        .single();
+
+      if (error || !order) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Commande non trouvée'
+        });
+      }
+
+      return {
+        success: true,
+        data: { order }
+      };
+
+    } catch (error: any) {
+      fastify.log.error(`❌ Get order details error: ${error.message}`);
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la récupération des détails de la commande'
+      });
+    }
+  });
+
+  // ✅ ROUTE : Mettre à jour le statut d'une commande (VERSION SUPABASE)
+  fastify.patch<{ 
+    Params: { orderId: string };
+    Body: { status: string; notes?: string }
+  }>('/status/:orderId', async (request, reply) => {
+    try {
+      const { orderId } = request.params;
+      const { status, notes } = request.body;
+      const shopId = request.user?.shopId;
+
+      if (!shopId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Shop ID requis'
+        });
+      }
+
+      // ✅ METTRE À JOUR LE STATUT AVEC SUPABASE
+      const updateData: any = {
+        status,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (notes) {
+        updateData.notes = notes;
+      }
+
+      const { data: order, error } = await supabaseServiceClient
+        .from('orders')
+        .update(updateData)
+        .eq('id', orderId)
+        .eq('shopId', shopId)
+        .select()
+        .single();
+
+      if (error) {
+        fastify.log.error(`❌ Erreur mise à jour commande: ${error.message}`);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur lors de la mise à jour de la commande'
+        });
+      }
+
+      if (!order) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Commande non trouvée'
+        });
+      }
+
+      return {
+        success: true,
+        data: { order }
+      };
+
+    } catch (error: any) {
+      fastify.log.error(`❌ Update order status error: ${error.message}`);
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la mise à jour du statut'
       });
     }
   });

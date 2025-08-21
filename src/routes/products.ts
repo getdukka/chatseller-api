@@ -1,8 +1,9 @@
-// src/routes/products.ts - ENDPOINT PRODUITS CORRIGÉ SANS CONFLIT DE TYPES
+// src/routes/products.ts - VERSION OPTIMISÉE SUPABASE
 import { FastifyPluginAsync } from 'fastify'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseServiceClient } from '../lib/supabase' // ✅ UTILISER CLIENT CENTRALISÉ
+import { z } from 'zod'
 
-// ✅ TYPES
+// ✅ TYPES OPTIMISÉS
 interface Product {
   id: string
   shop_id: string
@@ -65,60 +66,112 @@ interface CreateProductData {
   available_for_sale?: boolean
 }
 
+// ✅ SCHÉMAS DE VALIDATION ZOD
+const CreateProductSchema = z.object({
+  name: z.string().min(1, 'Le nom est requis').max(200, 'Nom trop long'),
+  description: z.string().optional(),
+  short_description: z.string().optional(),
+  price: z.number().min(0, 'Le prix doit être positif'),
+  compare_at_price: z.number().min(0).optional(),
+  sku: z.string().optional(),
+  category: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  featured_image: z.string().url().optional(),
+  images: z.array(z.string().url()).optional(),
+  features: z.array(z.string()).optional(),
+  specifications: z.record(z.any()).optional(),
+  inventory_quantity: z.number().min(0).optional(),
+  track_inventory: z.boolean().optional(),
+  weight: z.number().min(0).optional(),
+  is_active: z.boolean().optional(),
+  is_visible: z.boolean().optional(),
+  available_for_sale: z.boolean().optional()
+})
+
+const UpdateProductSchema = CreateProductSchema.partial()
+
+// ✅ HELPER FUNCTIONS
+function handleSupabaseError(error: any, operation: string) {
+  console.error(`❌ [PRODUCTS] ${operation}:`, error)
+  
+  switch (error.code) {
+    case 'PGRST116':
+      return { status: 404, message: 'Produit non trouvé' }
+    case '23505':
+      return { status: 409, message: 'Un produit avec ce SKU existe déjà' }
+    case '23502':
+      return { status: 400, message: 'Données requises manquantes' }
+    default:
+      return { status: 500, message: error.message || 'Erreur serveur' }
+  }
+}
+
+function validateUserAccess(request: any): string | null {
+  const userId = request.user?.id
+  if (!userId) {
+    return null
+  }
+  return userId
+}
+
 // ✅ PLUGIN PRINCIPAL
 const productsRoutes: FastifyPluginAsync = async (fastify) => {
-  const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY! // Clé service pour accès admin
-  )
 
   // ✅ GET /api/v1/products - RÉCUPÉRER TOUS LES PRODUITS
   fastify.get<{
     Querystring: ProductsQuery
   }>('/', async (request, reply) => {
     try {
-      const { search, category, source, isActive, page = '1', limit = '20' } = request.query
-      const userId = request.user?.id
-
+      const userId = validateUserAccess(request)
       if (!userId) {
         return reply.status(401).send({
           success: false,
-          error: 'Non autorisé'
+          error: 'Authentification requise'
         })
       }
 
-      let query = supabase
+      const { search, category, source, isActive, page = '1', limit = '20' } = request.query
+
+      // ✅ VALIDATION PAGINATION
+      const pageNum = Math.max(1, parseInt(page) || 1)
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20))
+
+      let query = supabaseServiceClient
         .from('products')
         .select('*', { count: 'exact' })
         .eq('shop_id', userId)
 
-      // ✅ FILTRES
-      if (search) {
-        query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`)
+      // ✅ FILTRES OPTIMISÉS
+      if (search && search.trim()) {
+        const searchTerm = search.trim()
+        query = query.or(`name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`)
       }
-      if (category) {
-        query = query.eq('category', category)
+      
+      if (category && category.trim()) {
+        query = query.eq('category', category.trim())
       }
+      
       if (source) {
         query = query.eq('source', source)
       }
+      
       if (isActive !== undefined) {
         query = query.eq('is_active', isActive === 'true')
       }
 
-      // ✅ PAGINATION
-      const pageNum = parseInt(page)
-      const limitNum = parseInt(limit)
+      // ✅ PAGINATION ET TRI
       const offset = (pageNum - 1) * limitNum
-      
       query = query.range(offset, offset + limitNum - 1)
       query = query.order('updated_at', { ascending: false })
 
       const { data, error, count } = await query
 
       if (error) {
-        fastify.log.error({ msg: 'Erreur fetch products', error: error.message })
-        throw error
+        const errorInfo = handleSupabaseError(error, 'GET products')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
       return reply.send({
@@ -132,10 +185,10 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         }
       })
     } catch (error: any) {
-      fastify.log.error('Erreur GET /products:', error.message || 'Erreur inconnue')
+      fastify.log.error(`❌ [PRODUCTS] GET /: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: error.message || 'Erreur serveur'
+        error: 'Erreur interne du serveur'
       })
     }
   })
@@ -145,17 +198,26 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { id: string }
   }>('/:id', async (request, reply) => {
     try {
-      const { id } = request.params
-      const userId = request.user?.id
-
+      const userId = validateUserAccess(request)
       if (!userId) {
         return reply.status(401).send({
           success: false,
-          error: 'Non autorisé'
+          error: 'Authentification requise'
         })
       }
 
-      const { data, error } = await supabase
+      const { id } = request.params
+
+      // ✅ VALIDATION UUID
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(id)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'ID produit invalide'
+        })
+      }
+
+      const { data, error } = await supabaseServiceClient
         .from('products')
         .select('*')
         .eq('id', id)
@@ -163,13 +225,11 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         .single()
 
       if (error) {
-        if (error.code === 'PGRST116') {
-          return reply.status(404).send({
-            success: false,
-            error: 'Produit non trouvé'
-          })
-        }
-        throw error
+        const errorInfo = handleSupabaseError(error, 'GET product by ID')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
       return reply.send({
@@ -177,10 +237,10 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         data
       })
     } catch (error: any) {
-      fastify.log.error('Erreur GET /products/:id:', error.message || 'Erreur inconnue')
+      fastify.log.error(`❌ [PRODUCTS] GET /:id: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: error.message || 'Erreur serveur'
+        error: 'Erreur interne du serveur'
       })
     }
   })
@@ -190,67 +250,71 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     Body: CreateProductData
   }>('/', async (request, reply) => {
     try {
-      const userId = request.user?.id
-
+      const userId = validateUserAccess(request)
       if (!userId) {
         return reply.status(401).send({
           success: false,
-          error: 'Non autorisé'
+          error: 'Authentification requise'
         })
       }
 
-      // ✅ VALIDATION BASIQUE
-      if (!request.body.name || request.body.price < 0) {
+      // ✅ VALIDATION AVEC ZOD
+      const validationResult = CreateProductSchema.safeParse(request.body)
+      if (!validationResult.success) {
         return reply.status(400).send({
           success: false,
-          error: 'Nom et prix valide requis'
+          error: 'Données invalides',
+          details: validationResult.error.errors.map(e => ({
+            field: e.path.join('.'),
+            message: e.message
+          }))
         })
       }
 
-      // ✅ PRÉPARER LES DONNÉES
+      const validData = validationResult.data
+
+      // ✅ PRÉPARER LES DONNÉES AVEC DEFAULTS
       const productData = {
-        ...request.body,
+        ...validData,
         shop_id: userId,
         source: 'manual' as const,
-        tags: request.body.tags || [],
-        images: request.body.images || [],
-        features: request.body.features || [],
-        specifications: request.body.specifications || {},
+        tags: validData.tags || [],
+        images: validData.images || [],
+        features: validData.features || [],
+        specifications: validData.specifications || {},
         external_data: {},
-        inventory_quantity: request.body.inventory_quantity || 0,
-        track_inventory: request.body.track_inventory || false,
-        is_active: request.body.is_active !== false,
-        is_visible: request.body.is_visible !== false,
-        available_for_sale: request.body.available_for_sale !== false,
-        currency: 'EUR'
+        inventory_quantity: validData.inventory_quantity || 0,
+        track_inventory: validData.track_inventory ?? false,
+        is_active: validData.is_active ?? true,
+        is_visible: validData.is_visible ?? true,
+        available_for_sale: validData.available_for_sale ?? true,
+        currency: 'XOF' // ✅ DEVISE LOCALE SÉNÉGAL
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseServiceClient
         .from('products')
         .insert(productData)
         .select()
         .single()
 
       if (error) {
-        // ✅ GESTION ERREURS SPÉCIFIQUES
-        if (error.code === '23505') { // Contrainte unique
-          return reply.status(409).send({
-            success: false,
-            error: 'Un produit avec ce SKU existe déjà'
-          })
-        }
-        throw error
+        const errorInfo = handleSupabaseError(error, 'CREATE product')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
       return reply.status(201).send({
         success: true,
-        data
+        data,
+        message: 'Produit créé avec succès'
       })
     } catch (error: any) {
-      fastify.log.error('Erreur POST /products:', error.message || 'Erreur inconnue')
+      fastify.log.error(`❌ [PRODUCTS] POST /: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: error.message || 'Erreur lors de la création'
+        error: 'Erreur lors de la création'
       })
     }
   })
@@ -261,22 +325,35 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     Body: Partial<CreateProductData>
   }>('/:id', async (request, reply) => {
     try {
-      const { id } = request.params
-      const userId = request.user?.id
-
+      const userId = validateUserAccess(request)
       if (!userId) {
         return reply.status(401).send({
           success: false,
-          error: 'Non autorisé'
+          error: 'Authentification requise'
+        })
+      }
+
+      const { id } = request.params
+
+      // ✅ VALIDATION ZOD
+      const validationResult = UpdateProductSchema.safeParse(request.body)
+      if (!validationResult.success) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Données invalides',
+          details: validationResult.error.errors.map(e => ({
+            field: e.path.join('.'),
+            message: e.message
+          }))
         })
       }
 
       const updateData = {
-        ...request.body,
+        ...validationResult.data,
         updated_at: new Date().toISOString()
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseServiceClient
         .from('products')
         .update(updateData)
         .eq('id', id)
@@ -285,30 +362,23 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         .single()
 
       if (error) {
-        if (error.code === 'PGRST116') {
-          return reply.status(404).send({
-            success: false,
-            error: 'Produit non trouvé'
-          })
-        }
-        if (error.code === '23505') {
-          return reply.status(409).send({
-            success: false,
-            error: 'Un produit avec ce SKU existe déjà'
-          })
-        }
-        throw error
+        const errorInfo = handleSupabaseError(error, 'UPDATE product')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
       return reply.send({
         success: true,
-        data
+        data,
+        message: 'Produit modifié avec succès'
       })
     } catch (error: any) {
-      fastify.log.error('Erreur PUT /products/:id:', error.message || 'Erreur inconnue')
+      fastify.log.error(`❌ [PRODUCTS] PUT /:id: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: error.message || 'Erreur lors de la modification'
+        error: 'Erreur lors de la modification'
       })
     }
   })
@@ -318,32 +388,30 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { id: string }
   }>('/:id', async (request, reply) => {
     try {
-      const { id } = request.params
-      const userId = request.user?.id
-
+      const userId = validateUserAccess(request)
       if (!userId) {
         return reply.status(401).send({
           success: false,
-          error: 'Non autorisé'
+          error: 'Authentification requise'
         })
       }
 
-      // ✅ VÉRIFIER QUE C'EST UN PRODUIT MANUEL
-      const { data: product, error: fetchError } = await supabase
+      const { id } = request.params
+
+      // ✅ VÉRIFIER QUE C'EST UN PRODUIT MANUEL ET EXISTE
+      const { data: product, error: fetchError } = await supabaseServiceClient
         .from('products')
-        .select('source')
+        .select('source, name')
         .eq('id', id)
         .eq('shop_id', userId)
         .single()
 
       if (fetchError) {
-        if (fetchError.code === 'PGRST116') {
-          return reply.status(404).send({
-            success: false,
-            error: 'Produit non trouvé'
-          })
-        }
-        throw fetchError
+        const errorInfo = handleSupabaseError(fetchError, 'FETCH product for delete')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
       if (product.source !== 'manual') {
@@ -353,65 +421,87 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { error } = await supabase
+      const { error } = await supabaseServiceClient
         .from('products')
         .delete()
         .eq('id', id)
         .eq('shop_id', userId)
 
       if (error) {
-        throw error
+        const errorInfo = handleSupabaseError(error, 'DELETE product')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
       return reply.send({
         success: true,
-        message: 'Produit supprimé avec succès'
+        message: `Produit "${product.name}" supprimé avec succès`
       })
     } catch (error: any) {
-      fastify.log.error('Erreur DELETE /products/:id:', error.message || 'Erreur inconnue')
+      fastify.log.error(`❌ [PRODUCTS] DELETE /:id: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: error.message || 'Erreur lors de la suppression'
+        error: 'Erreur lors de la suppression'
       })
     }
   })
 
-  // ✅ GET /api/v1/products/stats - STATISTIQUES
+  // ✅ GET /api/v1/products/stats - STATISTIQUES AMÉLIORÉES
   fastify.get('/stats', async (request, reply) => {
     try {
-      const userId = request.user?.id
-
+      const userId = validateUserAccess(request)
       if (!userId) {
         return reply.status(401).send({
           success: false,
-          error: 'Non autorisé'
+          error: 'Authentification requise'
         })
       }
 
-      // ✅ STATS GLOBALES
-      const { count: total } = await supabase
-        .from('products')
-        .select('*', { count: 'exact', head: true })
-        .eq('shop_id', userId)
+      // ✅ STATS EN PARALLÈLE POUR PERFORMANCE
+      const [
+        { count: total },
+        { count: active },
+        { count: visible },
+        { count: available },
+        { data: products }
+      ] = await Promise.all([
+        supabaseServiceClient
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('shop_id', userId),
+        
+        supabaseServiceClient
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('shop_id', userId)
+          .eq('is_active', true),
+        
+        supabaseServiceClient
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('shop_id', userId)
+          .eq('is_visible', true),
+        
+        supabaseServiceClient
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('shop_id', userId)
+          .eq('available_for_sale', true),
+        
+        supabaseServiceClient
+          .from('products')
+          .select('source, category, price, inventory_quantity, track_inventory')
+          .eq('shop_id', userId)
+      ])
 
-      const { count: active } = await supabase
-        .from('products')
-        .select('*', { count: 'exact', head: true })
-        .eq('shop_id', userId)
-        .eq('is_active', true)
-
-      // ✅ STATS PAR SOURCE
-      const { data: products } = await supabase
-        .from('products')
-        .select('source, category')
-        .eq('shop_id', userId)
-
+      // ✅ CALCULS STATISTIQUES
       const sourceStats = (products || []).reduce((acc: Record<string, number>, product) => {
         acc[product.source] = (acc[product.source] || 0) + 1
         return acc
       }, { manual: 0, shopify: 0, woocommerce: 0, api: 0 })
 
-      // ✅ STATS PAR CATÉGORIE
       const categoryStats = (products || [])
         .filter(p => p.category)
         .reduce((acc: Array<{name: string, count: number}>, product) => {
@@ -423,122 +513,47 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           }
           return acc
         }, [])
+        .sort((a, b) => b.count - a.count)
+
+      // ✅ STATS PRIX
+      const prices = (products || []).map(p => p.price).filter(p => p > 0)
+      const priceStats = prices.length > 0 ? {
+        min: Math.min(...prices),
+        max: Math.max(...prices),
+        average: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
+      } : { min: 0, max: 0, average: 0 }
+
+      // ✅ STOCK TOTAL
+      const totalStock = (products || [])
+        .filter(p => p.track_inventory)
+        .reduce((sum, p) => sum + (p.inventory_quantity || 0), 0)
 
       return reply.send({
         success: true,
         data: {
-          total: total || 0,
-          active: active || 0,
-          inactive: (total || 0) - (active || 0),
+          overview: {
+            total: total || 0,
+            active: active || 0,
+            inactive: (total || 0) - (active || 0),
+            visible: visible || 0,
+            available: available || 0
+          },
           bySource: sourceStats,
-          categories: categoryStats
+          categories: categoryStats.slice(0, 10), // Top 10 catégories
+          pricing: priceStats,
+          inventory: {
+            totalStock,
+            lowStockCount: (products || []).filter(p => 
+              p.track_inventory && (p.inventory_quantity || 0) < 5
+            ).length
+          }
         }
       })
     } catch (error: any) {
-      fastify.log.error('Erreur GET /products/stats:', error.message || 'Erreur inconnue')
+      fastify.log.error(`❌ [PRODUCTS] GET /stats: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: error.message || 'Erreur serveur'
-      })
-    }
-  })
-
-  // ✅ POST /api/v1/products/sync - SYNCHRONISER AVEC PLATEFORME E-COMMERCE
-  fastify.post<{
-    Body: {
-      source: 'shopify' | 'woocommerce'
-      credentials: Record<string, any>
-    }
-  }>('/sync', async (request, reply) => {
-    try {
-      const userId = request.user?.id
-      const { source, credentials } = request.body
-
-      if (!userId) {
-        return reply.status(401).send({
-          success: false,
-          error: 'Non autorisé'
-        })
-      }
-
-      if (!source || !credentials) {
-        return reply.status(400).send({
-          success: false,
-          error: 'Source et credentials requis'
-        })
-      }
-
-      // ✅ SAUVEGARDER/METTRE À JOUR LA CONNEXION
-      const connectionData = {
-        shop_id: userId,
-        platform: source,
-        credentials: credentials, // ⚠️ En production, chiffrer ces données
-        is_active: true,
-        is_connected: true,
-        connection_status: 'connected',
-        updated_at: new Date().toISOString()
-      }
-
-      const { error: connectionError } = await supabase
-        .from('sync_connections')
-        .upsert(connectionData, {
-          onConflict: 'shop_id,platform'
-        })
-
-      if (connectionError) {
-        throw connectionError
-      }
-
-      // ✅ TODO: DÉCLENCHER JOB DE SYNCHRONISATION ASYNCHRONE
-      // Pour l'instant, on simule un job ID
-      const jobId = `sync_${source}_${Date.now()}`
-
-      return reply.send({
-        success: true,
-        message: `Synchronisation ${source} démarrée`,
-        jobId
-      })
-    } catch (error: any) {
-      fastify.log.error('Erreur POST /products/sync:', error.message || 'Erreur inconnue')
-      return reply.status(500).send({
-        success: false,
-        error: error.message || 'Erreur lors de la synchronisation'
-      })
-    }
-  })
-
-  // ✅ GET /api/v1/products/sync/status/:jobId - STATUT DE SYNCHRONISATION
-  fastify.get<{
-    Params: { jobId: string }
-  }>('/sync/status/:jobId', async (request, reply) => {
-    try {
-      const { jobId } = request.params
-      const userId = request.user?.id
-
-      if (!userId) {
-        return reply.status(401).send({
-          success: false,
-          error: 'Non autorisé'
-        })
-      }
-
-      // ✅ TODO: Récupérer le statut réel du job
-      // Pour l'instant, simulation
-      return reply.send({
-        success: true,
-        data: {
-          jobId,
-          status: 'completed',
-          progress: 100,
-          productsProcessed: 15,
-          errors: []
-        }
-      })
-    } catch (error: any) {
-      fastify.log.error('Erreur GET /products/sync/status:', error.message || 'Erreur inconnue')
-      return reply.status(500).send({
-        success: false,
-        error: error.message || 'Erreur serveur'
+        error: 'Erreur lors du calcul des statistiques'
       })
     }
   })
@@ -548,18 +563,18 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { id: string }
   }>('/:id/duplicate', async (request, reply) => {
     try {
-      const { id } = request.params
-      const userId = request.user?.id
-
+      const userId = validateUserAccess(request)
       if (!userId) {
         return reply.status(401).send({
           success: false,
-          error: 'Non autorisé'
+          error: 'Authentification requise'
         })
       }
 
+      const { id } = request.params
+
       // ✅ RÉCUPÉRER LE PRODUIT SOURCE
-      const { data: sourceProduct, error: fetchError } = await supabase
+      const { data: sourceProduct, error: fetchError } = await supabaseServiceClient
         .from('products')
         .select('*')
         .eq('id', id)
@@ -567,21 +582,20 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         .single()
 
       if (fetchError) {
-        if (fetchError.code === 'PGRST116') {
-          return reply.status(404).send({
-            success: false,
-            error: 'Produit source non trouvé'
-          })
-        }
-        throw fetchError
+        const errorInfo = handleSupabaseError(fetchError, 'FETCH source product')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
-      // ✅ CRÉER LA COPIE
+      // ✅ CRÉER LA COPIE AVEC TIMESTAMP
+      const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
       const duplicateData = {
         ...sourceProduct,
         id: undefined, // Générer nouveau ID
-        name: `${sourceProduct.name} (Copie)`,
-        sku: sourceProduct.sku ? `${sourceProduct.sku}-COPY` : undefined,
+        name: `${sourceProduct.name} (Copie ${timestamp})`,
+        sku: sourceProduct.sku ? `${sourceProduct.sku}-COPY-${Date.now()}` : undefined,
         source: 'manual' as const,
         external_id: undefined,
         external_data: {},
@@ -590,31 +604,112 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         updated_at: undefined
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseServiceClient
         .from('products')
         .insert(duplicateData)
         .select()
         .single()
 
       if (error) {
-        if (error.code === '23505') {
-          return reply.status(409).send({
-            success: false,
-            error: 'Un produit avec ce SKU existe déjà'
-          })
-        }
-        throw error
+        const errorInfo = handleSupabaseError(error, 'DUPLICATE product')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
       return reply.status(201).send({
         success: true,
-        data
+        data,
+        message: `Produit "${sourceProduct.name}" dupliqué avec succès`
       })
     } catch (error: any) {
-      fastify.log.error('Erreur POST /products/:id/duplicate:', error.message || 'Erreur inconnue')
+      fastify.log.error(`❌ [PRODUCTS] POST /:id/duplicate: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: error.message || 'Erreur lors de la duplication'
+        error: 'Erreur lors de la duplication'
+      })
+    }
+  })
+
+  // ✅ PATCH /api/v1/products/:id/toggle - ACTIVER/DÉSACTIVER UN PRODUIT
+  fastify.patch<{
+    Params: { id: string }
+    Body: { field: 'is_active' | 'is_visible' | 'available_for_sale' }
+  }>('/:id/toggle', async (request, reply) => {
+    try {
+      const userId = validateUserAccess(request)
+      if (!userId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Authentification requise'
+        })
+      }
+
+      const { id } = request.params
+      const { field } = request.body
+
+      if (!['is_active', 'is_visible', 'available_for_sale'].includes(field)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Champ non autorisé pour toggle'
+        })
+      }
+
+      // ✅ RÉCUPÉRER ÉTAT ACTUEL
+      const { data: product, error: fetchError } = await supabaseServiceClient
+        .from('products')
+        .select('is_active, is_visible, available_for_sale')
+        .eq('id', id)
+        .eq('shop_id', userId)
+        .single()
+
+      if (fetchError) {
+        const errorInfo = handleSupabaseError(fetchError, 'FETCH product for toggle')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
+      }
+
+      // ✅ TOGGLE LA VALEUR (avec assertion de type sécurisée)
+      const currentValue = product[field as keyof typeof product] as boolean
+      const newValue = !currentValue
+      const { data, error } = await supabaseServiceClient
+        .from('products')
+        .update({ 
+          [field]: newValue,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('shop_id', userId)
+        .select()
+        .single()
+
+      if (error) {
+        const errorInfo = handleSupabaseError(error, 'TOGGLE product field')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
+      }
+
+      const fieldLabels = {
+        is_active: 'actif',
+        is_visible: 'visible',
+        available_for_sale: 'disponible à la vente'
+      }
+
+      return reply.send({
+        success: true,
+        data,
+        message: `Produit ${newValue ? 'activé' : 'désactivé'} comme ${fieldLabels[field]}`
+      })
+    } catch (error: any) {
+      fastify.log.error(`❌ [PRODUCTS] PATCH /:id/toggle: ${error.message}`)
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors du changement d\'état'
       })
     }
   })

@@ -1,22 +1,15 @@
-// src/routes/billing.ts - VERSION CORRIGÉE TYPES TYPESCRIPT
+// src/routes/billing.ts - VERSION SUPABASE PURE
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Stripe from 'stripe';
-import { PrismaClient } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
-import prisma from '../lib/prisma'
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
 
 // ✅ VERSION STRIPE CORRIGÉE
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-07-30.basil'
 });
 
-// ✅ CONFIGURATION DES PLANS CORRIGÉE
+// ✅ CONFIGURATION DES PLANS
 const STRIPE_PLANS = {
   free: {
     name: 'Free Trial',
@@ -47,6 +40,7 @@ const createSubscriptionSchema = z.object({
   cancelUrl: z.string().url()
 });
 
+// ✅ AUTHENTIFICATION SUPABASE
 async function verifySupabaseAuth(request: any) {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -54,7 +48,7 @@ async function verifySupabaseAuth(request: any) {
   }
 
   const token = authHeader.substring(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
   
   if (error || !user) {
     throw new Error('Token invalide');
@@ -63,56 +57,72 @@ async function verifySupabaseAuth(request: any) {
   return user;
 }
 
+// ✅ CRÉER OU RÉCUPÉRER SHOP AVEC SUPABASE UNIQUEMENT
 async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   fastify.log.info(`🔍 Recherche du shop pour l'utilisateur: ${user.id} (${user.email})`);
   
   try {
-    await prisma.$connect();
-    
-    let shop = await prisma.shop.findUnique({
-      where: { id: user.id }
-    });
+    // ✅ RECHERCHE PAR ID
+    const { data: shopById, error: errorById } = await supabaseServiceClient
+      .from('shops')
+      .select('*')
+      .eq('id', user.id)
+      .single();
 
-    if (shop) {
-      fastify.log.info(`✅ Shop trouvé par ID: ${shop.id}`);
-      return shop;
+    if (!errorById && shopById) {
+      fastify.log.info(`✅ Shop trouvé par ID: ${shopById.id}`);
+      return shopById;
     }
 
-    shop = await prisma.shop.findUnique({
-      where: { email: user.email }
-    });
+    // ✅ RECHERCHE PAR EMAIL
+    const { data: shopByEmail, error: errorByEmail } = await supabaseServiceClient
+      .from('shops')
+      .select('*')
+      .eq('email', user.email)
+      .single();
 
-    if (shop) {
-      fastify.log.info(`✅ Shop trouvé par email: ${shop.id}`);
-      return shop;
+    if (!errorByEmail && shopByEmail) {
+      fastify.log.info(`✅ Shop trouvé par email: ${shopByEmail.id}`);
+      return shopByEmail;
     }
 
+    // ✅ CRÉATION AUTOMATIQUE DU SHOP
     fastify.log.info(`🏗️ Création automatique du shop pour: ${user.email}`);
     
-    const newShop = await prisma.shop.create({
-      data: {
-        id: user.id,
-        name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
-        email: user.email,
-        subscription_plan: 'free',
-        is_active: true,
-        widget_config: {
-          theme: "modern",
-          language: "fr", 
-          position: "bottom-right",
-          buttonText: "Parler au vendeur",
-          primaryColor: "#3B82F6"
-        },
-        agent_config: {
-          name: "Assistant ChatSeller",
-          avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
-          upsellEnabled: false,
-          welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
-          fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
-          collectPaymentMethod: true
-        }
-      }
-    });
+    const newShopData = {
+      id: user.id,
+      name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
+      email: user.email,
+      subscription_plan: 'free',
+      is_active: true,
+      widget_config: {
+        theme: "modern",
+        language: "fr", 
+        position: "bottom-right",
+        buttonText: "Parler au vendeur",
+        primaryColor: "#3B82F6"
+      },
+      agent_config: {
+        name: "Assistant ChatSeller",
+        avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
+        upsellEnabled: false,
+        welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
+        fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
+        collectPaymentMethod: true
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: newShop, error: createError } = await supabaseServiceClient
+      .from('shops')
+      .insert(newShopData)
+      .select()
+      .single();
+
+    if (createError) {
+      throw new Error(`Erreur création shop: ${createError.message}`);
+    }
 
     fastify.log.info(`✅ Shop créé avec succès: ${newShop.id}`);
     return newShop;
@@ -120,51 +130,44 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
   } catch (error: any) {
     fastify.log.error('❌ ERREUR GLOBALE dans getOrCreateShop:', error.message || String(error));
     throw new Error(`Impossible de créer ou récupérer le shop: ${error.message}`);
-  } finally {
-    try {
-      await prisma.$disconnect();
-    } catch (disconnectError: any) {
-      fastify.log.warn('⚠️ Erreur lors de la déconnexion Prisma:', disconnectError.message || String(disconnectError));
-    }
   }
 }
 
 export default async function billingRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE DE DIAGNOSTIC COMPLÈTE
+  // ✅ ROUTE DE DIAGNOSTIC SUPABASE
   fastify.get('/diagnostic', async (request, reply) => {
     try {
-      fastify.log.info('🧪 === DIAGNOSTIC BILLING COMPLET ===');
+      fastify.log.info('🧪 === DIAGNOSTIC BILLING SUPABASE ===');
       
       const envCheck = {
-        DATABASE_URL: !!process.env.DATABASE_URL,
         SUPABASE_URL: !!process.env.SUPABASE_URL,
         SUPABASE_SERVICE_KEY: !!process.env.SUPABASE_SERVICE_KEY,
+        SUPABASE_ANON_KEY: !!process.env.SUPABASE_ANON_KEY,
         STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith('sk_'),
         STRIPE_PRICE_ID_STARTER: !!process.env.STRIPE_PRICE_ID_STARTER && process.env.STRIPE_PRICE_ID_STARTER.startsWith('price_'),
         STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO && process.env.STRIPE_PRICE_ID_PRO.startsWith('price_'),
         STRIPE_WEBHOOK_SECRET: !!process.env.STRIPE_WEBHOOK_SECRET
       };
       
-      let prismaTest: { success: boolean; error: string | null } = { success: false, error: null };
+      // ✅ TEST SUPABASE
+      let supabaseTest: { success: boolean; error: string | null; shopsCount?: number } = { success: false, error: null };
       try {
-        await prisma.$connect();
-        await prisma.$queryRaw`SELECT 1 as test`;
-        prismaTest.success = true;
-        await prisma.$disconnect();
-      } catch (error: any) {
-        prismaTest.error = error.message;
-      }
-      
-      let supabaseTest: { success: boolean; error: string | null } = { success: false, error: null };
-      try {
-        const { data, error } = await supabase.auth.admin.listUsers();
-        supabaseTest.success = !error;
-        if (error) supabaseTest.error = error.message;
+        const { data: shops, error, count } = await supabaseServiceClient
+          .from('shops')
+          .select('id', { count: 'exact', head: true });
+        
+        if (error) {
+          supabaseTest.error = error.message;
+        } else {
+          supabaseTest.success = true;
+          supabaseTest.shopsCount = count || 0;
+        }
       } catch (error: any) {
         supabaseTest.error = error.message;
       }
       
+      // ✅ TEST STRIPE
       let stripeTest: { success: boolean; error: string | null; priceValidation?: any } = { success: false, error: null };
       try {
         const prices = await stripe.prices.list({ limit: 1 });
@@ -209,11 +212,11 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         success: true,
         diagnostic: {
           environment: envCheck,
-          prisma: prismaTest,
           supabase: supabaseTest,
           stripe: stripeTest,
           timestamp: new Date().toISOString(),
-          plansConfig: STRIPE_PLANS
+          plansConfig: STRIPE_PLANS,
+          database: 'Supabase (Pure)'
         }
       };
       
@@ -226,6 +229,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
   
+  // ✅ ROUTE PLANS
   fastify.get('/plans', async (request, reply) => {
     try {
       const plans = Object.entries(STRIPE_PLANS).map(([key, plan]) => ({
@@ -244,6 +248,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // ✅ ROUTE CRÉATION SESSION CHECKOUT
   fastify.post('/create-checkout-session', async (request, reply) => {
     try {
       fastify.log.info('🚀 === DÉBUT CRÉATION SESSION CHECKOUT ===');
@@ -276,6 +281,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`📋 Plan sélectionné: ${plan.name} - Prix: ${plan.price/100}€ - Price ID: ${plan.stripePriceId}`);
 
+      // ✅ VALIDATION STRIPE PRICE ID
       try {
         fastify.log.info(`🧪 Validation Price ID: ${plan.stripePriceId}`);
         const priceValidation = await stripe.prices.retrieve(plan.stripePriceId);
@@ -294,6 +300,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // ✅ GESTION CUSTOMER STRIPE
       let customer;
       try {
         fastify.log.info(`🔍 Recherche customer Stripe: ${shop.email}`);
@@ -323,6 +330,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         throw new Error(`Erreur customer: ${customerError.message}`);
       }
 
+      // ✅ CRÉATION SESSION CHECKOUT
       try {
         fastify.log.info('🏗️ Création session checkout...');
 
@@ -398,6 +406,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // ✅ ROUTE STATUT ABONNEMENT SUPABASE
   fastify.get('/subscription-status', async (request, reply) => {
     try {
       fastify.log.info('🔍 Récupération statut abonnement');
@@ -411,7 +420,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
       let trialDaysLeft = 0;
       if (shop.subscription_plan === 'free') {
-        const creationDate = new Date(shop.createdAt || Date.now());
+        const creationDate = new Date(shop.created_at || Date.now());
         const daysSinceCreation = Math.floor((Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24));
         trialDaysLeft = Math.max(0, 7 - daysSinceCreation);
       }
@@ -424,7 +433,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
           isActive: shop.is_active,
           trialDaysLeft: trialDaysLeft,
           trialEndDate: shop.subscription_plan === 'free' 
-            ? new Date(new Date(shop.createdAt || Date.now()).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+            ? new Date(new Date(shop.created_at || Date.now()).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
             : null,
           nextBillingDate: shop.subscription_plan !== 'free' 
             ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
@@ -448,7 +457,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ WEBHOOK STRIPE CRITIQUE - VERSION ULTRA ROBUSTE
+  // ✅ WEBHOOK STRIPE SUPABASE
   fastify.post('/webhook', async (request, reply) => {
     const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     
@@ -527,18 +536,19 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // ✅ ROUTE DEBUG SHOP SUPABASE
   fastify.get('/debug-shop/:userId', async (request, reply) => {
     try {
       const { userId } = request.params as { userId: string }
       
-      await prisma.$connect()
-      const shop = await prisma.shop.findUnique({
-        where: { id: userId }
-      })
-      await prisma.$disconnect()
+      const { data: shop, error } = await supabaseServiceClient
+        .from('shops')
+        .select('id, email, subscription_plan, is_active, created_at, updated_at')
+        .eq('id', userId)
+        .single();
       
-      if (!shop) {
-        return reply.status(404).send({ error: 'Shop not found' })
+      if (error || !shop) {
+        return reply.status(404).send({ error: 'Shop not found', details: error?.message });
       }
       
       return {
@@ -548,16 +558,16 @@ export default async function billingRoutes(fastify: FastifyInstance) {
           email: shop.email,
           plan: shop.subscription_plan,
           isActive: shop.is_active,
-          createdAt: shop.createdAt,
-          updatedAt: shop.updatedAt
+          createdAt: shop.created_at,
+          updatedAt: shop.updated_at
         }
-      }
+      };
     } catch (error: any) {
-      return reply.status(500).send({ error: error.message })
+      return reply.status(500).send({ error: error.message });
     }
-  })
+  });
 
-  // ✅ FONCTIONS WEBHOOK ULTRA ROBUSTES - AVEC LOGGING CORRIGÉ
+  // ✅ FONCTIONS WEBHOOK SUPABASE UNIQUEMENT
   
   async function handleCheckoutCompleted(session: Stripe.Checkout.Session, fastify: FastifyInstance, requestId: string) {
     const userId = session.metadata?.userId;
@@ -576,30 +586,29 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       fastify.log.error(`❌ [${requestId}] Metadata critiques manquantes: ${metadataString}`);
       return;
     }
-
-    const connectionId = `conn_${Date.now()}`;
     
     try {
-      fastify.log.info(`🔌 [${requestId}] Connexion Prisma: ${connectionId}`);
-      await prisma.$connect();
-      
-      // ✅ VÉRIFICATION EXISTENCE SHOP
+      // ✅ VÉRIFICATION EXISTENCE SHOP AVEC SUPABASE
       fastify.log.info(`🔍 [${requestId}] Recherche shop: ${userId}`);
-      const existingShop = await prisma.shop.findUnique({
-        where: { id: userId }
-      });
+      const { data: existingShop, error: findError } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .eq('id', userId)
+        .single();
 
-      if (!existingShop) {
+      if (findError || !existingShop) {
         fastify.log.error(`❌ [${requestId}] Shop introuvable: ${userId}`);
         
         // ✅ TENTATIVE DE RECHERCHE PAR EMAIL
         if (shopEmail) {
           fastify.log.info(`🔍 [${requestId}] Recherche par email: ${shopEmail}`);
-          const shopByEmail = await prisma.shop.findUnique({
-            where: { email: shopEmail }
-          });
+          const { data: shopByEmail, error: emailError } = await supabaseServiceClient
+            .from('shops')
+            .select('*')
+            .eq('email', shopEmail)
+            .single();
           
-          if (shopByEmail) {
+          if (!emailError && shopByEmail) {
             fastify.log.info(`✅ [${requestId}] Shop trouvé par email: ${shopByEmail.id}`);
             // Mettre à jour l'ID si nécessaire
             if (shopByEmail.id !== userId) {
@@ -625,69 +634,63 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         fastify.log.warn(`⚠️ [${requestId}] Shop déjà sur le plan: ${plan}`);
       }
 
-      // ✅ MISE À JOUR ATOMIQUE DU SHOP
+      // ✅ MISE À JOUR SHOP AVEC SUPABASE
       fastify.log.info(`🔄 [${requestId}] Mise à jour du shop vers plan: ${plan}`);
       
-      const updateResult = await prisma.shop.update({
-        where: { id: userId },
-        data: {
+      const { data: updateResult, error: updateError } = await supabaseServiceClient
+        .from('shops')
+        .update({
           subscription_plan: plan as string,
           is_active: true,
-          updatedAt: new Date()
-        }
-      });
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw new Error(`Erreur mise à jour shop: ${updateError.message}`);
+      }
 
       fastify.log.info(`✅ [${requestId}] Shop mis à jour avec succès:`);
       fastify.log.info(`   └─ ID: ${updateResult.id}`);
       fastify.log.info(`   └─ Plan: ${existingShop.subscription_plan} → ${updateResult.subscription_plan}`);
       fastify.log.info(`   └─ Actif: ${existingShop.is_active} → ${updateResult.is_active}`);
-      fastify.log.info(`   └─ Mis à jour: ${updateResult.updatedAt}`);
+      fastify.log.info(`   └─ Mis à jour: ${updateResult.updated_at}`);
 
-      // ✅ CRÉATION LOG DE TRANSACTION
+      // ✅ CRÉATION LOG DE TRANSACTION (optionnel)
       try {
-        const logData = {
-          shopId: userId,
-          eventType: 'checkout_completed',
-          eventData: {
-            sessionId: session.id,
-            planFrom: existingShop.subscription_plan,
-            planTo: plan,
-            amount: session.amount_total,
-            currency: session.currency,
-            customerEmail: shopEmail,
-            timestamp: new Date().toISOString()
-          }
+        const eventData = {
+          sessionId: session.id,
+          planFrom: existingShop.subscription_plan,
+          planTo: plan,
+          amount: session.amount_total,
+          currency: session.currency,
+          customerEmail: shopEmail,
+          timestamp: new Date().toISOString()
         };
         
-        // Ne pas bloquer si la table analytics n'existe pas
-        await prisma.analyticsEvent.create({
-          data: {
-            shopId: userId,
-            eventType: 'payment_success',
-            eventData: logData.eventData
-          }
-        }).catch((analyticsError: any) => {
-          fastify.log.warn(`⚠️ [${requestId}] Impossible de créer l'événement analytics: ${analyticsError.message}`);
-        });
+        // Tentative de création d'événement analytics (ne pas bloquer si la table n'existe pas)
+        const { error: analyticsError } = await supabaseServiceClient
+          .from('analytics_events')
+          .insert({
+            shop_id: userId,
+            event_type: 'payment_success',
+            event_data: eventData,
+            created_at: new Date().toISOString()
+          });
         
-        fastify.log.info(`📊 [${requestId}] Événement analytics créé`);
+        if (analyticsError) {
+          fastify.log.warn(`⚠️ [${requestId}] Impossible de créer l'événement analytics: ${analyticsError.message}`);
+        } else {
+          fastify.log.info(`📊 [${requestId}] Événement analytics créé`);
+        }
       } catch (analyticsError: any) {
         fastify.log.warn(`⚠️ [${requestId}] Erreur création analytics (non bloquante): ${analyticsError.message}`);
       }
 
-      // ✅ NOTIFICATION DE SUCCÈS (Optionnel)
-      try {
-        fastify.log.info(`🎉 [${requestId}] Paiement confirmé pour ${shopEmail} - Plan: ${plan}`);
-        
-        // TODO: Ici vous pouvez ajouter :
-        // - Envoi d'email de confirmation
-        // - Notification Slack/Discord
-        // - Webhook vers d'autres services
-        // - Activation de fonctionnalités spécifiques au plan
-        
-      } catch (notificationError: any) {
-        fastify.log.warn(`⚠️ [${requestId}] Erreur notification (non bloquante): ${notificationError.message}`);
-      }
+      // ✅ NOTIFICATION DE SUCCÈS
+      fastify.log.info(`🎉 [${requestId}] Paiement confirmé pour ${shopEmail} - Plan: ${plan}`);
 
     } catch (error: any) {
       const errorInfoString = JSON.stringify({
@@ -696,13 +699,6 @@ export default async function billingRoutes(fastify: FastifyInstance) {
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
       fastify.log.error(`❌ [${requestId}] ERREUR MISE À JOUR SHOP: ${errorInfoString}`);
-    } finally {
-      try {
-        await prisma.$disconnect();
-        fastify.log.info(`🔌 [${requestId}] Déconnexion Prisma: ${connectionId}`);
-      } catch (disconnectError: any) {
-        fastify.log.warn(`⚠️ [${requestId}] Erreur déconnexion Prisma: ${disconnectError.message}`);
-      }
     }
   }
 
@@ -717,16 +713,18 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      await prisma.$connect();
-      await prisma.shop.update({
-        where: { id: userId },
-        data: {
+      const { error } = await supabaseServiceClient
+        .from('shops')
+        .update({
           subscription_plan: 'free',
           is_active: false,
-          updatedAt: new Date()
-        }
-      });
-      await prisma.$disconnect();
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (error) {
+        throw new Error(error.message);
+      }
 
       fastify.log.info(`✅ [${requestId}] Subscription canceled for user ${userId}`);
     } catch (error: any) {
@@ -747,15 +745,17 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     try {
       const isActive = subscription.status === 'active';
       
-      await prisma.$connect();
-      await prisma.shop.update({
-        where: { id: userId },
-        data: {
+      const { error } = await supabaseServiceClient
+        .from('shops')
+        .update({
           is_active: isActive,
-          updatedAt: new Date()
-        }
-      });
-      await prisma.$disconnect();
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (error) {
+        throw new Error(error.message);
+      }
 
       fastify.log.info(`✅ [${requestId}] Subscription updated for user ${userId}, status: ${subscription.status}`);
     } catch (error: any) {
@@ -767,7 +767,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     fastify.log.info(`💰 [${requestId}] Invoice payment succeeded: ${invoice.id}`);
     
     // TODO: Logique pour les paiements de facture récurrents
-    // - Enregistrer la facture
+    // - Enregistrer la facture dans Supabase
     // - Confirmer le renouvellement
     // - Envoyer notification
   }
