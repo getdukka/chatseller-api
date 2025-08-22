@@ -1,4 +1,4 @@
-// src/routes/chat.ts - VERSION COMPLÈTE CORRIGÉE ✅
+// src/routes/chat.ts - VERSION COMPLÈTE CORRIGÉE ✅ AVEC TITRE PARTOUT
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
@@ -361,6 +361,17 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ S'assurer que l'agent a un titre
       if (!agent.title) {
         agent.title = getDefaultTitle(agent.type);
+        
+        // ✅ METTRE À JOUR EN BASE SI TITRE MANQUANT
+        try {
+          await supabaseServiceClient
+            .from('agents')
+            .update({ title: agent.title })
+            .eq('id', agent.id);
+          console.log(`✅ Titre ajouté pour agent ${agent.id}: ${agent.title}`);
+        } catch (updateError) {
+          console.warn('⚠️ Impossible de mettre à jour le titre en base:', updateError);
+        }
       }
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
@@ -499,6 +510,17 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ S'assurer que l'agent a un titre
       if (!agent.title) {
         agent.title = getDefaultTitle(agent.type);
+        
+        // ✅ METTRE À JOUR EN BASE SI TITRE MANQUANT
+        try {
+          await supabaseServiceClient
+            .from('agents')
+            .update({ title: agent.title })
+            .eq('id', agent.id);
+          console.log(`✅ Titre ajouté pour agent ${agent.id}: ${agent.title}`);
+        } catch (updateError) {
+          console.warn('⚠️ Impossible de mettre à jour le titre en base:', updateError);
+        }
       }
 
       // ✅ GÉRER LA CONVERSATION (SUPABASE)

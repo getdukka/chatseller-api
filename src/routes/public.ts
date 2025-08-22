@@ -1,4 +1,4 @@
-// src/routes/public.ts - VERSION COMPLÈTE CORRIGÉE ✅ AVEC TOUTES FONCTIONNALITÉS
+// src/routes/public.ts - VERSION COMPLÈTE CORRIGÉE ✅ AVEC TITRE PERSISTANT PARTOUT
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import OpenAI from 'openai';
@@ -65,7 +65,18 @@ function isValidUUID(str: string): boolean {
   return uuidRegex.test(str);
 }
 
-// ✅ CONFIGURATION FALLBACK AMÉLIORÉE AVEC TITRE
+// ✅ NOUVELLE FONCTION : Titre par défaut selon le type AVEC FALLBACK ROBUSTE
+function getDefaultTitle(type: string): string {
+  const titles = {
+    'general': 'Conseiller commercial',
+    'product_specialist': 'Spécialiste produit',
+    'support': 'Conseiller support',
+    'upsell': 'Conseiller premium'
+  }
+  return titles[type as keyof typeof titles] || 'Vendeur IA'
+}
+
+// ✅ CONFIGURATION FALLBACK AMÉLIORÉE AVEC TITRE OBLIGATOIRE
 function getFallbackShopConfig(shopId: string) {
   return {
     success: true,
@@ -83,7 +94,7 @@ function getFallbackShopConfig(shopId: string) {
         },
         agentConfig: {
           name: "Assistant",
-          title: "Conseiller commercial", // ✅ AJOUT : Titre explicite
+          title: "Conseiller commercial", // ✅ AJOUT : Titre explicite obligatoire
           avatar: "https://ui-avatars.com/api/?name=Assistant&background=EC4899&color=fff", // ✅ Couleur cohérente
           upsellEnabled: false,
           welcomeMessage: "Salut 👋 Je suis votre conseiller. Comment puis-je vous aider ?",
@@ -94,7 +105,7 @@ function getFallbackShopConfig(shopId: string) {
       agent: {
         id: `agent-${shopId}`,
         name: "Assistant",
-        title: "Conseiller commercial", // ✅ AJOUT : Titre explicite
+        title: "Conseiller commercial", // ✅ AJOUT : Titre explicite obligatoire
         type: "product_specialist",
         personality: "friendly",
         description: "Assistant commercial spécialisé dans l'accompagnement client",
@@ -135,9 +146,10 @@ Vous pouvez parcourir notre catalogue pour découvrir nos produits.`,
   };
 }
 
-// ✅ PROMPT SYSTÈME AMÉLIORÉ COMPLET AVEC TITRE
+// ✅ PROMPT SYSTÈME AMÉLIORÉ COMPLET AVEC TITRE OBLIGATOIRE
 function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState) {
-  const agentTitle = agent.title || getDefaultTitle(agent.type)
+  // ✅ CORRECTION MAJEURE : Assurer que le titre est toujours présent
+  const agentTitle = agent.title || getDefaultTitle(agent.type || 'general')
   const shopName = "cette boutique"
   
   const basePrompt = `Tu es ${agent.name}, ${agentTitle} expert et ${agent.personality === 'friendly' ? 'chaleureux' : 'professionnel'}.
@@ -542,7 +554,7 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
       console.log('🔍 [OPENAI] Vérification client existant:', existingCustomer);
     }
 
-    // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC ÉTAT ACTUEL
+    // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC ÉTAT ACTUEL ET TITRE OBLIGATOIRE
     const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, productInfo, orderState);
 
     // ✅ APPEL OPENAI
@@ -732,10 +744,11 @@ function getNextOrderStep(currentStep: string, data: any): OrderCollectionState[
   }
 }
 
-// ✅ MESSAGE D'ACCUEIL AMÉLIORÉ AVEC TITRE
+// ✅ MESSAGE D'ACCUEIL AMÉLIORÉ AVEC TITRE OBLIGATOIRE
 function generateWelcomeMessage(agent: any, productInfo?: any): string {
   const baseName = agent.name || 'Assistant'
-  const baseTitle = agent.title || getDefaultTitle(agent.type)
+  // ✅ CORRECTION MAJEURE : Assurer que le titre est toujours présent
+  const baseTitle = agent.title || getDefaultTitle(agent.type || 'general')
   
   if (productInfo?.name) {
     return `Salut ! 👋 Je suis ${baseName}, votre ${baseTitle}.
@@ -750,18 +763,7 @@ Comment puis-je vous aider avec ce produit ? 😊`
 Quel produit vous intéresse aujourd'hui ? Je serais ravi de vous renseigner ! 😊`
 }
 
-// ✅ HELPER TITRE PAR DÉFAUT
-function getDefaultTitle(type: string): string {
-  const titles = {
-    'general': 'Conseiller commercial',
-    'product_specialist': 'Spécialiste produit',
-    'support': 'Conseiller support',
-    'upsell': 'Conseiller premium'
-  }
-  return titles[type as keyof typeof titles] || 'Spécialiste produit'
-}
-
-// ✅ RÉPONSE SIMULÉE INTELLIGENTE AVEC TITRE
+// ✅ RÉPONSE SIMULÉE INTELLIGENTE AVEC TITRE OBLIGATOIRE
 function getIntelligentSimulatedResponse(message: string, productInfo: any, agentName: string = "Rose", agentTitle: string = "Spécialiste produit"): string {
   const msg = message.toLowerCase();
   
@@ -803,7 +805,7 @@ Avez-vous des **questions spécifiques** ? 🤔`;
 
 export default async function publicRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE CORRIGÉE : Configuration publique AVEC TITRE
+  // ✅ ROUTE CORRIGÉE : Configuration publique AVEC TITRE OBLIGATOIRE
   fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
     try {
       const { shopId } = request.params;
@@ -883,7 +885,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
           agent: {
             id: agent.id,
             name: agent.name,
-            title: agent.title || getDefaultTitle(agent.type), // ✅ TITRE AVEC FALLBACK
+            title: agent.title || getDefaultTitle(agent.type || 'general'), // ✅ TITRE OBLIGATOIRE AVEC FALLBACK
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
@@ -916,7 +918,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE CORRIGÉE : Chat public AVEC TITRE ET COLLECTE COMPLÈTE
+  // ✅ ROUTE CORRIGÉE : Chat public AVEC TITRE OBLIGATOIRE ET COLLECTE COMPLÈTE
   fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
     
@@ -933,12 +935,12 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ MODE TEST AMÉLIORÉ POUR DEMO
+      // ✅ MODE TEST AMÉLIORÉ POUR DEMO AVEC TITRE
       if (!isValidUUID(shopId)) {
         fastify.log.info(`💬 [MODE TEST] Réponse simulée pour shop: ${shopId}`);
         
         const agentName = "Rose";
-        const agentTitle = "Spécialiste produit";
+        const agentTitle = "Vendeuse"; // ✅ TITRE EXPLICITE
         let simulatedResponse = '';
         
         if (isFirstMessage && productInfo?.name) {
@@ -958,7 +960,7 @@ Comment puis-je vous aider ? 😊`;
             message: simulatedResponse,
             agent: {
               name: agentName,
-              title: agentTitle, // ✅ AJOUT TITRE
+              title: agentTitle, // ✅ AJOUT TITRE OBLIGATOIRE
               avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff"
             },
             responseTime: Date.now() - startTime,
@@ -982,7 +984,7 @@ Comment puis-je vous aider ? 😊`;
         });
       }
 
-      // ✅ RÉCUPÉRATION AGENT AVEC TITRE
+      // ✅ RÉCUPÉRATION AGENT AVEC TITRE OBLIGATOIRE
       const { data: agents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
@@ -1002,9 +1004,9 @@ Comment puis-je vous aider ? 😊`;
         });
       }
 
-      // ✅ S'assurer que l'agent a un titre
+      // ✅ CORRECTION MAJEURE : S'assurer que l'agent a toujours un titre
       if (!agent.title) {
-        agent.title = getDefaultTitle(agent.type);
+        agent.title = getDefaultTitle(agent.type || 'general');
       }
 
       // ✅ RÉCUPÉRATION BASE DE CONNAISSANCE
@@ -1017,7 +1019,7 @@ Comment puis-je vous aider ? 😊`;
         `)
         .eq('agent_id', agent.id);
 
-      // ✅ PREMIER MESSAGE AUTOMATIQUE AVEC TITRE
+      // ✅ PREMIER MESSAGE AUTOMATIQUE AVEC TITRE OBLIGATOIRE
       if (isFirstMessage) {
         const welcomeMessage = generateWelcomeMessage(agent, productInfo);
         
@@ -1074,7 +1076,7 @@ Comment puis-je vous aider ? 😊`;
             message: welcomeMessage,
             agent: {
               name: agent.name,
-              title: agent.title, // ✅ TITRE INCLUS
+              title: agent.title, // ✅ TITRE OBLIGATOIRE INCLUS
               avatar: agent.avatar
             },
             responseTime: Date.now() - startTime,
@@ -1158,7 +1160,7 @@ Comment puis-je vous aider ? 😊`;
 
       messageHistory.push({ role: 'user', content: message });
 
-      // ✅ APPELER IA AVEC AGENT TITRE
+      // ✅ APPELER IA AVEC AGENT TITRE OBLIGATOIRE
       const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo, orderState);
       
       let aiResponse: string = aiResult.fallbackMessage || agent.fallback_message || "Je transmets votre question à notre équipe.";
@@ -1252,7 +1254,7 @@ Comment puis-je vous aider ? 😊`;
           message: aiResponse,
           agent: {
             name: agent.name,
-            title: agent.title, // ✅ TITRE INCLUS
+            title: agent.title, // ✅ TITRE OBLIGATOIRE INCLUS
             avatar: agent.avatar
           },
           responseTime: Date.now() - startTime,
@@ -1264,11 +1266,11 @@ Comment puis-je vous aider ? 😊`;
     } catch (error: any) {
       fastify.log.error(`❌ [CHAT ERROR]: ${error.message || 'Erreur inconnue'}`);
       
-      // ✅ FALLBACK CONTEXTUEL AVEC TITRE
+      // ✅ FALLBACK CONTEXTUEL AVEC TITRE OBLIGATOIRE
       const userMessage = request.body.message || '';
       const productInfo = request.body.productInfo;
       const agentName = "Rose";
-      const agentTitle = "Spécialiste produit";
+      const agentTitle = "Vendeuse"; // ✅ TITRE EXPLICITE
       
       let fallbackResponse = `Merci pour votre message ! Je suis ${agentName}, votre ${agentTitle}. Comment puis-je vous aider davantage ?`;
       
@@ -1289,7 +1291,7 @@ Comment puis-je vous aider ? 😊`;
           message: fallbackResponse,
           agent: {
             name: agentName,
-            title: agentTitle, // ✅ TITRE INCLUS
+            title: agentTitle, // ✅ TITRE OBLIGATOIRE INCLUS
             avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff"
           },
           responseTime: Date.now() - startTime,
