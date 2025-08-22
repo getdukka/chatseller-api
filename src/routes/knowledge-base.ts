@@ -1,4 +1,4 @@
-// src/routes/knowledge-base.ts - VERSION SUPABASE PURE
+// src/routes/knowledge-base.ts - VERSION SUPABASE CORRIGÉE ✅
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient } from '../lib/supabase';
@@ -113,7 +113,7 @@ async function verifySupabaseAuth(request: FastifyRequest) {
   return user;
 }
 
-// ✅ HELPER: Récupérer shop avec vérification plan et essai (SUPABASE)
+// ✅ HELPER: Récupérer shop avec vérification plan et essai (SUPABASE CORRIGÉ)
 async function getShopWithPlanCheck(user: any): Promise<{ shop: Shop; canAccess: boolean; reason?: string }> {
   try {
     const { data: shop, error } = await supabaseServiceClient
@@ -154,7 +154,7 @@ async function getShopWithPlanCheck(user: any): Promise<{ shop: Shop; canAccess:
   }
 }
 
-// ✅ HELPER: Vérifier les limites du plan (SUPABASE)
+// ✅ HELPER: Vérifier les limites du plan (SUPABASE CORRIGÉ)
 async function checkPlanLimits(shopId: string, plan: string): Promise<{ 
   canAdd: boolean; 
   currentCount: number; 
@@ -166,7 +166,7 @@ async function checkPlanLimits(shopId: string, plan: string): Promise<{
   const { count, error } = await supabaseServiceClient
     .from('knowledge_base')
     .select('*', { count: 'exact', head: true })
-    .eq('shopId', shopId);
+    .eq('shop_id', shopId);  // ✅ CORRIGÉ : shop_id au lieu de shopId
 
   if (error) {
     console.error('Erreur comptage documents:', error);
@@ -386,7 +386,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
   
-  // ✅ ROUTE : LISTE DES DOCUMENTS AVEC RESTRICTIONS PLAN (SUPABASE)
+  // ✅ ROUTE : LISTE DES DOCUMENTS AVEC RESTRICTIONS PLAN (SUPABASE CORRIGÉ)
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🔍 Récupération des documents de base de connaissances');
@@ -402,18 +402,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER DOCUMENTS AVEC SUPABASE
+      // ✅ REQUÊTE SIMPLIFIÉE POUR DEBUGGING : Pas de join complexe
       const { data: documents, error } = await supabaseServiceClient
         .from('knowledge_base')
-        .select(`
-          *,
-          agent_knowledge_base!inner(
-            agent!inner(
-              id, name, isActive
-            )
-          )
-        `)
-        .eq('shopId', shop.id)
+        .select('*')
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
         .order('updated_at', { ascending: false });
 
       if (error) {
@@ -431,13 +424,13 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         id: doc.id,
         title: doc.title,
         content: doc.content,
-        contentType: doc.contentType,
-        sourceFile: doc.sourceFile,
-        sourceUrl: doc.sourceUrl,
+        contentType: doc.content_type,     // ✅ CORRIGÉ : content_type
+        sourceFile: doc.source_file,       // ✅ CORRIGÉ : source_file
+        sourceUrl: doc.source_url,         // ✅ CORRIGÉ : source_url
         tags: Array.isArray(doc.tags) ? doc.tags : [],
-        isActive: doc.isActive,
+        isActive: doc.is_active,           // ✅ CORRIGÉ : is_active
         metadata: doc.metadata || {},
-        linkedAgents: doc.agent_knowledge_base ? doc.agent_knowledge_base.map((link: any) => link.agent) : [],
+        linkedAgents: [],                  // ✅ TEMPORAIRE : Pas de join pour l'instant
         createdAt: doc.created_at,
         updatedAt: doc.updated_at
       }));
@@ -447,7 +440,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         data: formattedDocuments,
         meta: {
           total: documents?.length || 0,
-          activeCount: documents?.filter(doc => doc.isActive).length || 0,
+          activeCount: documents?.filter(doc => doc.is_active).length || 0,  // ✅ CORRIGÉ : is_active
           plan: {
             name: shop.subscription_plan,
             limits: {
@@ -480,7 +473,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ NOUVELLE ROUTE : UPLOAD DE FICHIER (SUPABASE)
+  // ✅ NOUVELLE ROUTE : UPLOAD DE FICHIER (SUPABASE CORRIGÉ)
   fastify.post('/upload', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('📤 Upload de fichier KB');
@@ -549,7 +542,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       // ✅ EXTRAIRE LE CONTENU DU FICHIER
       const { content, wordCount } = await extractTextFromFile(data, data.mimetype);
 
-      // ✅ CRÉER LE DOCUMENT EN BASE AVEC SUPABASE
+      // ✅ CRÉER LE DOCUMENT EN BASE AVEC SUPABASE CORRIGÉ
       const metadata = createSafeMetadata({
         originalFileName: data.filename,
         fileSize: fileSize,
@@ -563,14 +556,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
-          shopId: shop.id,
+          shop_id: shop.id,              // ✅ CORRIGÉ : shop_id au lieu de shopId
           title: data.filename || 'Fichier uploadé',
           content: content,
-          contentType: 'file',
-          sourceFile: data.filename,
-          sourceUrl: storageUrl,
+          content_type: 'file',          // ✅ CORRIGÉ : content_type au lieu de contentType
+          source_file: data.filename,    // ✅ CORRIGÉ : source_file au lieu de sourceFile
+          source_url: storageUrl,        // ✅ CORRIGÉ : source_url au lieu de sourceUrl
           tags: ['fichier', 'upload'],
-          isActive: true,
+          is_active: true,               // ✅ CORRIGÉ : is_active au lieu de isActive
           metadata: metadata
         })
         .select()
@@ -592,11 +585,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: newDocument.id,
           title: newDocument.title,
           content: newDocument.content,
-          contentType: newDocument.contentType,
-          sourceFile: newDocument.sourceFile,
-          sourceUrl: newDocument.sourceUrl,
+          contentType: newDocument.content_type,    // ✅ CORRIGÉ : content_type
+          sourceFile: newDocument.source_file,      // ✅ CORRIGÉ : source_file
+          sourceUrl: newDocument.source_url,        // ✅ CORRIGÉ : source_url
           tags: newDocument.tags,
-          isActive: newDocument.isActive,
+          isActive: newDocument.is_active,          // ✅ CORRIGÉ : is_active
           metadata: newDocument.metadata,
           linkedAgents: [],
           createdAt: newDocument.created_at,
@@ -622,7 +615,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ NOUVELLE ROUTE : TRAITEMENT D'UN SITE WEB (SUPABASE)
+  // ✅ NOUVELLE ROUTE : TRAITEMENT D'UN SITE WEB (SUPABASE CORRIGÉ)
   fastify.post('/website', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🌐 Traitement d\'un site web');
@@ -655,14 +648,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
-          shopId: shop.id,
+          shop_id: shop.id,                    // ✅ CORRIGÉ : shop_id au lieu de shopId
           title: body.title || title,
           content: content,
-          contentType: 'website',
-          sourceFile: null,
-          sourceUrl: body.url,
+          content_type: 'website',             // ✅ CORRIGÉ : content_type au lieu de contentType
+          source_file: null,                   // ✅ CORRIGÉ : source_file au lieu de sourceFile
+          source_url: body.url,                // ✅ CORRIGÉ : source_url au lieu de sourceUrl
           tags: body.tags.length > 0 ? body.tags : ['website', 'automatique'],
-          isActive: true,
+          is_active: true,                     // ✅ CORRIGÉ : is_active au lieu de isActive
           metadata: createSafeMetadata(metadata)
         })
         .select()
@@ -684,11 +677,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: newDocument.id,
           title: newDocument.title,
           content: newDocument.content,
-          contentType: newDocument.contentType,
-          sourceFile: newDocument.sourceFile,
-          sourceUrl: newDocument.sourceUrl,
+          contentType: newDocument.content_type,    // ✅ CORRIGÉ : content_type
+          sourceFile: newDocument.source_file,      // ✅ CORRIGÉ : source_file
+          sourceUrl: newDocument.source_url,        // ✅ CORRIGÉ : source_url
           tags: newDocument.tags,
-          isActive: newDocument.isActive,
+          isActive: newDocument.is_active,          // ✅ CORRIGÉ : is_active
           metadata: newDocument.metadata,
           createdAt: newDocument.created_at,
           updatedAt: newDocument.updated_at
@@ -721,7 +714,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UN DOCUMENT MANUEL (SUPABASE)
+  // ✅ ROUTE : CRÉER UN DOCUMENT MANUEL (SUPABASE CORRIGÉ)
   fastify.post('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🏗️ Création d\'un nouveau document KB');
@@ -761,14 +754,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
-          shopId: shop.id,
+          shop_id: shop.id,                    // ✅ CORRIGÉ : shop_id au lieu de shopId
           title: body.title,
           content: body.content,
-          contentType: body.contentType,
-          sourceFile: body.sourceFile || null,
-          sourceUrl: body.sourceUrl || null,
+          content_type: body.contentType,      // ✅ CORRIGÉ : content_type au lieu de contentType
+          source_file: body.sourceFile || null,       // ✅ CORRIGÉ : source_file au lieu de sourceFile
+          source_url: body.sourceUrl || null,         // ✅ CORRIGÉ : source_url au lieu de sourceUrl
           tags: body.tags,
-          isActive: body.isActive,
+          is_active: body.isActive,            // ✅ CORRIGÉ : is_active au lieu de isActive
           metadata: metadata
         })
         .select()
@@ -790,11 +783,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: newDocument.id,
           title: newDocument.title,
           content: newDocument.content,
-          contentType: newDocument.contentType,
-          sourceFile: newDocument.sourceFile,
-          sourceUrl: newDocument.sourceUrl,
+          contentType: newDocument.content_type,    // ✅ CORRIGÉ : content_type
+          sourceFile: newDocument.source_file,      // ✅ CORRIGÉ : source_file
+          sourceUrl: newDocument.source_url,        // ✅ CORRIGÉ : source_url
           tags: newDocument.tags,
-          isActive: newDocument.isActive,
+          isActive: newDocument.is_active,          // ✅ CORRIGÉ : is_active
           metadata: newDocument.metadata,
           linkedAgents: [],
           createdAt: newDocument.created_at,
@@ -828,7 +821,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : EXTRAIRE CONTENU D'UNE URL (SUPABASE)
+  // ✅ ROUTE : EXTRAIRE CONTENU D'UNE URL (SUPABASE CORRIGÉ)
   fastify.post('/extract-url', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = await verifySupabaseAuth(request);
@@ -859,14 +852,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
-          shopId: shop.id,
+          shop_id: shop.id,                    // ✅ CORRIGÉ : shop_id au lieu de shopId
           title: body.title || title,
           content: content,
-          contentType: 'url',
-          sourceFile: null,
-          sourceUrl: body.url,
+          content_type: 'url',                 // ✅ CORRIGÉ : content_type au lieu de contentType
+          source_file: null,                   // ✅ CORRIGÉ : source_file au lieu de sourceFile
+          source_url: body.url,                // ✅ CORRIGÉ : source_url au lieu de sourceUrl
           tags: [],
-          isActive: true,
+          is_active: true,                     // ✅ CORRIGÉ : is_active au lieu de isActive
           metadata: createSafeMetadata(metadata)
         })
         .select()
@@ -888,11 +881,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: newDocument.id,
           title: newDocument.title,
           content: newDocument.content,
-          contentType: newDocument.contentType,
-          sourceFile: newDocument.sourceFile,
-          sourceUrl: newDocument.sourceUrl,
+          contentType: newDocument.content_type,    // ✅ CORRIGÉ : content_type
+          sourceFile: newDocument.source_file,      // ✅ CORRIGÉ : source_file
+          sourceUrl: newDocument.source_url,        // ✅ CORRIGÉ : source_url
           tags: newDocument.tags,
-          isActive: newDocument.isActive,
+          isActive: newDocument.is_active,          // ✅ CORRIGÉ : is_active
           metadata: newDocument.metadata,
           createdAt: newDocument.created_at,
           updatedAt: newDocument.updated_at
@@ -918,7 +911,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR UN DOCUMENT (SUPABASE)
+  // ✅ ROUTE : OBTENIR UN DOCUMENT (SUPABASE CORRIGÉ)
   fastify.get<{ Params: { id: string } }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -935,16 +928,9 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
 
       const { data: document, error } = await supabaseServiceClient
         .from('knowledge_base')
-        .select(`
-          *,
-          agent_knowledge_base(
-            agent(
-              id, name, isActive
-            )
-          )
-        `)
+        .select('*')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
         .single();
 
       if (error || !document) {
@@ -960,13 +946,13 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: document.id,
           title: document.title,
           content: document.content,
-          contentType: document.contentType,
-          sourceFile: document.sourceFile,
-          sourceUrl: document.sourceUrl,
+          contentType: document.content_type,    // ✅ CORRIGÉ : content_type
+          sourceFile: document.source_file,      // ✅ CORRIGÉ : source_file
+          sourceUrl: document.source_url,        // ✅ CORRIGÉ : source_url
           tags: document.tags,
-          isActive: document.isActive,
+          isActive: document.is_active,          // ✅ CORRIGÉ : is_active
           metadata: document.metadata,
-          linkedAgents: document.agent_knowledge_base ? document.agent_knowledge_base.map((link: any) => link.agent) : [],
+          linkedAgents: [],                      // ✅ TEMPORAIRE : Pas de join pour l'instant
           createdAt: document.created_at,
           updatedAt: document.updated_at
         }
@@ -990,7 +976,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : METTRE À JOUR UN DOCUMENT (SUPABASE)
+  // ✅ ROUTE : METTRE À JOUR UN DOCUMENT (SUPABASE CORRIGÉ)
   fastify.put<{ Params: { id: string } }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -1011,7 +997,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         .from('knowledge_base')
         .select('*')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
         .single();
 
       if (fetchError || !existingDocument) {
@@ -1033,7 +1019,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
       if (body.tags) updateData.tags = body.tags;
-      if (body.isActive !== undefined) updateData.isActive = body.isActive;
+      if (body.isActive !== undefined) updateData.is_active = body.isActive;  // ✅ CORRIGÉ : is_active
 
       const { data: updatedDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
@@ -1056,11 +1042,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: updatedDocument.id,
           title: updatedDocument.title,
           content: updatedDocument.content,
-          contentType: updatedDocument.contentType,
-          sourceFile: updatedDocument.sourceFile,
-          sourceUrl: updatedDocument.sourceUrl,
+          contentType: updatedDocument.content_type,    // ✅ CORRIGÉ : content_type
+          sourceFile: updatedDocument.source_file,      // ✅ CORRIGÉ : source_file
+          sourceUrl: updatedDocument.source_url,        // ✅ CORRIGÉ : source_url
           tags: updatedDocument.tags,
-          isActive: updatedDocument.isActive,
+          isActive: updatedDocument.is_active,          // ✅ CORRIGÉ : is_active
           metadata: updatedDocument.metadata,
           createdAt: updatedDocument.created_at,
           updatedAt: updatedDocument.updated_at
@@ -1076,7 +1062,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : SUPPRIMER UN DOCUMENT (SUPABASE)
+  // ✅ ROUTE : SUPPRIMER UN DOCUMENT (SUPABASE CORRIGÉ)
   fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -1096,7 +1082,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         .from('knowledge_base')
         .select('*')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
         .single();
 
       if (fetchError || !existingDocument) {
@@ -1107,7 +1093,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ SUPPRIMER LE FICHIER DE SUPABASE STORAGE SI C'EST UN FICHIER
-      if (existingDocument.contentType === 'file' && existingDocument.metadata) {
+      if (existingDocument.content_type === 'file' && existingDocument.metadata) {  // ✅ CORRIGÉ : content_type
         try {
           const metadata = existingDocument.metadata as SafeMetadata;
           if (metadata.storagePath) {
@@ -1154,7 +1140,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : TOGGLE STATUT (SUPABASE)
+  // ✅ ROUTE : TOGGLE STATUT (SUPABASE CORRIGÉ)
   fastify.patch<{ Params: { id: string } }>('/:id/toggle', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -1175,7 +1161,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         .from('knowledge_base')
         .select('id')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
         .single();
 
       if (fetchError || !existingDocument) {
@@ -1188,11 +1174,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: updatedDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .update({ 
-          isActive: body.isActive,
+          is_active: body.isActive,             // ✅ CORRIGÉ : is_active au lieu de isActive
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .select('id, isActive, updated_at')
+        .select('id, is_active, updated_at')   // ✅ CORRIGÉ : is_active
         .single();
 
       if (error) {
@@ -1209,7 +1195,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         success: true,
         data: {
           id: updatedDocument.id,
-          isActive: updatedDocument.isActive,
+          isActive: updatedDocument.is_active,    // ✅ CORRIGÉ : is_active
           updatedAt: updatedDocument.updated_at
         }
       };

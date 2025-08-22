@@ -1,4 +1,4 @@
-// src/routes/analytics.ts - VERSION SUPABASE PURE
+// src/routes/analytics.ts - VERSION SUPABASE CORRIGÉE ✅
 import { FastifyPluginAsync } from 'fastify'
 import { supabaseServiceClient } from '../lib/supabase'
 
@@ -42,33 +42,33 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       startDate.setDate(startDate.getDate() - 30)
       const startDateISO = startDate.toISOString()
 
-      // ✅ REQUÊTES SUPABASE PARALLÈLES
+      // ✅ REQUÊTES CORRIGÉES : Toutes les colonnes en snake_case
       const [conversationsResult, ordersResult, agentsResult, documentsResult] = await Promise.all([
         // Conversations count
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('startedAt', startDateISO),
+          .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+          .gte('started_at', startDateISO), // ✅ CORRIGÉ : started_at
         
         // Orders count
         supabaseServiceClient
           .from('orders')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('createdAt', startDateISO),
+          .eq('shop_id', shopId)          // ✅ CORRIGÉ : shop_id
+          .gte('created_at', startDateISO), // ✅ CORRIGÉ : created_at
         
         // Agents count
         supabaseServiceClient
           .from('agents')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId),
+          .eq('shop_id', shopId),         // ✅ CORRIGÉ : shop_id
         
         // Knowledge Base count
         supabaseServiceClient
           .from('knowledge_base')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
+          .eq('shop_id', shopId)          // ✅ CORRIGÉ : shop_id
       ])
 
       const conversationsCount = conversationsResult.count || 0
@@ -76,18 +76,18 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const agentsCount = agentsResult.count || 0
       const documentsCount = documentsResult.count || 0
 
-      // ✅ REVENUS TOTAUX AVEC SUPABASE
+      // ✅ REVENUS TOTAUX CORRIGÉS : total_amount au lieu de totalAmount
       const { data: revenueData, error: revenueError } = await supabaseServiceClient
         .from('orders')
-        .select('totalAmount')
-        .eq('shopId', shopId)
-        .gte('createdAt', startDateISO)
+        .select('total_amount')           // ✅ CORRIGÉ : total_amount
+        .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+        .gte('created_at', startDateISO)  // ✅ CORRIGÉ : created_at
         .in('status', ['completed', 'confirmed', 'paid'])
 
       let totalRevenue = 0
       if (revenueData && !revenueError) {
         totalRevenue = revenueData.reduce((sum, order) => {
-          return sum + (parseFloat(order.totalAmount?.toString() || '0'))
+          return sum + (parseFloat(order.total_amount?.toString() || '0'))  // ✅ CORRIGÉ : total_amount
         }, 0)
       }
       
@@ -119,7 +119,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/usage-stats - Usage Stats SUPABASE
+  // ✅ GET /api/v1/analytics/usage-stats - Usage Stats CORRIGÉ
   fastify.get<{
     Querystring: AnalyticsQuery
   }>('/usage-stats', async (request, reply) => {
@@ -151,40 +151,40 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('startedAt', startOfMonthISO),
+          .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+          .gte('started_at', startOfMonthISO), // ✅ CORRIGÉ : started_at
         
         // Documents total
         supabaseServiceClient
           .from('knowledge_base')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId),
+          .eq('shop_id', shopId),          // ✅ CORRIGÉ : shop_id
         
         // Agents total
         supabaseServiceClient
           .from('agents')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId),
+          .eq('shop_id', shopId),          // ✅ CORRIGÉ : shop_id
         
         // Commandes ce mois
         supabaseServiceClient
           .from('orders')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('createdAt', startOfMonthISO),
+          .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+          .gte('created_at', startOfMonthISO), // ✅ CORRIGÉ : created_at
         
         // Total conversations (toutes périodes)
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId),
+          .eq('shop_id', shopId),          // ✅ CORRIGÉ : shop_id
         
         // Conversations actives (dernières 24h)
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('lastActivity', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+          .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+          .gte('last_activity', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // ✅ CORRIGÉ : last_activity
       ])
 
       const conversationsCount = conversationsResult.count || 0
@@ -194,18 +194,18 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const totalConversations = totalConversationsResult.count || 0
       const activeConversations = activeConversationsResult.count || 0
 
-      // ✅ REVENUS CE MOIS AVEC SUPABASE
+      // ✅ REVENUS CE MOIS CORRIGÉS : total_amount
       const { data: revenueData, error: revenueError } = await supabaseServiceClient
         .from('orders')
-        .select('totalAmount')
-        .eq('shopId', shopId)
-        .gte('createdAt', startOfMonthISO)
+        .select('total_amount')           // ✅ CORRIGÉ : total_amount
+        .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+        .gte('created_at', startOfMonthISO) // ✅ CORRIGÉ : created_at
         .in('status', ['completed', 'paid'])
 
       let totalRevenue = 0
       if (revenueData && !revenueError) {
         totalRevenue = revenueData.reduce((sum, order) => {
-          return sum + (parseFloat(order.totalAmount?.toString() || '0'))
+          return sum + (parseFloat(order.total_amount?.toString() || '0'))  // ✅ CORRIGÉ : total_amount
         }, 0)
       }
         
@@ -250,7 +250,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/detailed - Stats détaillées SUPABASE
+  // ✅ GET /api/v1/analytics/detailed - Stats détaillées CORRIGÉES
   fastify.get<{
     Querystring: AnalyticsQuery
   }>('/detailed', async (request, reply) => {
@@ -285,50 +285,51 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const startDateISO = startDate.toISOString()
 
-      // ✅ RÉCUPÉRER L'HISTORIQUE DES CONVERSATIONS AVEC SUPABASE
+      // ✅ REQUÊTES CORRIGÉES : started_at et shop_id
       const { data: conversations, error: convError } = await supabaseServiceClient
         .from('conversations')
-        .select('startedAt, id')
-        .eq('shopId', shopId)
-        .gte('startedAt', startDateISO)
-        .order('startedAt', { ascending: true })
+        .select('started_at, id')          // ✅ CORRIGÉ : started_at
+        .eq('shop_id', shopId)            // ✅ CORRIGÉ : shop_id
+        .gte('started_at', startDateISO)   // ✅ CORRIGÉ : started_at
+        .order('started_at', { ascending: true }) // ✅ CORRIGÉ : started_at
 
       if (convError) {
         console.error('Erreur conversations:', convError)
       }
 
-      // ✅ RÉCUPÉRER L'HISTORIQUE DES COMMANDES AVEC SUPABASE  
+      // ✅ REQUÊTES CORRIGÉES : created_at, total_amount et shop_id
       const { data: orders, error: ordersError } = await supabaseServiceClient
         .from('orders')
-        .select('createdAt, id, totalAmount')
-        .eq('shopId', shopId)
-        .gte('createdAt', startDateISO)
-        .order('createdAt', { ascending: true })
+        .select('created_at, id, total_amount') // ✅ CORRIGÉ : created_at, total_amount
+        .eq('shop_id', shopId)                 // ✅ CORRIGÉ : shop_id
+        .gte('created_at', startDateISO)        // ✅ CORRIGÉ : created_at
+        .order('created_at', { ascending: true }) // ✅ CORRIGÉ : created_at
 
       if (ordersError) {
         console.error('Erreur orders:', ordersError)
       }
 
-      // ✅ GROUPER PAR JOUR
+      // ✅ GROUPER PAR JOUR CORRIGÉ : started_at
       const conversationsByDay = (conversations || []).reduce((acc: any, conv) => {
-        const date = new Date(conv.startedAt).toISOString().split('T')[0]
+        const date = new Date(conv.started_at).toISOString().split('T')[0] // ✅ CORRIGÉ : started_at
         acc[date] = (acc[date] || 0) + 1
         return acc
       }, {})
 
+      // ✅ GROUPER PAR JOUR CORRIGÉ : created_at et total_amount
       const ordersByDay = (orders || []).reduce((acc: any, order) => {
-        const date = new Date(order.createdAt).toISOString().split('T')[0]
+        const date = new Date(order.created_at).toISOString().split('T')[0] // ✅ CORRIGÉ : created_at
         if (!acc[date]) {
           acc[date] = { count: 0, revenue: 0 }
         }
         acc[date].count += 1
-        acc[date].revenue += parseFloat(order.totalAmount?.toString() || '0')
+        acc[date].revenue += parseFloat(order.total_amount?.toString() || '0') // ✅ CORRIGÉ : total_amount
         return acc
       }, {})
 
-      // ✅ CALCUL REVENUS TOTAL
+      // ✅ CALCUL REVENUS TOTAL CORRIGÉ : total_amount
       const totalRevenue = (orders || []).reduce((sum, order) => {
-        return sum + parseFloat(order.totalAmount?.toString() || '0')
+        return sum + parseFloat(order.total_amount?.toString() || '0') // ✅ CORRIGÉ : total_amount
       }, 0)
 
       const detailedStats = {
@@ -376,7 +377,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/analytics/dashboard - Analytics dashboard SUPABASE
+  // ✅ GET /api/v1/analytics/dashboard - Analytics dashboard CORRIGÉ
   fastify.get('/dashboard', async (request, reply) => {
     try {
       if (!request.user) {
@@ -393,36 +394,36 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const last30DaysISO = last30Days.toISOString()
       const previous30DaysISO = previous30Days.toISOString()
 
-      // ✅ STATS PÉRIODE ACTUELLE AVEC SUPABASE
+      // ✅ STATS PÉRIODE ACTUELLE CORRIGÉES : shop_id et started_at/created_at
       const [currentConvResult, currentOrdersResult] = await Promise.all([
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('startedAt', last30DaysISO),
+          .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+          .gte('started_at', last30DaysISO), // ✅ CORRIGÉ : started_at
         
         supabaseServiceClient
           .from('orders')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('createdAt', last30DaysISO)
+          .eq('shop_id', shopId)          // ✅ CORRIGÉ : shop_id
+          .gte('created_at', last30DaysISO) // ✅ CORRIGÉ : created_at
       ])
 
-      // ✅ STATS PÉRIODE PRÉCÉDENTE AVEC SUPABASE
+      // ✅ STATS PÉRIODE PRÉCÉDENTE CORRIGÉES : shop_id et started_at/created_at
       const [previousConvResult, previousOrdersResult] = await Promise.all([
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('startedAt', previous30DaysISO)
-          .lt('startedAt', last30DaysISO),
+          .eq('shop_id', shopId)            // ✅ CORRIGÉ : shop_id
+          .gte('started_at', previous30DaysISO) // ✅ CORRIGÉ : started_at
+          .lt('started_at', last30DaysISO), // ✅ CORRIGÉ : started_at
         
         supabaseServiceClient
           .from('orders')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .gte('createdAt', previous30DaysISO)
-          .lt('createdAt', last30DaysISO)
+          .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+          .gte('created_at', previous30DaysISO) // ✅ CORRIGÉ : created_at
+          .lt('created_at', last30DaysISO)  // ✅ CORRIGÉ : created_at
       ])
 
       const currentConv = currentConvResult.count || 0
@@ -430,29 +431,30 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const previousConv = previousConvResult.count || 0
       const previousOrders = previousOrdersResult.count || 0
 
-      // ✅ REVENUS PÉRIODE ACTUELLE AVEC SUPABASE
+      // ✅ REVENUS PÉRIODE ACTUELLE CORRIGÉS : total_amount, shop_id, created_at
       const { data: currentRevenueData } = await supabaseServiceClient
         .from('orders')
-        .select('totalAmount')
-        .eq('shopId', shopId)
-        .gte('createdAt', last30DaysISO)
+        .select('total_amount')           // ✅ CORRIGÉ : total_amount
+        .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
+        .gte('created_at', last30DaysISO) // ✅ CORRIGÉ : created_at
         .in('status', ['completed', 'paid'])
 
-      // ✅ REVENUS PÉRIODE PRÉCÉDENTE AVEC SUPABASE
+      // ✅ REVENUS PÉRIODE PRÉCÉDENTE CORRIGÉS : total_amount, shop_id, created_at
       const { data: previousRevenueData } = await supabaseServiceClient
         .from('orders')
-        .select('totalAmount')
-        .eq('shopId', shopId)
-        .gte('createdAt', previous30DaysISO)
-        .lt('createdAt', last30DaysISO)
+        .select('total_amount')            // ✅ CORRIGÉ : total_amount
+        .eq('shop_id', shopId)            // ✅ CORRIGÉ : shop_id
+        .gte('created_at', previous30DaysISO) // ✅ CORRIGÉ : created_at
+        .lt('created_at', last30DaysISO)  // ✅ CORRIGÉ : created_at
         .in('status', ['completed', 'paid'])
 
+      // ✅ CALCULS REVENUS CORRIGÉS : total_amount
       const currentRevenueAmount = (currentRevenueData || []).reduce((sum, order) => {
-        return sum + parseFloat(order.totalAmount?.toString() || '0')
+        return sum + parseFloat(order.total_amount?.toString() || '0') // ✅ CORRIGÉ : total_amount
       }, 0)
 
       const previousRevenueAmount = (previousRevenueData || []).reduce((sum, order) => {
-        return sum + parseFloat(order.totalAmount?.toString() || '0')
+        return sum + parseFloat(order.total_amount?.toString() || '0') // ✅ CORRIGÉ : total_amount
       }, 0)
 
       // ✅ CALCULER LES VARIATIONS

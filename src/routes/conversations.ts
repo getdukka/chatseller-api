@@ -1,4 +1,4 @@
-// src/routes/conversations.ts - VERSION SUPABASE PURE
+// src/routes/conversations.ts - VERSION SUPABASE CORRIGÉE ✅
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
@@ -22,15 +22,20 @@ const conversationUpdateSchema = z.object({
   conversion_completed: z.boolean().optional()
 });
 
+// ✅ HELPER : Récupérer user shop ID
+function getUserShopId(request: any): string | null {
+  const user = request.user as any
+  return user?.shopId || user?.shop_id || user?.id || null
+}
+
 async function conversationsRoutes(fastify: FastifyInstance) {
   
   // ==========================================
-  // 📋 GET /api/v1/conversations - LISTE
+  // 📋 GET /api/v1/conversations - LISTE CORRIGÉE
   // ==========================================
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const user = request.user as any
-      const shopId = user?.shop_id || user?.id
+      const shopId = getUserShopId(request)
 
       if (!shopId) {
         return reply.status(401).send({
@@ -41,36 +46,46 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`📞 Récupération conversations pour shop: ${shopId}`)
 
-      // ✅ REQUÊTE SUPABASE : Récupérer conversations avec dernier message
-      const { data: conversations, error } = await supabaseServiceClient
+      // ✅ REQUÊTE CORRIGÉE : shop_id au lieu de shopId
+      const { data: conversations, error: conversationsError } = await supabaseServiceClient
         .from('conversations')
-        .select(`
-          *,
-          messages!conversations_messages_conversationId_fkey (
-            id, content, role, createdAt, tokensUsed, responseTimeMs
-          )
-        `)
-        .eq('shopId', shopId)
-        .order('startedAt', { ascending: false })
+        .select('*')
+        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
+        .order('started_at', { ascending: false })  // ✅ CORRIGÉ : started_at
 
-      if (error) {
-        throw new Error(`Supabase error: ${error.message}`)
+      if (conversationsError) {
+        throw new Error(`Supabase conversations error: ${conversationsError.message}`)
       }
 
-      // ✅ TRAITEMENT : Garder seulement le dernier message pour chaque conversation
-      const conversationsWithLastMessage = conversations?.map(conv => ({
-        ...conv,
-        messages: conv.messages
-          ?.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-          ?.slice(0, 1) || []
-      })) || []
+      // ✅ RÉCUPÉRER LES MESSAGES SÉPARÉMENT
+      const conversationsWithMessages = await Promise.all(
+        (conversations || []).map(async (conv) => {
+          // ✅ CORRIGÉ : conversation_id au lieu de conversationId
+          const { data: messages, error: messagesError } = await supabaseServiceClient
+            .from('messages')
+            .select('id, content, role, created_at, tokens_used, response_time_ms')  // ✅ CORRIGÉ : colonnes snake_case
+            .eq('conversation_id', conv.id)  // ✅ CORRIGÉ : conversation_id
+            .order('created_at', { ascending: false })  // ✅ CORRIGÉ : created_at
+            .limit(1)
 
-      fastify.log.info(`✅ Conversations trouvées: ${conversationsWithLastMessage.length}`)
+          // Ne pas faire échouer si erreur messages
+          if (messagesError) {
+            fastify.log.warn(`⚠️ Erreur messages pour conversation ${conv.id}: ${messagesError.message}`)
+          }
+
+          return {
+            ...conv,
+            messages: messages || []
+          }
+        })
+      )
+
+      fastify.log.info(`✅ Conversations trouvées: ${conversationsWithMessages.length}`)
 
       return {
         success: true,
-        data: conversationsWithLastMessage,
-        count: conversationsWithLastMessage.length
+        data: conversationsWithMessages,
+        count: conversationsWithMessages.length
       }
 
     } catch (error: any) {
@@ -87,13 +102,12 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
-  // 🔍 GET /api/v1/conversations/:id - DÉTAIL
+  // 🔍 GET /api/v1/conversations/:id - DÉTAIL CORRIGÉ
   // ==========================================
   fastify.get<{ Params: { conversationId: string } }>('/:conversationId', async (request, reply) => {
     try {
       const { conversationId } = request.params
-      const user = request.user as any
-      const shopId = user?.shop_id || user?.id
+      const shopId = getUserShopId(request)
 
       if (!shopId) {
         return reply.status(401).send({
@@ -104,39 +118,44 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`🔍 Récupération conversation: ${conversationId}`)
 
-      // ✅ REQUÊTE SUPABASE : Récupérer conversation avec tous les messages
-      const { data: conversation, error } = await supabaseServiceClient
+      // ✅ REQUÊTE CORRIGÉE : shop_id au lieu de shopId
+      const { data: conversation, error: conversationError } = await supabaseServiceClient
         .from('conversations')
-        .select(`
-          *,
-          messages!conversations_messages_conversationId_fkey (
-            id, content, role, createdAt, tokensUsed, responseTimeMs, modelUsed
-          )
-        `)
+        .select('*')
         .eq('id', conversationId)
-        .eq('shopId', shopId)
+        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
         .single()
 
-      if (error) {
-        if (error.code === 'PGRST116') {
+      if (conversationError) {
+        if (conversationError.code === 'PGRST116') {
           return reply.status(404).send({
             success: false,
             error: 'Conversation non trouvée'
           })
         }
-        throw new Error(`Supabase error: ${error.message}`)
+        throw new Error(`Supabase conversation error: ${conversationError.message}`)
       }
 
-      // ✅ TRAITEMENT : Trier les messages par date de création
-      if (conversation.messages) {
-        conversation.messages.sort((a: any, b: any) => 
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        )
+      // ✅ REQUÊTE CORRIGÉE : conversation_id et colonnes snake_case
+      const { data: messages, error: messagesError } = await supabaseServiceClient
+        .from('messages')
+        .select('id, content, role, created_at, tokens_used, response_time_ms, model_used')  // ✅ CORRIGÉ : colonnes snake_case
+        .eq('conversation_id', conversationId)  // ✅ CORRIGÉ : conversation_id
+        .order('created_at', { ascending: true })  // ✅ CORRIGÉ : created_at
+
+      if (messagesError) {
+        fastify.log.warn(`⚠️ Erreur messages: ${messagesError.message}`)
+      }
+
+      // ✅ ASSEMBLER LA RÉPONSE
+      const conversationWithMessages = {
+        ...conversation,
+        messages: messages || []
       }
 
       return {
         success: true,
-        data: conversation
+        data: conversationWithMessages
       }
 
     } catch (error: any) {
@@ -159,8 +178,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: typeof conversationCreateSchema._type }>('/', async (request, reply) => {
     try {
       const { shopId, visitorId, productId, productName, productPrice, productUrl, agentId } = conversationCreateSchema.parse(request.body)
-      const user = request.user as any
-      const userShopId = user?.shop_id || user?.id
+      const userShopId = getUserShopId(request)
 
       // Vérifier que le shop appartient à l'utilisateur
       if (shopId && shopId !== userShopId) {
@@ -172,24 +190,24 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`➕ Création conversation pour shop: ${userShopId}`)
 
-      // ✅ CRÉATION SUPABASE : Nouvelle conversation
+      // ✅ CRÉATION CORRIGÉE : Toutes les colonnes en snake_case
       const { data: newConversation, error } = await supabaseServiceClient
         .from('conversations')
         .insert({
-          shopId: userShopId,
-          visitorId: visitorId,
-          agentId: agentId || null,
-          productId: productId || null,
-          productName: productName || null,
-          productPrice: productPrice || null,
-          productUrl: productUrl || null,
+          shop_id: userShopId,           // ✅ CORRIGÉ : shop_id
+          visitor_id: visitorId,         // ✅ CORRIGÉ : visitor_id
+          agent_id: agentId || null,     // ✅ CORRIGÉ : agent_id
+          product_id: productId || null, // ✅ CORRIGÉ : product_id
+          product_name: productName || null,     // ✅ CORRIGÉ : product_name
+          product_price: productPrice || null,   // ✅ CORRIGÉ : product_price
+          product_url: productUrl || null,       // ✅ CORRIGÉ : product_url
           status: 'active',
-          startedAt: new Date().toISOString(),
-          lastActivity: new Date().toISOString(),
-          messageCount: 0,
-          conversionCompleted: false,
-          visitorIp: request.ip,
-          visitorUserAgent: request.headers['user-agent'] || null
+          started_at: new Date().toISOString(),        // ✅ CORRIGÉ : started_at
+          last_activity: new Date().toISOString(),     // ✅ CORRIGÉ : last_activity
+          message_count: 0,                            // ✅ CORRIGÉ : message_count
+          conversion_completed: false,                 // ✅ CORRIGÉ : conversion_completed
+          visitor_ip: request.ip,                      // ✅ CORRIGÉ : visitor_ip
+          visitor_user_agent: request.headers['user-agent'] || null  // ✅ CORRIGÉ : visitor_user_agent
         })
         .select()
         .single()
@@ -226,8 +244,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
     try {
       const { conversationId } = request.params
       const updateData = conversationUpdateSchema.parse(request.body)
-      const user = request.user as any
-      const shopId = user?.shop_id || user?.id
+      const shopId = getUserShopId(request)
 
       if (!shopId) {
         return reply.status(401).send({
@@ -238,12 +255,12 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`✏️ Mise à jour conversation: ${conversationId}`)
 
-      // ✅ VÉRIFICATION SUPABASE : Conversation appartient au shop
+      // ✅ VÉRIFICATION CORRIGÉE : shop_id au lieu de shopId
       const { data: existingConversation, error: checkError } = await supabaseServiceClient
         .from('conversations')
-        .select('id, shopId')
+        .select('id, shop_id')  // ✅ CORRIGÉ : shop_id
         .eq('id', conversationId)
-        .eq('shopId', shopId)
+        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
         .single()
 
       if (checkError) {
@@ -256,12 +273,12 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         throw new Error(`Supabase error: ${checkError.message}`)
       }
 
-      // ✅ MISE À JOUR SUPABASE : Conversation
+      // ✅ MISE À JOUR CORRIGÉE : last_activity en snake_case
       const { data: updatedConversation, error: updateError } = await supabaseServiceClient
         .from('conversations')
         .update({
           ...updateData,
-          lastActivity: new Date().toISOString()
+          last_activity: new Date().toISOString()  // ✅ CORRIGÉ : last_activity
         })
         .eq('id', conversationId)
         .select()
@@ -297,8 +314,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { conversationId: string } }>('/:conversationId', async (request, reply) => {
     try {
       const { conversationId } = request.params
-      const user = request.user as any
-      const shopId = user?.shop_id || user?.id
+      const shopId = getUserShopId(request)
 
       if (!shopId) {
         return reply.status(401).send({
@@ -309,12 +325,12 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`🗑️ Suppression conversation: ${conversationId}`)
 
-      // ✅ VÉRIFICATION ET SUPPRESSION SUPABASE
+      // ✅ SUPPRESSION CORRIGÉE : shop_id au lieu de shopId
       const { data: deletedConversation, error } = await supabaseServiceClient
         .from('conversations')
         .delete()
         .eq('id', conversationId)
-        .eq('shopId', shopId)
+        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
         .select()
         .single()
 
@@ -355,8 +371,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   // ==========================================
   fastify.get('/stats', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const user = request.user as any
-      const shopId = user?.shop_id || user?.id
+      const shopId = getUserShopId(request)
 
       if (!shopId) {
         return reply.status(401).send({
@@ -367,7 +382,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`📊 Récupération stats conversations pour shop: ${shopId}`)
 
-      // ✅ REQUÊTES SUPABASE : Statistiques
+      // ✅ REQUÊTES CORRIGÉES : shop_id au lieu de shopId, conversion_completed au lieu de conversionCompleted
       const [
         { count: totalConversations },
         { count: activeConversations },
@@ -376,19 +391,19 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId),
+          .eq('shop_id', shopId),  // ✅ CORRIGÉ : shop_id
         
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
+          .eq('shop_id', shopId)   // ✅ CORRIGÉ : shop_id
           .eq('status', 'active'),
         
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shopId', shopId)
-          .eq('conversionCompleted', true)
+          .eq('shop_id', shopId)               // ✅ CORRIGÉ : shop_id
+          .eq('conversion_completed', true)    // ✅ CORRIGÉ : conversion_completed
       ])
 
       // ✅ CALCUL TAUX CONVERSION

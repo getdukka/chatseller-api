@@ -1,4 +1,4 @@
-// src/routes/agents.ts - VERSION SUPABASE PURE
+// src/routes/agents.ts - VERSION SUPABASE CORRIGÉE ✅
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
@@ -169,7 +169,7 @@ interface AgentKnowledgeBody {
 
 export default async function agentsRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE: LISTE DES AGENTS (SUPABASE)
+  // ✅ ROUTE: LISTE DES AGENTS (SUPABASE) - CORRIGÉE
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🔍 Récupération des agents');
@@ -184,41 +184,41 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER AGENTS AVEC SUPABASE
+      // ✅ RÉCUPÉRER AGENTS AVEC SUPABASE - COLONNES CORRIGÉES
       const { data: agents, error: agentsError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description,
-          welcomeMessage, fallbackMessage, avatar, isActive, config,
-          createdAt, updatedAt,
+          welcome_message, fallback_message, avatar, is_active, config,
+          created_at, updated_at,
           agent_knowledge_base!inner(
             knowledge_base!inner(
-              id, title, contentType, isActive
+              id, title, content_type, is_active
             )
           )
         `)
-        .eq('shopId', shop.id)
-        .order('updatedAt', { ascending: false });
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
+        .order('updated_at', { ascending: false });  // ✅ CORRIGÉ : updated_at
 
       if (agentsError) {
         throw agentsError;
       }
 
-      // ✅ CALCULER STATISTIQUES POUR CHAQUE AGENT
+      // ✅ CALCULER STATISTIQUES POUR CHAQUE AGENT - COLONNES CORRIGÉES
       const agentsWithStats = await Promise.all(
         (agents || []).map(async (agent) => {
           // Conversations count
           const { count: conversations } = await supabaseServiceClient
             .from('conversations')
             .select('*', { count: 'exact', head: true })
-            .eq('agentId', agent.id);
+            .eq('agent_id', agent.id);  // ✅ CORRIGÉ : agent_id
           
           // Conversions count
           const { count: conversions } = await supabaseServiceClient
             .from('conversations')
             .select('*', { count: 'exact', head: true })
-            .eq('agentId', agent.id)
-            .eq('conversionCompleted', true);
+            .eq('agent_id', agent.id)  // ✅ CORRIGÉ : agent_id
+            .eq('conversion_completed', true);  // ✅ CORRIGÉ : conversion_completed
 
           return {
             id: agent.id,
@@ -227,18 +227,18 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
-            welcomeMessage: agent.welcomeMessage,
-            fallbackMessage: agent.fallbackMessage,
+            welcomeMessage: agent.welcome_message,  // ✅ Mappage snake_case → camelCase
+            fallbackMessage: agent.fallback_message,  // ✅ Mappage snake_case → camelCase
             avatar: agent.avatar,
-            isActive: agent.isActive,
+            isActive: agent.is_active,  // ✅ Mappage snake_case → camelCase
             config: agent.config,
             stats: {
               conversations: conversations || 0,
               conversions: conversions || 0
             },
             knowledgeBase: agent.agent_knowledge_base?.map((akb: any) => akb.knowledge_base) || [],
-            createdAt: agent.createdAt,
-            updatedAt: agent.updatedAt
+            createdAt: agent.created_at,  // ✅ Mappage snake_case → camelCase
+            updatedAt: agent.updated_at   // ✅ Mappage snake_case → camelCase
           };
         })
       );
@@ -270,7 +270,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: CRÉER UN AGENT (SUPABASE)
+  // ✅ ROUTE: CRÉER UN AGENT (SUPABASE) - CORRIGÉE
   fastify.post('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       fastify.log.info('🏗️ Création d\'un nouvel agent');
@@ -302,11 +302,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ VÉRIFIER LIMITES PLAN AVEC SUPABASE
+      // ✅ VÉRIFIER LIMITES PLAN AVEC SUPABASE - CORRIGÉ
       const { count: currentAgentsCount } = await supabaseServiceClient
         .from('agents')
         .select('*', { count: 'exact', head: true })
-        .eq('shopId', shop.id);
+        .eq('shop_id', shop.id);  // ✅ CORRIGÉ : shop_id
 
       const canCreate = await checkPlanLimits(shop.id, currentAgentsCount || 0, shop.subscription_plan || 'starter');
       
@@ -323,18 +323,18 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       // ✅ GÉNÉRER TITRE AUTOMATIQUE
       const finalTitle = getDefaultTitle(body.type, body.title);
 
-      // ✅ CRÉER AGENT AVEC SUPABASE
+      // ✅ CRÉER AGENT AVEC SUPABASE - COLONNES CORRIGÉES
       const agentData = {
-        shopId: shop.id,
+        shop_id: shop.id,  // ✅ CORRIGÉ : shop_id
         name: body.name,
         title: finalTitle,
         type: body.type as AgentType,
         personality: body.personality as AgentPersonality,
         description: body.description,
-        welcomeMessage: body.welcomeMessage || "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
-        fallbackMessage: body.fallbackMessage || "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
+        welcome_message: body.welcomeMessage || "Bonjour ! Comment puis-je vous aider aujourd'hui ?",  // ✅ CORRIGÉ : welcome_message
+        fallback_message: body.fallbackMessage || "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",  // ✅ CORRIGÉ : fallback_message
         avatar: body.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(body.name)}&background=3B82F6&color=fff`,
-        isActive: body.isActive,
+        is_active: body.isActive,  // ✅ CORRIGÉ : is_active
         config: body.config || {}
       };
 
@@ -361,15 +361,15 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           type: newAgent.type,
           personality: newAgent.personality,
           description: newAgent.description,
-          welcomeMessage: newAgent.welcomeMessage,
-          fallbackMessage: newAgent.fallbackMessage,
+          welcomeMessage: newAgent.welcome_message,  // ✅ Mappage snake_case → camelCase
+          fallbackMessage: newAgent.fallback_message,  // ✅ Mappage snake_case → camelCase
           avatar: newAgent.avatar,
-          isActive: newAgent.isActive,
+          isActive: newAgent.is_active,  // ✅ Mappage snake_case → camelCase
           config: newAgent.config,
           stats: { conversations: 0, conversions: 0 },
           knowledgeBase: [],
-          createdAt: newAgent.createdAt,
-          updatedAt: newAgent.updatedAt
+          createdAt: newAgent.created_at,  // ✅ Mappage snake_case → camelCase
+          updatedAt: newAgent.updated_at   // ✅ Mappage snake_case → camelCase
         }
       };
 
@@ -401,7 +401,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: GET CONFIG AGENT (SUPABASE)
+  // ✅ ROUTE: GET CONFIG AGENT (SUPABASE) - CORRIGÉE
   fastify.get<{ Params: AgentParamsType }>('/:id/config', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -415,20 +415,20 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER AGENT AVEC KNOWLEDGE BASE (SUPABASE)
+      // ✅ RÉCUPÉRER AGENT AVEC KNOWLEDGE BASE (SUPABASE) - CORRIGÉ
       const { data: agent, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description,
-          welcomeMessage, fallbackMessage, avatar, isActive, config,
+          welcome_message, fallback_message, avatar, is_active, config,
           agent_knowledge_base!inner(
             knowledge_base!inner(
-              id, title, contentType, isActive, tags
+              id, title, content_type, is_active, tags
             )
           )
         `)
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (agentError || !agent) {
@@ -438,7 +438,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CALCULER STATISTIQUES
+      // ✅ CALCULER STATISTIQUES - CORRIGÉ
       let conversations = 0;
       let conversions = 0;
 
@@ -446,13 +446,13 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         const { count: convCount } = await supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('agentId', agent.id);
+          .eq('agent_id', agent.id);  // ✅ CORRIGÉ : agent_id
         
         const { count: conversionCount } = await supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('agentId', agent.id)
-          .eq('conversionCompleted', true);
+          .eq('agent_id', agent.id)  // ✅ CORRIGÉ : agent_id
+          .eq('conversion_completed', true);  // ✅ CORRIGÉ : conversion_completed
 
         conversations = convCount || 0;
         conversions = conversionCount || 0;
@@ -470,10 +470,10 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
-            welcomeMessage: agent.welcomeMessage,
-            fallbackMessage: agent.fallbackMessage,
+            welcomeMessage: agent.welcome_message,  // ✅ Mappage snake_case → camelCase
+            fallbackMessage: agent.fallback_message,  // ✅ Mappage snake_case → camelCase
             avatar: agent.avatar,
-            isActive: agent.isActive,
+            isActive: agent.is_active,  // ✅ Mappage snake_case → camelCase
             config: {
               ...(agent.config || {}),
               linkedKnowledgeBase: agent.agent_knowledge_base?.map((akb: any) => akb.knowledge_base.id) || [],
@@ -515,7 +515,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: UPDATE AGENT (SUPABASE)
+  // ✅ ROUTE: UPDATE AGENT (SUPABASE) - CORRIGÉE
   fastify.put<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -542,12 +542,12 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ VÉRIFIER EXISTENCE AGENT
+      // ✅ VÉRIFIER EXISTENCE AGENT - CORRIGÉ
       const { data: existingAgent, error: findError } = await supabaseServiceClient
         .from('agents')
         .select('*')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (findError || !existingAgent) {
@@ -557,18 +557,18 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CONSTRUIRE DONNÉES UPDATE
+      // ✅ CONSTRUIRE DONNÉES UPDATE - COLONNES CORRIGÉES
       const updateData: any = {
         ...(body.name && { name: body.name }),
         ...(body.type && { type: body.type }),
         ...(body.personality && { personality: body.personality }),
         ...(body.description !== undefined && { description: body.description }),
-        ...(body.welcomeMessage !== undefined && { welcomeMessage: body.welcomeMessage }),
-        ...(body.fallbackMessage !== undefined && { fallbackMessage: body.fallbackMessage }),
+        ...(body.welcomeMessage !== undefined && { welcome_message: body.welcomeMessage }),  // ✅ CORRIGÉ : welcome_message
+        ...(body.fallbackMessage !== undefined && { fallback_message: body.fallbackMessage }),  // ✅ CORRIGÉ : fallback_message
         ...(body.avatar !== undefined && { avatar: body.avatar }),
-        ...(body.isActive !== undefined && { isActive: body.isActive }),
+        ...(body.isActive !== undefined && { is_active: body.isActive }),  // ✅ CORRIGÉ : is_active
         ...(body.config !== undefined && { config: body.config }),
-        updatedAt: new Date().toISOString()
+        updated_at: new Date().toISOString()  // ✅ CORRIGÉ : updated_at
       }
 
       // ✅ GESTION DU TITLE
@@ -600,13 +600,13 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           type: updatedAgent.type,
           personality: updatedAgent.personality,
           description: updatedAgent.description,
-          welcomeMessage: updatedAgent.welcomeMessage,
-          fallbackMessage: updatedAgent.fallbackMessage,
+          welcomeMessage: updatedAgent.welcome_message,  // ✅ Mappage snake_case → camelCase
+          fallbackMessage: updatedAgent.fallback_message,  // ✅ Mappage snake_case → camelCase
           avatar: updatedAgent.avatar,
-          isActive: updatedAgent.isActive,
+          isActive: updatedAgent.is_active,  // ✅ Mappage snake_case → camelCase
           config: updatedAgent.config,
-          createdAt: updatedAgent.createdAt,
-          updatedAt: updatedAgent.updatedAt
+          createdAt: updatedAgent.created_at,  // ✅ Mappage snake_case → camelCase
+          updatedAt: updatedAgent.updated_at   // ✅ Mappage snake_case → camelCase
         }
       };
 
@@ -628,7 +628,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: LIER KNOWLEDGE BASE (SUPABASE)
+  // ✅ ROUTE: LIER KNOWLEDGE BASE (SUPABASE) - CORRIGÉE
   fastify.post<{ Params: AgentParamsType; Body: AgentKnowledgeBody }>('/:id/knowledge', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -643,12 +643,12 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ VÉRIFIER AGENT EXISTE
+      // ✅ VÉRIFIER AGENT EXISTE - CORRIGÉ
       const { data: existingAgent, error: findError } = await supabaseServiceClient
         .from('agents')
         .select('id')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (findError || !existingAgent) {
@@ -658,22 +658,22 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ SUPPRIMER ANCIENNES LIAISONS
+      // ✅ SUPPRIMER ANCIENNES LIAISONS - CORRIGÉ
       const { error: deleteError } = await supabaseServiceClient
         .from('agent_knowledge_base')
         .delete()
-        .eq('agentId', id);
+        .eq('agent_id', id);  // ✅ CORRIGÉ : agent_id
 
       if (deleteError) {
         console.warn('Erreur suppression anciennes liaisons:', deleteError);
       }
 
-      // ✅ CRÉER NOUVELLES LIAISONS
+      // ✅ CRÉER NOUVELLES LIAISONS - COLONNES CORRIGÉES
       if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
         const linksData = knowledgeBaseIds.map((kbId, index) => ({
-          agentId: id,
-          knowledgeBaseId: kbId,
-          isActive: true,
+          agent_id: id,  // ✅ CORRIGÉ : agent_id
+          knowledge_base_id: kbId,  // ✅ CORRIGÉ : knowledge_base_id
+          is_active: true,  // ✅ CORRIGÉ : is_active
           priority: index
         }));
 
@@ -711,7 +711,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: DELETE AGENT (SUPABASE)
+  // ✅ ROUTE: DELETE AGENT (SUPABASE) - CORRIGÉE
   fastify.delete<{ Params: AgentParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -725,12 +725,12 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ VÉRIFIER AGENT EXISTE
+      // ✅ VÉRIFIER AGENT EXISTE - CORRIGÉ
       const { data: existingAgent, error: findError } = await supabaseServiceClient
         .from('agents')
         .select('id')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (findError || !existingAgent) {
@@ -775,7 +775,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: TOGGLE AGENT STATUS (SUPABASE)
+  // ✅ ROUTE: TOGGLE AGENT STATUS (SUPABASE) - CORRIGÉE
   fastify.patch<{ Params: AgentParamsType }>('/:id/toggle', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -790,12 +790,12 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ VÉRIFIER AGENT EXISTE
+      // ✅ VÉRIFIER AGENT EXISTE - CORRIGÉ
       const { data: existingAgent, error: findError } = await supabaseServiceClient
         .from('agents')
         .select('id')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (findError || !existingAgent) {
@@ -805,15 +805,15 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ UPDATE STATUS
+      // ✅ UPDATE STATUS - COLONNES CORRIGÉES
       const { data: updatedAgent, error: updateError } = await supabaseServiceClient
         .from('agents')
         .update({ 
-          isActive: body.isActive,
-          updatedAt: new Date().toISOString()
+          is_active: body.isActive,  // ✅ CORRIGÉ : is_active
+          updated_at: new Date().toISOString()  // ✅ CORRIGÉ : updated_at
         })
         .eq('id', id)
-        .select('id, isActive, updatedAt')
+        .select('id, is_active, updated_at')  // ✅ CORRIGÉ : is_active, updated_at
         .single();
 
       if (updateError) {
@@ -826,8 +826,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         success: true,
         data: {
           id: updatedAgent.id,
-          isActive: updatedAgent.isActive,
-          updatedAt: updatedAgent.updatedAt
+          isActive: updatedAgent.is_active,  // ✅ Mappage snake_case → camelCase
+          updatedAt: updatedAgent.updated_at   // ✅ Mappage snake_case → camelCase
         }
       };
 
@@ -857,7 +857,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: DUPLICATE AGENT (SUPABASE)
+  // ✅ ROUTE: DUPLICATE AGENT (SUPABASE) - CORRIGÉE
   fastify.post<{ Params: AgentParamsType }>('/:id/duplicate', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -871,11 +871,11 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ VÉRIFIER LIMITES PLAN
+      // ✅ VÉRIFIER LIMITES PLAN - CORRIGÉ
       const { count: currentAgentsCount } = await supabaseServiceClient
         .from('agents')
         .select('*', { count: 'exact', head: true })
-        .eq('shopId', shop.id);
+        .eq('shop_id', shop.id);  // ✅ CORRIGÉ : shop_id
 
       const canCreate = await checkPlanLimits(shop.id, currentAgentsCount || 0, shop.subscription_plan || 'starter');
       
@@ -889,15 +889,15 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER AGENT ORIGINAL AVEC KNOWLEDGE BASE
+      // ✅ RÉCUPÉRER AGENT ORIGINAL AVEC KNOWLEDGE BASE - CORRIGÉ
       const { data: originalAgent, error: findError } = await supabaseServiceClient
         .from('agents')
         .select(`
           *, 
-          agent_knowledge_base(knowledgeBaseId, isActive, priority)
+          agent_knowledge_base(knowledge_base_id, is_active, priority)
         `)
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (findError || !originalAgent) {
@@ -907,20 +907,20 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CRÉER AGENT DUPLIQUÉ
+      // ✅ CRÉER AGENT DUPLIQUÉ - COLONNES CORRIGÉES
       const { data: duplicatedAgent, error: createError } = await supabaseServiceClient
         .from('agents')
         .insert({
-          shopId: shop.id,
+          shop_id: shop.id,  // ✅ CORRIGÉ : shop_id
           name: `${originalAgent.name} (Copie)`,
           title: originalAgent.title || getDefaultTitle(originalAgent.type),
           type: originalAgent.type,
           personality: originalAgent.personality,
           description: originalAgent.description,
-          welcomeMessage: originalAgent.welcomeMessage,
-          fallbackMessage: originalAgent.fallbackMessage,
+          welcome_message: originalAgent.welcome_message,  // ✅ CORRIGÉ : welcome_message
+          fallback_message: originalAgent.fallback_message,  // ✅ CORRIGÉ : fallback_message
           avatar: originalAgent.avatar,
-          isActive: false,
+          is_active: false,  // ✅ CORRIGÉ : is_active
           config: originalAgent.config || {}
         })
         .select()
@@ -930,12 +930,12 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         throw createError;
       }
 
-      // ✅ DUPLIQUER KNOWLEDGE BASE LINKS
+      // ✅ DUPLIQUER KNOWLEDGE BASE LINKS - COLONNES CORRIGÉES
       if (originalAgent.agent_knowledge_base && originalAgent.agent_knowledge_base.length > 0) {
         const linksData = originalAgent.agent_knowledge_base.map((kb: any) => ({
-          agentId: duplicatedAgent.id,
-          knowledgeBaseId: kb.knowledgeBaseId,
-          isActive: kb.isActive,
+          agent_id: duplicatedAgent.id,  // ✅ CORRIGÉ : agent_id
+          knowledge_base_id: kb.knowledge_base_id,  // ✅ CORRIGÉ : knowledge_base_id
+          is_active: kb.is_active,  // ✅ CORRIGÉ : is_active
           priority: kb.priority
         }));
 
@@ -959,14 +959,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           type: duplicatedAgent.type,
           personality: duplicatedAgent.personality,
           description: duplicatedAgent.description,
-          welcomeMessage: duplicatedAgent.welcomeMessage,
-          fallbackMessage: duplicatedAgent.fallbackMessage,
+          welcomeMessage: duplicatedAgent.welcome_message,  // ✅ Mappage snake_case → camelCase
+          fallbackMessage: duplicatedAgent.fallback_message,  // ✅ Mappage snake_case → camelCase
           avatar: duplicatedAgent.avatar,
-          isActive: duplicatedAgent.isActive,
+          isActive: duplicatedAgent.is_active,  // ✅ Mappage snake_case → camelCase
           config: duplicatedAgent.config,
           stats: { conversations: 0, conversions: 0 },
-          createdAt: duplicatedAgent.createdAt,
-          updatedAt: duplicatedAgent.updatedAt
+          createdAt: duplicatedAgent.created_at,  // ✅ Mappage snake_case → camelCase
+          updatedAt: duplicatedAgent.updated_at   // ✅ Mappage snake_case → camelCase
         }
       };
 
@@ -988,7 +988,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: GET AGENT KNOWLEDGE (SUPABASE)
+  // ✅ ROUTE: GET AGENT KNOWLEDGE (SUPABASE) - CORRIGÉE
   fastify.get<{ Params: AgentParamsType }>('/:id/knowledge', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -1002,20 +1002,20 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER AGENT AVEC KNOWLEDGE BASE
+      // ✅ RÉCUPÉRER AGENT AVEC KNOWLEDGE BASE - CORRIGÉ
       const { data: agent, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id,
           agent_knowledge_base!inner(
-            priority, createdAt,
+            priority, created_at,
             knowledge_base!inner(
-              id, title, contentType, isActive, tags, content, createdAt, updatedAt
+              id, title, content_type, is_active, tags, content, created_at, updated_at
             )
           )
         `)
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (agentError || !agent) {
@@ -1028,14 +1028,14 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       const knowledgeBaseDocuments = agent.agent_knowledge_base?.map((akb: any) => ({
         id: akb.knowledge_base.id,
         title: akb.knowledge_base.title,
-        contentType: akb.knowledge_base.contentType,
-        isActive: akb.knowledge_base.isActive,
+        contentType: akb.knowledge_base.content_type,  // ✅ Mappage snake_case → camelCase
+        isActive: akb.knowledge_base.is_active,  // ✅ Mappage snake_case → camelCase
         tags: akb.knowledge_base.tags || [],
         content: akb.knowledge_base.content,
-        createdAt: akb.knowledge_base.createdAt,
-        updatedAt: akb.knowledge_base.updatedAt,
+        createdAt: akb.knowledge_base.created_at,  // ✅ Mappage snake_case → camelCase
+        updatedAt: akb.knowledge_base.updated_at,  // ✅ Mappage snake_case → camelCase
         priority: akb.priority,
-        linkedAt: akb.createdAt
+        linkedAt: akb.created_at  // ✅ Mappage snake_case → camelCase
       })) || [];
 
       fastify.log.info(`✅ Base de connaissance récupérée pour agent: ${id} (${knowledgeBaseDocuments.length} documents)`);
@@ -1063,7 +1063,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE: PUT KNOWLEDGE BASE (SUPABASE)
+  // ✅ ROUTE: PUT KNOWLEDGE BASE (SUPABASE) - CORRIGÉE
   fastify.put<{ Params: AgentParamsType }>('/:id/knowledge-base', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -1078,12 +1078,12 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ VÉRIFIER AGENT EXISTE
+      // ✅ VÉRIFIER AGENT EXISTE - CORRIGÉ
       const { data: existingAgent, error: findError } = await supabaseServiceClient
         .from('agents')
         .select('id')
         .eq('id', id)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (findError || !existingAgent) {
@@ -1093,22 +1093,22 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ SUPPRIMER ANCIENNES LIAISONS
+      // ✅ SUPPRIMER ANCIENNES LIAISONS - CORRIGÉ
       const { error: deleteError } = await supabaseServiceClient
         .from('agent_knowledge_base')
         .delete()
-        .eq('agentId', id);
+        .eq('agent_id', id);  // ✅ CORRIGÉ : agent_id
 
       if (deleteError) {
         console.warn('Erreur suppression anciennes liaisons:', deleteError);
       }
 
-      // ✅ CRÉER NOUVELLES LIAISONS
+      // ✅ CRÉER NOUVELLES LIAISONS - COLONNES CORRIGÉES
       if (documentIds && documentIds.length > 0) {
         const linksData = documentIds.map((kbId, index) => ({
-          agentId: id,
-          knowledgeBaseId: kbId,
-          isActive: true,
+          agent_id: id,  // ✅ CORRIGÉ : agent_id
+          knowledge_base_id: kbId,  // ✅ CORRIGÉ : knowledge_base_id
+          is_active: true,  // ✅ CORRIGÉ : is_active
           priority: index
         }));
 
@@ -1121,13 +1121,13 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // ✅ RÉCUPÉRER DOCUMENTS LIÉS
+      // ✅ RÉCUPÉRER DOCUMENTS LIÉS - CORRIGÉ
       const { data: linkedDocuments, error: linkedError } = await supabaseServiceClient
         .from('agent_knowledge_base')
         .select(`
-          knowledge_base(id, title, contentType, isActive, tags)
+          knowledge_base(id, title, content_type, is_active, tags)
         `)
-        .eq('agentId', id);
+        .eq('agent_id', id);  // ✅ CORRIGÉ : agent_id
 
       const documents = linkedDocuments?.map((link: any) => link.knowledge_base) || [];
 

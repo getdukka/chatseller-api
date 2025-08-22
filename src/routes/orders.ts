@@ -1,4 +1,5 @@
-// src/routes/orders.ts - VERSION SUPABASE PURE
+// src/routes/orders.ts - VERSION SUPABASE PURE CORRIGÉE ✅
+
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient } from '../lib/supabase'; // ✅ UNIQUEMENT SUPABASE
@@ -172,6 +173,12 @@ function generateOrderSummary(workflow: OrderWorkflow): string {
   return summary;
 }
 
+// ✅ HELPER : Récupérer user shop ID
+function getUserShopId(request: any): string | null {
+  const user = request.user as any
+  return user?.shopId || user?.shop_id || user?.id || null
+}
+
 export default async function ordersRoutes(fastify: FastifyInstance) {
   
   // ✅ ROUTE : Démarrer une nouvelle commande
@@ -338,17 +345,17 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Finaliser et sauvegarder la commande (VERSION SUPABASE)
+  // ✅ ROUTE : Finaliser et sauvegarder la commande (VERSION SUPABASE CORRIGÉE)
   fastify.post<{ Body: typeof completeOrderSchema._type }>('/complete', async (request, reply) => {
     try {
       const { conversationId, orderData } = completeOrderSchema.parse(request.body);
       
       fastify.log.info(`✅ Finalisation commande pour conversation: ${conversationId}`);
       
-      // ✅ RÉCUPÉRER INFORMATIONS DE LA CONVERSATION AVEC SUPABASE
+      // ✅ RÉCUPÉRER INFORMATIONS DE LA CONVERSATION AVEC SUPABASE - COLONNES CORRIGÉES
       const { data: conversation, error: convError } = await supabaseServiceClient
         .from('conversations')
-        .select('shopId, agentId')
+        .select('shop_id, agent_id')  // ✅ CORRIGÉ : shop_id, agent_id
         .eq('id', conversationId)
         .single();
 
@@ -360,24 +367,24 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
       
-      // ✅ CRÉER LA COMMANDE AVEC SUPABASE
+      // ✅ CRÉER LA COMMANDE AVEC SUPABASE - TOUTES COLONNES CORRIGÉES
       const { data: order, error: orderError } = await supabaseServiceClient
         .from('orders')
         .insert({
-          conversationId: conversationId,
-          shopId: conversation.shopId,
-          customerName: orderData.customer.name,
-          customerPhone: orderData.customer.phone,
-          customerEmail: orderData.customer.email || null,
-          customerAddress: orderData.customer.address || null,
-          productItems: orderData.products,
-          totalAmount: orderData.totalAmount,
+          conversation_id: conversationId,           // ✅ CORRIGÉ : conversation_id
+          shop_id: conversation.shop_id,             // ✅ CORRIGÉ : shop_id
+          customer_name: orderData.customer.name,    // ✅ CORRIGÉ : customer_name
+          customer_phone: orderData.customer.phone,  // ✅ CORRIGÉ : customer_phone
+          customer_email: orderData.customer.email || null,    // ✅ CORRIGÉ : customer_email
+          customer_address: orderData.customer.address || null, // ✅ CORRIGÉ : customer_address
+          product_items: orderData.products,         // ✅ CORRIGÉ : product_items
+          total_amount: orderData.totalAmount,       // ✅ CORRIGÉ : total_amount
           currency: 'XOF',
-          paymentMethod: orderData.paymentMethod,
+          payment_method: orderData.paymentMethod,   // ✅ CORRIGÉ : payment_method
           notes: orderData.notes || null,
           status: 'pending',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          created_at: new Date().toISOString(),      // ✅ CORRIGÉ : created_at
+          updated_at: new Date().toISOString()       // ✅ CORRIGÉ : updated_at
         })
         .select()
         .single();
@@ -390,12 +397,12 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
       
-      // ✅ METTRE À JOUR LA CONVERSATION AVEC SUPABASE
+      // ✅ METTRE À JOUR LA CONVERSATION AVEC SUPABASE - COLONNES CORRIGÉES
       const { error: updateError } = await supabaseServiceClient
         .from('conversations')
         .update({ 
-          conversionCompleted: true,
-          completedAt: new Date().toISOString()
+          conversion_completed: true,               // ✅ CORRIGÉ : conversion_completed
+          completed_at: new Date().toISOString()    // ✅ CORRIGÉ : completed_at
         })
         .eq('id', conversationId);
       
@@ -513,7 +520,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Lister les commandes d'une boutique (VERSION SUPABASE)
+  // ✅ ROUTE : Lister les commandes d'une boutique (VERSION SUPABASE CORRIGÉE)
   fastify.get<{ 
     Querystring: { 
       page?: number;
@@ -523,7 +530,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
   }>('/list', async (request, reply) => {
     try {
       const { page = 1, limit = 20, status } = request.query;
-      const shopId = request.user?.shopId;
+      const shopId = getUserShopId(request);  // ✅ UTILISE HELPER
 
       if (!shopId) {
         return reply.status(400).send({
@@ -532,12 +539,12 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CONSTRUIRE LA REQUÊTE SUPABASE
+      // ✅ CONSTRUIRE LA REQUÊTE SUPABASE - COLONNES CORRIGÉES
       let query = supabaseServiceClient
         .from('orders')
         .select('*')
-        .eq('shopId', shopId)
-        .order('createdAt', { ascending: false });
+        .eq('shop_id', shopId)                     // ✅ CORRIGÉ : shop_id
+        .order('created_at', { ascending: false }); // ✅ CORRIGÉ : created_at
 
       // Filtrer par statut si spécifié
       if (status) {
@@ -581,13 +588,13 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Obtenir les détails d'une commande (VERSION SUPABASE)
+  // ✅ ROUTE : Obtenir les détails d'une commande (VERSION SUPABASE CORRIGÉE)
   fastify.get<{ 
     Params: { orderId: string } 
   }>('/details/:orderId', async (request, reply) => {
     try {
       const { orderId } = request.params;
-      const shopId = request.user?.shopId;
+      const shopId = getUserShopId(request);  // ✅ UTILISE HELPER
 
       if (!shopId) {
         return reply.status(400).send({
@@ -596,20 +603,20 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER LA COMMANDE AVEC SUPABASE
+      // ✅ RÉCUPÉRER LA COMMANDE AVEC SUPABASE - COLONNES CORRIGÉES
       const { data: order, error } = await supabaseServiceClient
         .from('orders')
         .select(`
           *,
           conversations (
             id,
-            visitorId,
-            productName,
-            createdAt
+            visitor_id,
+            product_name,
+            created_at
           )
         `)
         .eq('id', orderId)
-        .eq('shopId', shopId)
+        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
         .single();
 
       if (error || !order) {
@@ -633,7 +640,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Mettre à jour le statut d'une commande (VERSION SUPABASE)
+  // ✅ ROUTE : Mettre à jour le statut d'une commande (VERSION SUPABASE CORRIGÉE)
   fastify.patch<{ 
     Params: { orderId: string };
     Body: { status: string; notes?: string }
@@ -641,7 +648,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     try {
       const { orderId } = request.params;
       const { status, notes } = request.body;
-      const shopId = request.user?.shopId;
+      const shopId = getUserShopId(request);  // ✅ UTILISE HELPER
 
       if (!shopId) {
         return reply.status(400).send({
@@ -650,10 +657,10 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ METTRE À JOUR LE STATUT AVEC SUPABASE
+      // ✅ METTRE À JOUR LE STATUT AVEC SUPABASE - COLONNES CORRIGÉES
       const updateData: any = {
         status,
-        updatedAt: new Date().toISOString()
+        updated_at: new Date().toISOString()  // ✅ CORRIGÉ : updated_at
       };
 
       if (notes) {
@@ -664,7 +671,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         .from('orders')
         .update(updateData)
         .eq('id', orderId)
-        .eq('shopId', shopId)
+        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
         .select()
         .single();
 

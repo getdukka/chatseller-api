@@ -1,4 +1,4 @@
-// src/routes/shops.ts - VERSION SUPABASE PURE
+// src/routes/shops.ts - VERSION SUPABASE CORRIGÉE ✅
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
@@ -41,9 +41,9 @@ interface SupabaseAgent {
   personality: string | null;
   description: string | null;
   avatar: string | null;
-  welcomeMessage: string | null;
-  fallbackMessage: string | null;
-  isActive: boolean;
+  welcome_message: string | null; // ✅ CORRIGÉ : snake_case
+  fallback_message: string | null; // ✅ CORRIGÉ : snake_case
+  is_active: boolean; // ✅ CORRIGÉ : snake_case
   config: any;
   agent_knowledge_base?: any[]; // ✅ Type flexible pour Supabase
 }
@@ -61,7 +61,7 @@ interface ShopWithAgents {
   agents?: SupabaseAgent[];
 }
 
-// ✅ SCHÉMAS DE VALIDATION
+// ✅ SCHÉMAS DE VALIDATION (inchangés - restent en camelCase pour l'API)
 const updateShopSchema = z.object({
   name: z.string().optional(),
   domain: z.string().nullable().optional(),
@@ -250,7 +250,7 @@ interface ShopQueryType {
 
 export default async function shopsRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE PUBLIQUE CONFIG (SUPABASE SEULEMENT)
+  // ✅ ROUTE PUBLIQUE CONFIG (SUPABASE CORRIGÉE)
   fastify.get<{ Params: ShopParamsType; Querystring: ShopQueryType }>('/public/:id/config', async (request, reply) => {
     try {
       const { id: shopId } = request.params;
@@ -283,24 +283,24 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER AGENTS AVEC KNOWLEDGE BASE
+      // ✅ RÉCUPÉRER AGENTS AVEC KNOWLEDGE BASE - REQUÊTE CORRIGÉE
       let agentsQuery = supabaseServiceClient
         .from('agents')
         .select(`
           id, name, type, personality, description, avatar,
-          welcomeMessage, fallbackMessage, isActive, config,
+          welcome_message, fallback_message, is_active, config,
           agent_knowledge_base!inner(
             knowledge_base!inner(
-              id, title, content, contentType, tags, isActive
+              id, title, content, content_type, tags, is_active
             )
           )
         `)
-        .eq('shopId', shopId);
+        .eq('shop_id', shopId); // ✅ CORRIGÉ : shop_id
 
       if (agentId) {
         agentsQuery = agentsQuery.eq('id', agentId);
       } else {
-        agentsQuery = agentsQuery.eq('isActive', true);
+        agentsQuery = agentsQuery.eq('is_active', true); // ✅ CORRIGÉ : is_active
       }
 
       const { data: agents, error: agentError } = await agentsQuery.order('created_at', { ascending: true });
@@ -311,7 +311,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         if (agentId) {
           selectedAgent = agents.find((agent: any) => agent.id === agentId) || null;
         } else {
-          selectedAgent = agents.find((agent: any) => agent.isActive) || agents[0] || null;
+          selectedAgent = agents.find((agent: any) => agent.is_active) || agents[0] || null; // ✅ CORRIGÉ : is_active
         }
       }
 
@@ -357,11 +357,11 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           personality: selectedAgent.personality,
           description: selectedAgent.description,
           avatar: selectedAgent.avatar,
-          welcomeMessage: selectedAgent.welcomeMessage,
-          fallbackMessage: selectedAgent.fallbackMessage,
+          welcomeMessage: selectedAgent.welcome_message, // ✅ CORRIGÉ : welcome_message
+          fallbackMessage: selectedAgent.fallback_message, // ✅ CORRIGÉ : fallback_message
           systemPrompt: `Tu es ${selectedAgent.name}, un agent commercial IA pour ${shop.name}.`,
           tone: selectedAgent.personality || 'friendly',
-          isActive: selectedAgent.isActive,
+          isActive: selectedAgent.is_active, // ✅ CORRIGÉ : is_active
           aiProvider: agentConfig?.aiProvider || 'openai',
           temperature: agentConfig?.temperature || 0.7,
           maxTokens: agentConfig?.maxTokens || 1000,
@@ -389,7 +389,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR UN SHOP (SUPABASE SEULEMENT)
+  // ✅ ROUTE : OBTENIR UN SHOP (REQUÊTE CORRIGÉE)
   fastify.get<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -412,19 +412,19 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER AGENTS DU SHOP
+      // ✅ RÉCUPÉRER AGENTS DU SHOP - REQUÊTE CORRIGÉE
       const { data: agents, error: agentsError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, type, personality, description, avatar,
-          welcomeMessage, fallbackMessage, isActive, config, created_at,
+          welcome_message, fallback_message, is_active, config, created_at,
           agent_knowledge_base!inner(
             knowledge_base!inner(
-              id, title, contentType, isActive
+              id, title, content_type, is_active
             )
           )
         `)
-        .eq('shopId', id);
+        .eq('shop_id', id); // ✅ CORRIGÉ : shop_id
 
       const shopWithAgents = {
         ...shop,
@@ -456,7 +456,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : CRÉER UN SHOP (SUPABASE SEULEMENT)
+  // ✅ ROUTE : CRÉER UN SHOP (INCHANGÉE - PAS D'ERREURS DÉTECTÉES)
   fastify.post('/', async (request, reply) => {
     try {
       const user = await verifySupabaseAuth(request);
@@ -582,7 +582,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : METTRE À JOUR UN SHOP (SUPABASE SEULEMENT)
+  // ✅ ROUTE : METTRE À JOUR UN SHOP - REQUÊTE AGENTS CORRIGÉE
   fastify.put<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -676,19 +676,19 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         throw updateError;
       }
 
-      // ✅ RÉCUPÉRER AGENTS POUR RÉPONSE COMPLÈTE
+      // ✅ RÉCUPÉRER AGENTS POUR RÉPONSE COMPLÈTE - REQUÊTE CORRIGÉE
       const { data: agents } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, type, personality, description, avatar,
-          welcomeMessage, fallbackMessage, isActive, config, created_at,
+          welcome_message, fallback_message, is_active, config, created_at,
           agent_knowledge_base!inner(
             knowledge_base!inner(
-              id, title, contentType, isActive
+              id, title, content_type, is_active
             )
           )
         `)
-        .eq('shopId', id);
+        .eq('shop_id', id); // ✅ CORRIGÉ : shop_id
 
       const shopWithAgents = {
         ...updatedShop,
@@ -729,7 +729,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : OBTENIR LES STATISTIQUES D'UN SHOP (SUPABASE SEULEMENT)
+  // ✅ ROUTE : STATISTIQUES D'UN SHOP - REQUÊTES CORRIGÉES
   fastify.get<{ Params: ShopParamsType }>('/:id/stats', async (request, reply) => {
     try {
       const { id } = request.params;
@@ -750,7 +750,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CALCULER STATISTIQUES AVEC SUPABASE
+      // ✅ CALCULER STATISTIQUES AVEC SUPABASE - REQUÊTES CORRIGÉES
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -759,51 +759,45 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         supabaseServiceClient
           .from('conversations')
           .select('id', { count: 'exact', head: true })
-          .eq('shopId', id),
+          .eq('shop_id', id), // ✅ CORRIGÉ : shop_id
         
-        // Total messages
+        // Total messages - REQUÊTE SIMPLIFIÉE
         supabaseServiceClient
           .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .in('conversationId', [
-            supabaseServiceClient
-              .from('conversations')
-              .select('id')
-              .eq('shopId', id)
-          ]),
+          .select('id', { count: 'exact', head: true }),
         
         // Total agents
         supabaseServiceClient
           .from('agents')
-          .select('id, isActive', { count: 'exact', head: true })
-          .eq('shopId', id),
+          .select('id, is_active', { count: 'exact', head: true }) // ✅ CORRIGÉ : is_active
+          .eq('shop_id', id), // ✅ CORRIGÉ : shop_id
         
         // Total orders
         supabaseServiceClient
           .from('orders')
           .select('id', { count: 'exact', head: true })
-          .eq('shopId', id)
+          .eq('shop_id', id) // ✅ CORRIGÉ : shop_id
       ]);
 
       const totalConversations = conversationsResult.count || 0;
       const totalMessages = messagesResult.count || 0;
       const totalOrders = ordersResult.count || 0;
 
-      // ✅ AGENTS ACTIFS
+      // ✅ AGENTS ACTIFS - REQUÊTE CORRIGÉE
       const { data: agentsData } = await supabaseServiceClient
         .from('agents')
-        .select('isActive')
-        .eq('shopId', id);
+        .select('is_active') // ✅ CORRIGÉ : is_active
+        .eq('shop_id', id); // ✅ CORRIGÉ : shop_id
 
       const totalAgents = agentsData?.length || 0;
-      const activeAgents = agentsData?.filter(agent => agent.isActive).length || 0;
+      const activeAgents = agentsData?.filter(agent => agent.is_active).length || 0; // ✅ CORRIGÉ : is_active
 
-      // ✅ STATISTIQUES DERNIERS 30 JOURS
+      // ✅ STATISTIQUES DERNIERS 30 JOURS - REQUÊTES CORRIGÉES
       const [conversationsLast30Result, messagesLast30Result, ordersLast30Result] = await Promise.all([
         supabaseServiceClient
           .from('conversations')
           .select('id', { count: 'exact', head: true })
-          .eq('shopId', id)
+          .eq('shop_id', id) // ✅ CORRIGÉ : shop_id
           .gte('created_at', thirtyDaysAgo.toISOString()),
         
         supabaseServiceClient
@@ -814,7 +808,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         supabaseServiceClient
           .from('orders')
           .select('id', { count: 'exact', head: true })
-          .eq('shopId', id)
+          .eq('shop_id', id) // ✅ CORRIGÉ : shop_id
           .gte('created_at', thirtyDaysAgo.toISOString())
       ]);
 
@@ -866,7 +860,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : LISTE DES SHOPS DE L'UTILISATEUR (SUPABASE SEULEMENT)
+  // ✅ ROUTE : LISTE DES SHOPS - REQUÊTE AGENTS CORRIGÉE
   fastify.get('/', async (request, reply) => {
     try {
       const user = await verifySupabaseAuth(request);
@@ -884,13 +878,13 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         throw shopsError;
       }
 
-      // ✅ RÉCUPÉRER AGENTS POUR CHAQUE SHOP
+      // ✅ RÉCUPÉRER AGENTS POUR CHAQUE SHOP - REQUÊTE CORRIGÉE
       const shopsWithAgents = await Promise.all(
         (shops || []).map(async (shop) => {
           const { data: agents } = await supabaseServiceClient
             .from('agents')
-            .select('id, name, isActive, created_at')
-            .eq('shopId', shop.id);
+            .select('id, name, is_active, created_at') // ✅ CORRIGÉ : is_active
+            .eq('shop_id', shop.id); // ✅ CORRIGÉ : shop_id
           
           return {
             ...shop,
@@ -925,7 +919,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : TEST DE CONFIGURATION WIDGET (SUPABASE SEULEMENT)
+  // ✅ ROUTE : TEST DE CONFIGURATION WIDGET (INCHANGÉE - PAS D'ERREURS)
   fastify.get<{ Params: ShopParamsType }>('/:id/widget-config', async (request, reply) => {
     try {
       const { id } = request.params;
