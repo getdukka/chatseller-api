@@ -1,9 +1,9 @@
-// src/routes/public.ts - VERSION COMPLÈTE SUPABASE ✅ CORRIGÉE
+// src/routes/public.ts - VERSION COMPLÈTE CORRIGÉE ✅ AVEC TOUTES FONCTIONNALITÉS
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import OpenAI from 'openai';
 import { supabaseServiceClient } from '../lib/supabase';
-import { randomUUID } from 'crypto';  // ✅ AJOUT : Génération UUID 
+import { randomUUID } from 'crypto';
 
 // ✅ INITIALISATION OPENAI
 const openai = new OpenAI({
@@ -65,7 +65,7 @@ function isValidUUID(str: string): boolean {
   return uuidRegex.test(str);
 }
 
-// ✅ CONFIGURATION FALLBACK AMÉLIORÉE
+// ✅ CONFIGURATION FALLBACK AMÉLIORÉE AVEC TITRE
 function getFallbackShopConfig(shopId: string) {
   return {
     success: true,
@@ -78,13 +78,13 @@ function getFallbackShopConfig(shopId: string) {
           language: "fr", 
           position: "above-cta",
           buttonText: "Parler à un conseiller",
-          primaryColor: "#3B82F6",
+          primaryColor: "#EC4899", // ✅ Rose par défaut comme dans les captures
           borderRadius: "full"
         },
         agentConfig: {
           name: "Assistant",
-          title: "Conseiller commercial",
-          avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
+          title: "Conseiller commercial", // ✅ AJOUT : Titre explicite
+          avatar: "https://ui-avatars.com/api/?name=Assistant&background=EC4899&color=fff", // ✅ Couleur cohérente
           upsellEnabled: false,
           welcomeMessage: "Salut 👋 Je suis votre conseiller. Comment puis-je vous aider ?",
           fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
@@ -94,13 +94,13 @@ function getFallbackShopConfig(shopId: string) {
       agent: {
         id: `agent-${shopId}`,
         name: "Assistant",
-        title: "Conseiller commercial", 
+        title: "Conseiller commercial", // ✅ AJOUT : Titre explicite
         type: "product_specialist",
         personality: "friendly",
         description: "Assistant commercial spécialisé dans l'accompagnement client",
         welcomeMessage: "Salut 👋 Je suis votre conseiller. Comment puis-je vous aider ?",
         fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
-        avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
+        avatar: "https://ui-avatars.com/api/?name=Assistant&background=EC4899&color=fff", // ✅ Couleur cohérente
         config: {
           collectName: true,
           collectPhone: true,
@@ -135,7 +135,7 @@ Vous pouvez parcourir notre catalogue pour découvrir nos produits.`,
   };
 }
 
-// ✅ PROMPT SYSTÈME AMÉLIORÉ COMPLET
+// ✅ PROMPT SYSTÈME AMÉLIORÉ COMPLET AVEC TITRE
 function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState) {
   const agentTitle = agent.title || getDefaultTitle(agent.type)
   const shopName = "cette boutique"
@@ -732,7 +732,7 @@ function getNextOrderStep(currentStep: string, data: any): OrderCollectionState[
   }
 }
 
-// ✅ MESSAGE D'ACCUEIL AMÉLIORÉ
+// ✅ MESSAGE D'ACCUEIL AMÉLIORÉ AVEC TITRE
 function generateWelcomeMessage(agent: any, productInfo?: any): string {
   const baseName = agent.name || 'Assistant'
   const baseTitle = agent.title || getDefaultTitle(agent.type)
@@ -761,12 +761,12 @@ function getDefaultTitle(type: string): string {
   return titles[type as keyof typeof titles] || 'Spécialiste produit'
 }
 
-// ✅ RÉPONSE SIMULÉE INTELLIGENTE POUR VIENS ON S'CONNAÎT
-function getIntelligentSimulatedResponse(message: string, productInfo: any): string {
+// ✅ RÉPONSE SIMULÉE INTELLIGENTE AVEC TITRE
+function getIntelligentSimulatedResponse(message: string, productInfo: any, agentName: string = "Rose", agentTitle: string = "Spécialiste produit"): string {
   const msg = message.toLowerCase();
   
   if (msg.includes('bonjour') || msg.includes('salut') || msg.includes('hello')) {
-    return `Salut ! Je suis votre conseiller commercial. 👋
+    return `Salut ! Je suis ${agentName}, votre ${agentTitle}. 👋
 
 ${productInfo?.name ? `Je vois que vous vous intéressez à **"${productInfo.name}"**.` : ''}
 
@@ -798,12 +798,12 @@ C'est l'un de nos produits les plus appréciés.
 Avez-vous des **questions spécifiques** ? 🤔`;
   }
   
-  return "Merci pour votre message ! Comment puis-je vous aider davantage avec nos produits ? 😊";
+  return `Merci pour votre message ! En tant que ${agentTitle}, comment puis-je vous aider davantage avec nos produits ? 😊`;
 }
 
 export default async function publicRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE CORRIGÉE : Configuration publique AVEC SUPABASE
+  // ✅ ROUTE CORRIGÉE : Configuration publique AVEC TITRE
   fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
     try {
       const { shopId } = request.params;
@@ -815,19 +815,19 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return getFallbackShopConfig(shopId);
       }
       
-      // ✅ UTILISER SUPABASE UNIQUEMENT
+      // ✅ UTILISER SUPABASE AVEC COLONNES CORRIGÉES
       const { data: shop, error: shopError } = await supabaseServiceClient
         .from('shops')
-        .select('id, name, is_active, widget_config, agent_config')  // ✅ CORRIGÉ : is_active, widget_config, agent_config
+        .select('id, name, is_active, widget_config, agent_config')
         .eq('id', shopId)
         .single();
 
-      if (shopError || !shop || !shop.is_active) {  // ✅ CORRIGÉ : is_active
+      if (shopError || !shop || !shop.is_active) {
         fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
         return getFallbackShopConfig(shopId);
       }
 
-      // ✅ RÉCUPÉRER AGENT ET KNOWLEDGE BASE AVEC SUPABASE CORRIGÉ
+      // ✅ RÉCUPÉRER AGENT AVEC TITRE OBLIGATOIRE
       const { data: agents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
@@ -839,9 +839,9 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             )
           )
         `)
-        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
-        .eq('is_active', true)  // ✅ CORRIGÉ : is_active
-        .order('updated_at', { ascending: false })  // ✅ CORRIGÉ : updated_at
+        .eq('shop_id', shopId)
+        .eq('is_active', true)
+        .order('updated_at', { ascending: false })
         .limit(1);
 
       const agent = agents && agents.length > 0 ? agents[0] : null;
@@ -853,8 +853,8 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             shop: {
               id: shop.id,
               name: shop.name,
-              widgetConfig: shop.widget_config,  // ✅ CORRIGÉ : widget_config
-              agentConfig: shop.agent_config  // ✅ CORRIGÉ : agent_config
+              widgetConfig: shop.widget_config,
+              agentConfig: shop.agent_config
             },
             agent: null,
             knowledgeBase: {
@@ -866,7 +866,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         };
       }
 
-      // ✅ CONSTRUIRE KNOWLEDGE BASE CORRIGÉ
+      // ✅ CONSTRUIRE KNOWLEDGE BASE
       const knowledgeContent = agent.agent_knowledge_base
         .map((akb: any) => `## ${akb.knowledge_base.title}\n${akb.knowledge_base.content}`)
         .join('\n\n---\n\n');
@@ -877,18 +877,18 @@ export default async function publicRoutes(fastify: FastifyInstance) {
           shop: {
             id: shop.id,
             name: shop.name,
-            widgetConfig: shop.widget_config,  // ✅ CORRIGÉ : widget_config
-            agentConfig: shop.agent_config  // ✅ CORRIGÉ : agent_config
+            widgetConfig: shop.widget_config,
+            agentConfig: shop.agent_config
           },
           agent: {
             id: agent.id,
             name: agent.name,
-            title: agent.title || getDefaultTitle(agent.type),
+            title: agent.title || getDefaultTitle(agent.type), // ✅ TITRE AVEC FALLBACK
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
-            welcomeMessage: agent.welcome_message,  // ✅ CORRIGÉ : welcome_message
-            fallbackMessage: agent.fallback_message,  // ✅ CORRIGÉ : fallback_message
+            welcomeMessage: agent.welcome_message,
+            fallbackMessage: agent.fallback_message,
             avatar: agent.avatar,
             config: agent.config
           },
@@ -898,14 +898,14 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             documents: agent.agent_knowledge_base.map((akb: any) => ({
               id: akb.knowledge_base.id,
               title: akb.knowledge_base.title,
-              contentType: akb.knowledge_base.content_type,  // ✅ CORRIGÉ : content_type
+              contentType: akb.knowledge_base.content_type,
               tags: akb.knowledge_base.tags
             }))
           }
         }
       };
 
-      fastify.log.info(`✅ [PUBLIC CONFIG] Configuration envoyée pour ${shopId} - Agent: ${response.data.agent.name}, Documents: ${response.data.knowledgeBase.documentsCount}`);
+      fastify.log.info(`✅ [PUBLIC CONFIG] Configuration envoyée pour ${shopId} - Agent: ${response.data.agent.name} (${response.data.agent.title}), Documents: ${response.data.knowledgeBase.documentsCount}`);
 
       return response;
 
@@ -916,7 +916,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE CORRIGÉE : Chat public AVEC SUPABASE ET COLLECTE COMPLÈTE
+  // ✅ ROUTE CORRIGÉE : Chat public AVEC TITRE ET COLLECTE COMPLÈTE
   fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
     
@@ -933,20 +933,22 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ MODE TEST AMÉLIORÉ POUR VIENS ON S'CONNAÎT
+      // ✅ MODE TEST AMÉLIORÉ POUR DEMO
       if (!isValidUUID(shopId)) {
         fastify.log.info(`💬 [MODE TEST] Réponse simulée pour shop: ${shopId}`);
         
+        const agentName = "Rose";
+        const agentTitle = "Spécialiste produit";
         let simulatedResponse = '';
         
         if (isFirstMessage && productInfo?.name) {
-          simulatedResponse = `Salut ! 👋 Je suis Rose, Spécialiste produit chez VIENS ON S'CONNAÎT.
+          simulatedResponse = `Salut ! 👋 Je suis ${agentName}, ${agentTitle} chez VIENS ON S'CONNAÎT.
 
 Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! ✨
 
 Comment puis-je vous aider ? 😊`;
         } else {
-          simulatedResponse = getIntelligentSimulatedResponse(message, productInfo);
+          simulatedResponse = getIntelligentSimulatedResponse(message, productInfo, agentName, agentTitle);
         }
         
         return {
@@ -955,7 +957,8 @@ Comment puis-je vous aider ? 😊`;
             conversationId: conversationId || `test-conv-${Date.now()}`,
             message: simulatedResponse,
             agent: {
-              name: "Rose",
+              name: agentName,
+              title: agentTitle, // ✅ AJOUT TITRE
               avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff"
             },
             responseTime: Date.now() - startTime,
@@ -965,29 +968,29 @@ Comment puis-je vous aider ? 😊`;
         };
       }
       
-      // ✅ VÉRIFICATION SHOP AVEC SUPABASE CORRIGÉ
+      // ✅ VÉRIFICATION SHOP AVEC SUPABASE
       const { data: shopConfig, error: shopError } = await supabaseServiceClient
         .from('shops')
-        .select('id, name, is_active')  // ✅ CORRIGÉ : is_active
+        .select('id, name, is_active')
         .eq('id', shopId)
         .single();
 
-      if (shopError || !shopConfig || !shopConfig.is_active) {  // ✅ CORRIGÉ : is_active
+      if (shopError || !shopConfig || !shopConfig.is_active) {
         return reply.status(404).send({ 
           success: false, 
           error: 'Boutique non trouvée ou inactive' 
         });
       }
 
-      // ✅ RÉCUPÉRATION AGENT AVEC SUPABASE CORRIGÉ (SANS CONTRAINTE STRICTE)
+      // ✅ RÉCUPÉRATION AGENT AVEC TITRE
       const { data: agents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description,
           welcome_message, fallback_message, avatar, config
         `)
-        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
-        .eq('is_active', true)  // ✅ CORRIGÉ : is_active
+        .eq('shop_id', shopId)
+        .eq('is_active', true)
         .limit(1);
 
       const agent = agents && agents.length > 0 ? agents[0] : null;
@@ -999,7 +1002,12 @@ Comment puis-je vous aider ? 😊`;
         });
       }
 
-      // ✅ RÉCUPÉRATION SÉPARÉE DE LA BASE DE CONNAISSANCE
+      // ✅ S'assurer que l'agent a un titre
+      if (!agent.title) {
+        agent.title = getDefaultTitle(agent.type);
+      }
+
+      // ✅ RÉCUPÉRATION BASE DE CONNAISSANCE
       const { data: knowledgeBaseRelations } = await supabaseServiceClient
         .from('agent_knowledge_base')
         .select(`
@@ -1009,26 +1017,24 @@ Comment puis-je vous aider ? 😊`;
         `)
         .eq('agent_id', agent.id);
 
-      // ✅ PREMIER MESSAGE AUTOMATIQUE
+      // ✅ PREMIER MESSAGE AUTOMATIQUE AVEC TITRE
       if (isFirstMessage) {
         const welcomeMessage = generateWelcomeMessage(agent, productInfo);
         
-        // ✅ CRÉER CONVERSATION AVEC SUPABASE CORRIGÉ + COLONNES OBLIGATOIRES + UUID
-        const conversationId = randomUUID();  // ✅ AJOUT : Générer UUID
+        const conversationId = randomUUID();
         const { data: conversation, error: convError } = await supabaseServiceClient
           .from('conversations')
           .insert({
-            id: conversationId,  // ✅ AJOUT : UUID explicite
-            shop_id: shopId,  // ✅ CORRIGÉ : shop_id
-            agent_id: agent.id,  // ✅ CORRIGÉ : agent_id
-            visitor_id: visitorId || `visitor_${Date.now()}`,  // ✅ CORRIGÉ : visitor_id
-            product_id: productInfo?.id || null,  // ✅ CORRIGÉ : product_id
-            product_name: productInfo?.name || null,  // ✅ CORRIGÉ : product_name
-            product_price: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,  // ✅ CORRIGÉ : product_price
-            product_url: productInfo?.url || null,  // ✅ CORRIGÉ : product_url
-            visitor_ip: request.ip,  // ✅ CORRIGÉ : visitor_ip
-            visitor_user_agent: request.headers['user-agent'] || null,  // ✅ CORRIGÉ : visitor_user_agent
-            // ✅ AJOUT : Colonnes obligatoires manquantes
+            id: conversationId,
+            shop_id: shopId,
+            agent_id: agent.id,
+            visitor_id: visitorId || `visitor_${Date.now()}`,
+            product_id: productInfo?.id || null,
+            product_name: productInfo?.name || null,
+            product_price: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,
+            product_url: productInfo?.url || null,
+            visitor_ip: request.ip,
+            visitor_user_agent: request.headers['user-agent'] || null,
             status: 'active',
             language: 'fr',
             customer_data: {},
@@ -1041,32 +1047,25 @@ Comment puis-je vous aider ? 😊`;
           .single();
 
         if (convError) {
-          console.error('❌ [CONV ERROR] Erreur création conversation DÉTAILLÉE:', {
-            code: convError.code,
-            message: convError.message,
-            details: convError.details,
-            hint: convError.hint
-          });
+          console.error('❌ [CONV ERROR] Erreur création conversation:', convError);
           return reply.status(500).send({ 
             success: false, 
-            error: 'Erreur création conversation',
-            details: process.env.NODE_ENV === 'development' ? convError.message : undefined
+            error: 'Erreur création conversation'
           });
         }
 
-        // ✅ SAUVEGARDER MESSAGE D'ACCUEIL AVEC SUPABASE CORRIGÉ
         await supabaseServiceClient
           .from('messages')
           .insert({
-            conversation_id: conversation.id,  // ✅ CORRIGÉ : conversation_id
+            conversation_id: conversation.id,
             role: 'assistant',
             content: welcomeMessage,
-            tokens_used: 0,  // ✅ CORRIGÉ : tokens_used
-            response_time_ms: Date.now() - startTime,  // ✅ CORRIGÉ : response_time_ms
-            model_used: 'welcome-message'  // ✅ CORRIGÉ : model_used
+            tokens_used: 0,
+            response_time_ms: Date.now() - startTime,
+            model_used: 'welcome-message'
           });
 
-        fastify.log.info(`✅ [WELCOME] Message d'accueil envoyé pour conversation: ${conversation.id}`);
+        fastify.log.info(`✅ [WELCOME] Message d'accueil envoyé avec titre pour conversation: ${conversation.id}`);
 
         return {
           success: true,
@@ -1075,6 +1074,7 @@ Comment puis-je vous aider ? 😊`;
             message: welcomeMessage,
             agent: {
               name: agent.name,
+              title: agent.title, // ✅ TITRE INCLUS
               avatar: agent.avatar
             },
             responseTime: Date.now() - startTime,
@@ -1083,35 +1083,34 @@ Comment puis-je vous aider ? 😊`;
         };
       }
 
-      // ✅ GESTION CONVERSATION EXISTANTE AVEC SUPABASE CORRIGÉ
+      // ✅ GESTION CONVERSATION EXISTANTE
       let conversation;
       if (conversationId) {
         const { data: conv } = await supabaseServiceClient
           .from('conversations')
           .select('*, messages(*)')
           .eq('id', conversationId)
-          .order('created_at', { foreignTable: 'messages', ascending: true })  // ✅ CORRIGÉ : created_at
+          .order('created_at', { foreignTable: 'messages', ascending: true })
           .limit(10, { foreignTable: 'messages' })
           .single();
         conversation = conv;
       }
 
       if (!conversation) {
-        const newConversationId = randomUUID();  // ✅ AJOUT : Générer UUID
+        const newConversationId = randomUUID();
         const { data: newConv } = await supabaseServiceClient
           .from('conversations')
           .insert({
-            id: newConversationId,  // ✅ AJOUT : UUID explicite
-            shop_id: shopId,  // ✅ CORRIGÉ : shop_id
-            agent_id: agent.id,  // ✅ CORRIGÉ : agent_id
-            visitor_id: visitorId || `visitor_${Date.now()}`,  // ✅ CORRIGÉ : visitor_id
-            product_id: productInfo?.id || null,  // ✅ CORRIGÉ : product_id
-            product_name: productInfo?.name || null,  // ✅ CORRIGÉ : product_name
-            product_price: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,  // ✅ CORRIGÉ : product_price
-            product_url: productInfo?.url || null,  // ✅ CORRIGÉ : product_url
-            visitor_ip: request.ip,  // ✅ CORRIGÉ : visitor_ip
-            visitor_user_agent: request.headers['user-agent'] || null,  // ✅ CORRIGÉ : visitor_user_agent
-            // ✅ AJOUT : Colonnes obligatoires manquantes
+            id: newConversationId,
+            shop_id: shopId,
+            agent_id: agent.id,
+            visitor_id: visitorId || `visitor_${Date.now()}`,
+            product_id: productInfo?.id || null,
+            product_name: productInfo?.name || null,
+            product_price: productInfo?.price ? parseFloat(productInfo.price.toString()) : null,
+            product_url: productInfo?.url || null,
+            visitor_ip: request.ip,
+            visitor_user_agent: request.headers['user-agent'] || null,
             status: 'active',
             language: 'fr',
             customer_data: {},
@@ -1125,16 +1124,16 @@ Comment puis-je vous aider ? 😊`;
         conversation = newConv;
       }
 
-      // ✅ SAUVEGARDER MESSAGE UTILISATEUR AVEC SUPABASE CORRIGÉ
+      // ✅ SAUVEGARDER MESSAGE UTILISATEUR
       await supabaseServiceClient
         .from('messages')
         .insert({
-          conversation_id: conversation.id,  // ✅ CORRIGÉ : conversation_id
+          conversation_id: conversation.id,
           role: 'user',
           content: message
         });
 
-      // ✅ PRÉPARER BASE DE CONNAISSANCE CORRIGÉ
+      // ✅ PRÉPARER BASE DE CONNAISSANCE
       const knowledgeContent = (knowledgeBaseRelations || [])
         .map((akb: any) => `## ${akb.knowledge_base.title}\n${akb.knowledge_base.content}`)
         .join('\n\n---\n\n');
@@ -1143,7 +1142,7 @@ Comment puis-je vous aider ? 😊`;
       let orderState: OrderCollectionState | undefined;
       
       try {
-        const customerData = conversation.customer_data as any;  // ✅ CORRIGÉ : customer_data
+        const customerData = conversation.customer_data as any;
         if (customerData?.orderCollection) {
           orderState = customerData.orderCollection;
         }
@@ -1159,10 +1158,10 @@ Comment puis-je vous aider ? 😊`;
 
       messageHistory.push({ role: 'user', content: message });
 
-      // ✅ APPELER IA
+      // ✅ APPELER IA AVEC AGENT TITRE
       const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo, orderState);
       
-      let aiResponse: string = aiResult.fallbackMessage || agent.fallback_message || "Je transmets votre question à notre équipe.";  // ✅ CORRIGÉ : fallback_message
+      let aiResponse: string = aiResult.fallbackMessage || agent.fallback_message || "Je transmets votre question à notre équipe.";
       let tokensUsed: number = 0;
 
       if (aiResult.success && aiResult.message) {
@@ -1177,7 +1176,7 @@ Comment puis-je vous aider ? 😊`;
         await supabaseServiceClient
           .from('conversations')
           .update({
-            customer_data: {  // ✅ CORRIGÉ : customer_data
+            customer_data: {
               orderCollection: aiResult.orderCollection
             } as any
           })
@@ -1189,17 +1188,17 @@ Comment puis-je vous aider ? 😊`;
             // ✅ VÉRIFIER CLIENT EXISTANT AVANT SAUVEGARDE CORRIGÉ
             const { data: existingOrder } = await supabaseServiceClient
               .from('orders')
-              .select('customer_name, customer_address, customer_email')  // ✅ CORRIGÉ : colonnes snake_case
-              .eq('customer_phone', aiResult.orderCollection.data.customerPhone)  // ✅ CORRIGÉ : customer_phone
-              .order('created_at', { ascending: false })  // ✅ CORRIGÉ : created_at
+              .select('customer_name, customer_address, customer_email')
+              .eq('customer_phone', aiResult.orderCollection.data.customerPhone)
+              .order('created_at', { ascending: false })
               .limit(1)
               .single();
 
             if (existingOrder && !aiResult.orderCollection.data.customerFirstName) {
-              aiResult.orderCollection.data.customerFirstName = existingOrder.customer_name?.split(' ')[0] || undefined;  // ✅ CORRIGÉ : customer_name
-              aiResult.orderCollection.data.customerLastName = existingOrder.customer_name?.split(' ').slice(1).join(' ') || undefined;  // ✅ CORRIGÉ : customer_name
-              aiResult.orderCollection.data.customerAddress = aiResult.orderCollection.data.customerAddress || existingOrder.customer_address || undefined;  // ✅ CORRIGÉ : customer_address
-              aiResult.orderCollection.data.customerEmail = aiResult.orderCollection.data.customerEmail || existingOrder.customer_email || undefined;  // ✅ CORRIGÉ : customer_email
+              aiResult.orderCollection.data.customerFirstName = existingOrder.customer_name?.split(' ')[0] || undefined;
+              aiResult.orderCollection.data.customerLastName = existingOrder.customer_name?.split(' ').slice(1).join(' ') || undefined;
+              aiResult.orderCollection.data.customerAddress = aiResult.orderCollection.data.customerAddress || existingOrder.customer_address || undefined;
+              aiResult.orderCollection.data.customerEmail = aiResult.orderCollection.data.customerEmail || existingOrder.customer_email || undefined;
             }
 
             await saveOrderToDatabase(
@@ -1218,8 +1217,8 @@ Comment puis-je vous aider ? 😊`;
             await supabaseServiceClient
               .from('conversations')
               .update({
-                conversion_completed: true,  // ✅ CORRIGÉ : conversion_completed
-                customer_data: {}  // ✅ CORRIGÉ : customer_data
+                conversion_completed: true,
+                customer_data: {}
               })
               .eq('id', conversation.id);
             
@@ -1232,16 +1231,16 @@ Comment puis-je vous aider ? 😊`;
         }
       }
 
-      // ✅ SAUVEGARDER RÉPONSE IA AVEC SUPABASE CORRIGÉ
+      // ✅ SAUVEGARDER RÉPONSE IA
       await supabaseServiceClient
         .from('messages')
         .insert({
-          conversation_id: conversation.id,  // ✅ CORRIGÉ : conversation_id
+          conversation_id: conversation.id,
           role: 'assistant',
           content: aiResponse,
-          tokens_used: tokensUsed,  // ✅ CORRIGÉ : tokens_used
-          response_time_ms: Date.now() - startTime,  // ✅ CORRIGÉ : response_time_ms
-          model_used: 'gpt-4o-mini'  // ✅ CORRIGÉ : model_used
+          tokens_used: tokensUsed,
+          response_time_ms: Date.now() - startTime,
+          model_used: 'gpt-4o-mini'
         });
 
       fastify.log.info(`✅ [CHAT SUCCESS] Réponse envoyée pour conversation: ${conversation.id} (${Date.now() - startTime}ms)`);
@@ -1253,6 +1252,7 @@ Comment puis-je vous aider ? 😊`;
           message: aiResponse,
           agent: {
             name: agent.name,
+            title: agent.title, // ✅ TITRE INCLUS
             avatar: agent.avatar
           },
           responseTime: Date.now() - startTime,
@@ -1264,17 +1264,19 @@ Comment puis-je vous aider ? 😊`;
     } catch (error: any) {
       fastify.log.error(`❌ [CHAT ERROR]: ${error.message || 'Erreur inconnue'}`);
       
-      // ✅ FALLBACK CONTEXTUEL AMÉLIORÉ POUR VIENS ON S'CONNAÎT
-      let fallbackResponse = "Merci pour votre message ! Comment puis-je vous aider davantage ?";
-      
+      // ✅ FALLBACK CONTEXTUEL AVEC TITRE
       const userMessage = request.body.message || '';
       const productInfo = request.body.productInfo;
+      const agentName = "Rose";
+      const agentTitle = "Spécialiste produit";
+      
+      let fallbackResponse = `Merci pour votre message ! Je suis ${agentName}, votre ${agentTitle}. Comment puis-je vous aider davantage ?`;
       
       if (userMessage.toLowerCase().includes('bonjour') || userMessage.toLowerCase().includes('salut')) {
         if (productInfo?.name) {
-          fallbackResponse = `Salut ! Je suis Rose, votre conseillère chez VIENS ON S'CONNAÎT. Je vois que vous vous intéressez à "${productInfo.name}". Comment puis-je vous aider avec ce produit ?`;
+          fallbackResponse = `Salut ! Je suis ${agentName}, votre ${agentTitle} chez VIENS ON S'CONNAÎT. Je vois que vous vous intéressez à "${productInfo.name}". Comment puis-je vous aider avec ce produit ?`;
         } else {
-          fallbackResponse = "Salut ! Je suis Rose, votre conseillère chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?";
+          fallbackResponse = `Salut ! Je suis ${agentName}, votre ${agentTitle} chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?`;
         }
       } else if (productInfo?.name && userMessage.toLowerCase().includes('produit')) {
         fallbackResponse = `Concernant "${productInfo.name}", je vous mets en relation avec notre équipe pour vous donner les meilleures informations.`;
@@ -1286,7 +1288,8 @@ Comment puis-je vous aider ? 😊`;
           conversationId: request.body.conversationId || `fallback-conv-${Date.now()}`,
           message: fallbackResponse,
           agent: {
-            name: "Rose",
+            name: agentName,
+            title: agentTitle, // ✅ TITRE INCLUS
             avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff"
           },
           responseTime: Date.now() - startTime,

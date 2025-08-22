@@ -1,4 +1,4 @@
-// src/routes/chat.ts - VERSION SUPABASE PURE
+// src/routes/chat.ts - VERSION COMPLÈTE CORRIGÉE ✅
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
@@ -32,6 +32,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('⚠️ OPENAI_API_KEY manquante - mode dégradé activé');
+}
+
 // ✅ SCHÉMAS DE VALIDATION
 const testMessageSchema = z.object({
   message: z.string().min(1, 'Le message est requis'),
@@ -53,6 +57,12 @@ const sendMessageSchema = z.object({
   }).optional(),
   systemPrompt: z.string().optional(),
   knowledgeBase: z.array(z.any()).optional()
+});
+
+const analyzeOrderIntentSchema = z.object({
+  message: z.string(),
+  conversationId: z.string().optional(),
+  productContext: z.any().optional()
 });
 
 // ✅ HELPER: Vérifier l'auth Supabase
@@ -108,11 +118,12 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
             language: "fr", 
             position: "bottom-right",
             buttonText: "Parler au vendeur",
-            primaryColor: "#3B82F6"
+            primaryColor: "#EC4899" // ✅ Rose par défaut
           },
           agent_config: {
             name: "Assistant ChatSeller",
-            avatar: "https://ui-avatars.com/api/?name=Assistant&background=3B82F6&color=fff",
+            title: "Conseiller commercial", // ✅ AJOUT TITRE
+            avatar: "https://ui-avatars.com/api/?name=Assistant&background=EC4899&color=fff",
             upsellEnabled: false,
             welcomeMessage: "Bonjour ! Comment puis-je vous aider aujourd'hui ?",
             fallbackMessage: "Je transmets votre question à notre équipe.",
@@ -143,11 +154,16 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
 // ✅ HELPER: Appel Claude AI (Plan Pro)
 async function callClaudeAI(messages: any[], systemPrompt: string, temperature = 0.7) {
   try {
+    if (!process.env.CLAUDE_API_KEY) {
+      console.warn('⚠️ CLAUDE_API_KEY manquante, fallback vers OpenAI');
+      return await callOpenAI(messages, systemPrompt, temperature);
+    }
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.CLAUDE_API_KEY || '',
+        'x-api-key': process.env.CLAUDE_API_KEY,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
@@ -178,9 +194,13 @@ async function callClaudeAI(messages: any[], systemPrompt: string, temperature =
   }
 }
 
-// ✅ HELPER: Appel OpenAI
+// ✅ HELPER: Appel OpenAI ROBUSTE
 async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0.7) {
   try {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OpenAI API Key manquante');
+    }
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -199,10 +219,13 @@ async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0
   }
 }
 
-// ✅ HELPER: Construire le prompt système avec base de connaissances
+// ✅ HELPER: Construire le prompt système avec base de connaissances ET TITRE
 function buildSystemPrompt(agent: any, knowledgeBase: any[] = [], productContext: any = null) {
-  let systemPrompt = `Tu es ${agent.name}, un agent commercial IA spécialisé pour un site e-commerce.
+  const agentTitle = agent.title || getDefaultTitle(agent.type);
+  
+  let systemPrompt = `Tu es ${agent.name}, ${agentTitle} expert pour un site e-commerce.
 
+🎯 RÔLE: ${agentTitle} spécialisé dans la conversion et l'accompagnement client
 PERSONNALITÉ: ${agent.personality || 'friendly'}
 TYPE: ${agent.type || 'general'}
 MISSION: Aider les visiteurs à trouver le bon produit et les guider vers l'achat.
@@ -244,13 +267,52 @@ ${agentConfig.specificInstructions.map((inst: string) => `- ${inst}`).join('\n')
   }
 
   systemPrompt += `\n\nRÈGLES IMPORTANTES:
-- Reste dans ton rôle de conseiller commercial
+- Reste dans ton rôle de ${agentTitle}
 - Ne révèle jamais que tu es une IA
 - Pousse naturellement vers l'achat
 - Sois précis et utile
 - Si tu ne sais pas, dis-le honnêtement`;
 
   return systemPrompt;
+}
+
+// ✅ HELPER: Titre par défaut selon le type
+function getDefaultTitle(type: string): string {
+  const titles = {
+    general: 'Conseiller commercial',
+    product_specialist: 'Spécialiste produit', 
+    support: 'Conseiller support',
+    upsell: 'Conseiller premium'
+  }
+  return titles[type as keyof typeof titles] || 'Conseiller commercial'
+}
+
+// ✅ HELPER: Réponse intelligente de fallback
+function getIntelligentResponse(message: string, productInfo: any, agent: any): string {
+  const msg = message.toLowerCase();
+  const agentName = agent.name || 'Assistant';
+  const agentTitle = agent.title || getDefaultTitle(agent.type);
+  const productName = productInfo?.name || 'ce produit';
+  
+  if (msg.includes('acheter') || msg.includes('commander')) {
+    return `Parfait ! Je vais vous aider à commander **${productName}**. 🎉
+
+**Combien d'exemplaires** souhaitez-vous ?`;
+  }
+  
+  if (msg.includes('prix')) {
+    return `Je vérifie le prix de **${productName}** pour vous... Un instant ! ⏳`;
+  }
+  
+  if (msg.includes('bonjour') || msg.includes('salut')) {
+    return `Bonjour ! 👋 Je suis ${agentName}, votre ${agentTitle}.
+
+${productInfo?.name ? `Je vois que vous vous intéressez à **"${productInfo.name}"**.` : ''}
+
+Comment puis-je vous aider ? 😊`;
+  }
+  
+  return `Merci pour votre question ! 😊 En tant que ${agentTitle}, je vous mets en relation avec notre équipe pour les informations plus précises sur **${productName}**.`;
 }
 
 export default async function chatRoutes(fastify: FastifyInstance) {
@@ -277,16 +339,16 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       const { data: agent, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
-          id, name, type, personality, description,
-          welcomeMessage, fallbackMessage, avatar, config,
+          id, name, title, type, personality, description,
+          welcome_message, fallback_message, avatar, config,
           agent_knowledge_base!inner(
             knowledge_base!inner(
-              id, title, content, contentType, isActive
+              id, title, content, content_type, is_active
             )
           )
         `)
         .eq('id', body.agentId)
-        .eq('shopId', shop.id)
+        .eq('shop_id', shop.id)
         .single();
 
       if (agentError || !agent) {
@@ -296,12 +358,17 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // ✅ S'assurer que l'agent a un titre
+      if (!agent.title) {
+        agent.title = getDefaultTitle(agent.type);
+      }
+
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
       const knowledgeBase = agent.agent_knowledge_base
-        .filter((akb: any) => akb.knowledge_base.isActive)
+        .filter((akb: any) => akb.knowledge_base.is_active)
         .map((akb: any) => akb.knowledge_base);
 
-      // ✅ CONSTRUIRE LE PROMPT SYSTÈME
+      // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC TITRE
       const systemPrompt = buildSystemPrompt(agent, knowledgeBase);
 
       // ✅ PRÉPARER LES MESSAGES
@@ -343,6 +410,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           agent: {
             id: agent.id,
             name: agent.name,
+            title: agent.title, // ✅ TITRE INCLUS
             type: agent.type
           },
           knowledgeBaseCount: knowledgeBase.length
@@ -391,20 +459,20 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER LES AGENTS ACTIFS
+      // ✅ RÉCUPÉRER LES AGENTS ACTIFS AVEC TITRE
       const { data: agents, error: agentsError } = await supabaseServiceClient
         .from('agents')
         .select(`
-          id, name, type, personality, description,
-          welcomeMessage, fallbackMessage, avatar, config,
+          id, name, title, type, personality, description,
+          welcome_message, fallback_message, avatar, config,
           agent_knowledge_base!inner(
             knowledge_base!inner(
-              id, title, content, contentType, isActive
+              id, title, content, content_type, tags
             )
           )
         `)
-        .eq('shopId', shop.id)
-        .eq('isActive', true);
+        .eq('shop_id', shop.id)
+        .eq('is_active', true);
 
       if (agentsError || !agents || agents.length === 0) {
         return reply.status(404).send({ 
@@ -428,6 +496,11 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // ✅ S'assurer que l'agent a un titre
+      if (!agent.title) {
+        agent.title = getDefaultTitle(agent.type);
+      }
+
       // ✅ GÉRER LA CONVERSATION (SUPABASE)
       let conversation = null;
       if (body.conversationId) {
@@ -444,16 +517,16 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         const { data: newConv, error: convError } = await supabaseServiceClient
           .from('conversations')
           .insert({
-            shopId: shop.id,
-            agentId: agent.id,
+            shop_id: shop.id,
+            agent_id: agent.id,
             status: 'active',
-            visitorIp: request.ip,
-            visitorUserAgent: request.headers['user-agent'] || '',
-            productId: body.productContext?.id || null,
-            productName: body.productContext?.name || null,
-            productUrl: body.productContext?.url || null,
-            productPrice: body.productContext?.price || null,
-            customerData: {
+            visitor_ip: request.ip,
+            visitor_user_agent: request.headers['user-agent'] || '',
+            product_id: body.productContext?.id || null,
+            product_name: body.productContext?.name || null,
+            product_url: body.productContext?.url || null,
+            product_price: body.productContext?.price || null,
+            customer_data: {
               userAgent: request.headers['user-agent'] || '',
               ip: request.ip,
               productContext: body.productContext || {}
@@ -478,10 +551,10 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       const { error: msgError } = await supabaseServiceClient
         .from('messages')
         .insert({
-          conversationId: conversation.id,
+          conversation_id: conversation.id,
           role: 'user',
           content: body.message,
-          contentType: 'text'
+          content_type: 'text'
         });
 
       if (msgError) {
@@ -491,7 +564,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
       const knowledgeBase = agent.agent_knowledge_base
-        .filter((akb: any) => akb.knowledge_base.isActive)
+        .filter((akb: any) => akb.knowledge_base.is_active)
         .map((akb: any) => akb.knowledge_base);
 
       // ✅ CONSTRUIRE L'HISTORIQUE DE LA CONVERSATION
@@ -506,7 +579,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         content: body.message
       });
 
-      // ✅ CONSTRUIRE LE PROMPT SYSTÈME
+      // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC TITRE
       const systemPrompt = buildSystemPrompt(agent, knowledgeBase, body.productContext);
 
       // ✅ GÉNÉRER LA RÉPONSE IA
@@ -517,26 +590,32 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       let aiResponse: string;
       let provider: string;
 
-      if (aiProvider === 'claude' && shop.subscription_plan !== 'free') {
-        aiResponse = await callClaudeAI(conversationHistory, systemPrompt, temperature);
-        provider = 'claude';
-      } else {
-        aiResponse = await callOpenAI(conversationHistory, systemPrompt, temperature);
-        provider = 'openai';
+      try {
+        if (aiProvider === 'claude' && shop.subscription_plan !== 'free') {
+          aiResponse = await callClaudeAI(conversationHistory, systemPrompt, temperature);
+          provider = 'claude';
+        } else {
+          aiResponse = await callOpenAI(conversationHistory, systemPrompt, temperature);
+          provider = 'openai';
+        }
+      } catch (aiError) {
+        console.error('❌ Erreur IA:', aiError);
+        aiResponse = getIntelligentResponse(body.message, body.productContext, agent);
+        provider = 'fallback';
       }
 
       // ✅ SAUVEGARDER LA RÉPONSE IA
       const { error: aiMsgError } = await supabaseServiceClient
         .from('messages')
         .insert({
-          conversationId: conversation.id,
+          conversation_id: conversation.id,
           role: 'assistant',
           content: aiResponse,
-          contentType: 'text',
-          responseTimeMs: Date.now() - startTime,
-          modelUsed: provider,
-          tokensUsed: 0, // À calculer si possible
-          actionData: {
+          content_type: 'text',
+          response_time_ms: Date.now() - startTime,
+          model_used: provider,
+          tokens_used: 0, // À calculer si possible
+          action_data: {
             provider: provider,
             temperature: temperature,
             timestamp: new Date().toISOString()
@@ -562,6 +641,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           agent: {
             id: agent.id,
             name: agent.name,
+            title: agent.title, // ✅ TITRE INCLUS
             type: agent.type
           }
         }
@@ -584,30 +664,55 @@ export default async function chatRoutes(fastify: FastifyInstance) {
     try {
       fastify.log.info('🔍 Analyse intention de commande');
       
-      const body = z.object({
-        message: z.string(),
-        conversationId: z.string().optional(),
-        productContext: z.any().optional()
-      }).parse(request.body);
+      const body = analyzeOrderIntentSchema.parse(request.body);
 
-      // ✅ LOGIQUE D'ANALYSE D'INTENTION SIMPLE
+      // ✅ LOGIQUE D'ANALYSE D'INTENTION AMÉLIORÉE
       const orderKeywords = [
-        'acheter', 'commander', 'achète', 'veux', 'prendre',
+        // Intentions directes d'achat
+        'acheter', 'commander', 'commande', 'achat', 'prendre', 'veux', 'souhaite',
+        'vais prendre', 'je le veux', 'ça m\'intéresse', 'je vais l\'acheter',
+        
+        // Questions sur le processus d'achat
+        'comment faire', 'comment commander', 'comment acheter', 'comment procéder',
+        'où acheter', 'comment passer commande', 'comment finaliser',
+        
+        // Expressions d'intérêt fort
+        'intéressé', 'intéresse', 'ça me plaît', 'parfait', 'c\'est bon', 
+        'd\'accord', 'ok pour', 'je confirme', 'go', 'allons-y',
+        
+        // Actions liées à l'achat
+        'réserver', 'livraison', 'payer', 'finaliser', 'confirmer', 'valider',
+        'continuer', 'suivant', 'étape suivante',
+        
+        // Prix et quantités
         'combien', 'prix', 'coûte', 'payer', 'panier',
-        'livraison', 'délai', 'stock'
+        'exemplaire', 'unité', 'pièce', 'fois'
       ];
 
-      const hasOrderIntent = orderKeywords.some(keyword => 
-        body.message.toLowerCase().includes(keyword)
-      );
+      const lowerMessage = body.message.toLowerCase();
+      const hasOrderKeyword = orderKeywords.some(keyword => lowerMessage.includes(keyword));
+      
+      // Vérifications supplémentaires
+      const hasQuantityPattern = /\b\d+\b|\b(un|une|deux|trois|quatre|cinq)\b/i.test(body.message);
+      const hasPositiveSignal = /(oui|yes|ok|d'accord|parfait|bien|super)/i.test(body.message);
+      
+      const hasOrderIntent = hasOrderKeyword || (hasQuantityPattern && hasPositiveSignal);
 
       let action = null;
+      let confidence = 0.2;
+      
       if (hasOrderIntent) {
-        if (body.message.toLowerCase().includes('acheter') || 
-            body.message.toLowerCase().includes('commander')) {
+        confidence = 0.8;
+        
+        if (lowerMessage.includes('acheter') || lowerMessage.includes('commander')) {
           action = 'start_order';
+          confidence = 0.9;
+        } else if (lowerMessage.includes('prix') || lowerMessage.includes('coût')) {
+          action = 'show_price';
+          confidence = 0.7;
         } else {
           action = 'show_product_info';
+          confidence = 0.6;
         }
       }
 
@@ -615,11 +720,15 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         success: true,
         data: {
           hasOrderIntent,
-          confidence: hasOrderIntent ? 0.8 : 0.2,
+          confidence,
           action,
-          detectedKeywords: orderKeywords.filter(k => 
-            body.message.toLowerCase().includes(k)
-          )
+          detectedKeywords: orderKeywords.filter(k => lowerMessage.includes(k)),
+          analysis: {
+            hasQuantityPattern,
+            hasPositiveSignal,
+            messageLength: body.message.length,
+            productContext: !!body.productContext
+          }
         }
       };
 
