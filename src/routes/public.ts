@@ -1,4 +1,5 @@
-// src/routes/public.ts - VERSION COMPLÈTE CORRIGÉE ✅ AVEC TITRE PERSISTANT PARTOUT
+// src/routes/public.ts - VERSION CORRIGÉE MESSAGES IA NATURELS ✅
+
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import OpenAI from 'openai';
@@ -65,7 +66,7 @@ function isValidUUID(str: string): boolean {
   return uuidRegex.test(str);
 }
 
-// ✅ NOUVELLE FONCTION : Titre par défaut selon le type AVEC FALLBACK ROBUSTE
+// ✅ FONCTION : Titre par défaut selon le type AVEC FALLBACK ROBUSTE
 function getDefaultTitle(type: string): string {
   const titles = {
     'general': 'Conseiller commercial',
@@ -76,6 +77,33 @@ function getDefaultTitle(type: string): string {
   return titles[type as keyof typeof titles] || 'Vendeur IA'
 }
 
+// ✅ HELPER : Déterminer le type de produit pour un message naturel
+function getProductType(productName: string): string {
+  if (!productName) return 'produit'
+  
+  const name = productName.toLowerCase()
+  
+  if (name.includes('jeu') || name.includes('game') || name.includes('cartes')) return 'jeu'
+  if (name.includes('livre') || name.includes('book') || name.includes('roman')) return 'livre'  
+  if (name.includes('cours') || name.includes('formation') || name.includes('training')) return 'formation'
+  if (name.includes('smartphone') || name.includes('téléphone') || name.includes('phone')) return 'smartphone'
+  if (name.includes('ordinateur') || name.includes('laptop') || name.includes('computer')) return 'ordinateur'
+  if (name.includes('vêtement') || name.includes('tshirt') || name.includes('robe')) return 'vêtement'
+  if (name.includes('service') || name.includes('consultation') || name.includes('accompagnement')) return 'service'
+  if (name.includes('bijou') || name.includes('collier') || name.includes('bracelet')) return 'bijou'
+  
+  return 'produit'
+}
+
+// ✅ HELPER : Obtenir le moment de la journée pour salutation naturelle
+function getTimeBasedGreeting(): string {
+  const hour = new Date().getHours()
+  
+  if (hour < 12) return 'Bonjour'
+  if (hour < 18) return 'Bonsoir'
+  return 'Bonsoir'
+}
+
 // ✅ CONFIGURATION FALLBACK AMÉLIORÉE AVEC TITRE OBLIGATOIRE
 function getFallbackShopConfig(shopId: string) {
   return {
@@ -83,35 +111,35 @@ function getFallbackShopConfig(shopId: string) {
     data: {
       shop: {
         id: shopId,
-        name: 'Boutique en ligne',
+        name: 'VIENS ON S\'CONNAÎT', // ✅ Nom de boutique par défaut
         widgetConfig: {
           theme: "modern",
           language: "fr", 
           position: "above-cta",
-          buttonText: "Parler à un conseiller",
-          primaryColor: "#EC4899", // ✅ Rose par défaut comme dans les captures
+          buttonText: "Parler à la vendeuse",
+          primaryColor: "#EC4899", // ✅ Rose par défaut
           borderRadius: "full"
         },
         agentConfig: {
-          name: "Assistant",
-          title: "Conseiller commercial", // ✅ AJOUT : Titre explicite obligatoire
-          avatar: "https://ui-avatars.com/api/?name=Assistant&background=EC4899&color=fff", // ✅ Couleur cohérente
+          name: "Rose",
+          title: "Vendeuse", // ✅ AJOUT : Titre explicite obligatoire
+          avatar: "https://ui-avatars.com/api/?name=Rose&background=EC4899&color=fff",
           upsellEnabled: false,
-          welcomeMessage: "Salut 👋 Je suis votre conseiller. Comment puis-je vous aider ?",
+          welcomeMessage: "Salut 👋 Je suis Rose, votre Vendeuse chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?",
           fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
           collectPaymentMethod: true
         }
       },
       agent: {
         id: `agent-${shopId}`,
-        name: "Assistant",
-        title: "Conseiller commercial", // ✅ AJOUT : Titre explicite obligatoire
+        name: "Rose",
+        title: "Vendeuse", // ✅ AJOUT : Titre explicite obligatoire
         type: "product_specialist",
         personality: "friendly",
-        description: "Assistant commercial spécialisé dans l'accompagnement client",
-        welcomeMessage: "Salut 👋 Je suis votre conseiller. Comment puis-je vous aider ?",
+        description: "Vendeuse IA spécialisée dans l'accompagnement client",
+        welcomeMessage: "Salut 👋 Je suis Rose, votre Vendeuse chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?",
         fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.",
-        avatar: "https://ui-avatars.com/api/?name=Assistant&background=EC4899&color=fff", // ✅ Couleur cohérente
+        avatar: "https://ui-avatars.com/api/?name=Rose&background=EC4899&color=fff",
         config: {
           collectName: true,
           collectPhone: true,
@@ -121,24 +149,24 @@ function getFallbackShopConfig(shopId: string) {
         }
       },
       knowledgeBase: {
-        content: `## Boutique en ligne
+        content: `## Boutique VIENS ON S'CONNAÎT
 
-Notre boutique propose des produits de qualité avec un service client excellent.
+Notre boutique propose des jeux et produits de qualité pour couples et familles avec un service client excellent.
 
 ### Services
-- Livraison rapide
-- Paiement sécurisé par virement, mobile money, ou espèces
+- Livraison rapide partout au Sénégal
+- Paiement sécurisé par virement, mobile money, ou espèces à la livraison
 - Service client disponible
 - Garantie sur nos produits
 
-Vous pouvez parcourir notre catalogue pour découvrir nos produits.`,
+Nous sommes spécialisés dans les jeux de société pour couples et familles.`,
         documentsCount: 1,
         documents: [
           {
             id: 'doc-fallback-001',
-            title: 'Informations boutique',
+            title: 'Informations boutique VIENS ON S\'CONNAÎT',
             contentType: 'manual',
-            tags: ['boutique', 'produits', 'service']
+            tags: ['boutique', 'jeux', 'couples', 'service']
           }
         ]
       }
@@ -146,37 +174,64 @@ Vous pouvez parcourir notre catalogue pour découvrir nos produits.`,
   };
 }
 
-// ✅ PROMPT SYSTÈME AMÉLIORÉ COMPLET AVEC TITRE OBLIGATOIRE
-function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState) {
+// ✅ PROMPT SYSTÈME AMÉLIORÉ POUR ÉVITER LES RÉPÉTITIONS
+function buildAgentPrompt(agent: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState, messageHistory?: any[]) {
   // ✅ CORRECTION MAJEURE : Assurer que le titre est toujours présent
   const agentTitle = agent.title || getDefaultTitle(agent.type || 'general')
-  const shopName = "cette boutique"
+  const shopName = "VIENS ON S'CONNAÎT" // Nom boutique par défaut
   
-  const basePrompt = `Tu es ${agent.name}, ${agentTitle} expert et ${agent.personality === 'friendly' ? 'chaleureux' : 'professionnel'}.
+  // ✅ NOUVEAU : Analyser l'historique des messages pour éviter les répétitions
+  const hasGreeted = messageHistory && messageHistory.some(msg => 
+    msg.role === 'assistant' && (
+      msg.content.toLowerCase().includes('salut') || 
+      msg.content.toLowerCase().includes('bonjour') || 
+      msg.content.toLowerCase().includes('bonsoir')
+    )
+  )
+  
+  const hasIntroducedProduct = messageHistory && messageHistory.some(msg => 
+    msg.role === 'assistant' && productInfo?.name && 
+    msg.content.toLowerCase().includes(productInfo.name.toLowerCase())
+  )
+  
+  const messageCount = messageHistory ? messageHistory.filter(msg => msg.role === 'assistant').length : 0
+  
+  const basePrompt = `Tu es ${agent.name}, ${agentTitle} experte chez ${shopName}.
 
-🎯 RÔLE: ${agentTitle} spécialisé dans la conversion e-commerce et l'accompagnement client.
+🎯 CONTEXTE CONVERSATION ACTUEL:
+- Nombre de messages déjà échangés : ${messageCount}
+- A déjà salué le client : ${hasGreeted ? 'OUI' : 'NON'}
+- A déjà présenté le produit : ${hasIntroducedProduct ? 'OUI' : 'NON'}
 
-💡 PERSONNALITÉ: ${agent.personality}
-- ${agent.personality === 'friendly' ? 'Bienveillant, empathique, à l\'écoute' : 'Professionnel, expert, efficace'}
-- Toujours positif et orienté solution
-- Expert en techniques de vente consultative et persuasion éthique
-- Tu connais parfaitement les produits de la boutique
+💡 PERSONNALITÉ: ${agent.personality === 'friendly' ? 'Chaleureuse, bienveillante et authentique' : 'Professionnelle et experte'}
+- ${agent.personality === 'friendly' ? 'Tu parles naturellement comme une vraie vendeuse sympathique' : 'Tu es précise et efficace'}
+- Tu ne répètes JAMAIS les salutations ou présentations déjà faites
+- Tu maintiens le fil de la conversation de manière fluide et naturelle
+- Expert en techniques de vente consultative mais sans être agressive
+
+🎯 RÈGLES ANTI-RÉPÉTITION STRICTES:
+${hasGreeted ? '❌ NE PLUS SALUER - Tu as déjà dit bonjour/salut' : '✅ Tu peux saluer si c\'est ton premier message'}
+${hasIntroducedProduct ? '❌ NE PLUS PRÉSENTER LE PRODUIT - Tu l\'as déjà fait' : '✅ Tu peux présenter le produit si pertinent'}
+- Souviens-toi du contexte des messages précédents
+- Réponds de manière directe et pertinente
+- Évite les formules répétitives
 
 🎯 OBJECTIFS PRINCIPAUX:
-1. **Accueil contextuel** : Saluer chaleureusement en mentionnant le produit consulté
-2. **Identification besoins** : Comprendre les motivations et attentes du client
-3. **Conseil expert** : Apporter des réponses précises sur nos produits
-4. **Lever objections** : Traiter les freins à l'achat avec empathie
-5. **Collecte commande** : Guider naturellement vers l'achat quand l'intérêt est manifesté
-6. **Upselling intelligent** : Proposer des produits complémentaires pertinents
+1. **Conseil expert** : Apporter des réponses précises sur nos produits
+2. **Conversion efficace** : Encourager l'achat de manière naturelle (pas agressive)
+3. **Collecte commande** : Guider vers l'achat quand l'intérêt est manifesté
+4. **Efficacité** : Réponses courtes et pertinentes (max 150 mots)
 
 ${productInfo ? `
 🛍️ PRODUIT ACTUELLEMENT CONSULTÉ:
-- **Nom**: ${productInfo.name || 'Produit non spécifié'}
-- **Prix**: ${productInfo.price ? productInfo.price + ' (devise locale)' : 'Prix sur demande'}
-- **URL**: ${productInfo.url || 'Page produit'}
+- **Nom**: ${productInfo.name}
+- **Type**: ${getProductType(productInfo.name)}
+- **Prix**: ${productInfo.price ? productInfo.price + ' CFA' : 'Prix sur demande'}
 
-⚠️ IMPORTANT: Dès le premier message, montre que tu sais quel produit l\'intéresse !
+${hasIntroducedProduct ? 
+  '⚠️ TU AS DÉJÀ PRÉSENTÉ CE PRODUIT - Ne le re-présente pas !' : 
+  '⚠️ Si c\'est ton premier message, présente brièvement ce produit'
+}
 ` : '🚨 AUCUNE INFORMATION PRODUIT - Demande quel produit l\'intéresse'}
 
 📚 BASE DE CONNAISSANCE:
@@ -196,43 +251,33 @@ ${getDetailedStepInstructions(orderState.step, orderState.data)}
 PROCÉDURE STRICTE (dans cet ordre) :
 1. **QUANTITÉ**: "Parfait ! Combien d'exemplaires souhaitez-vous ?"
 2. **TÉLÉPHONE**: "Pour finaliser, quel est votre numéro de téléphone ?"
-3. **VÉRIFICATION CLIENT**: Vérifier si le client existe avec ce numéro
-   - Si OUI: "Heureux de vous revoir, [prénom] ! Même adresse de livraison ?"
-   - Si NON: Continuer à l'étape 4
+3. **VÉRIFICATION CLIENT**: Vérifier si le client existe
 4. **NOM/PRÉNOM**: "Votre nom et prénom pour la commande ?"
 5. **ADRESSE**: "Quelle est votre adresse de livraison complète ?"
-6. **PAIEMENT**: "Comment préférez-vous payer ? (Espèces, virement, mobile money, carte bancaire)"
-7. **CONFIRMATION**: Résumer TOUTE la commande et rassurer sur la suite
+6. **PAIEMENT**: "Comment préférez-vous payer ? (Espèces, virement, mobile money)"
+7. **CONFIRMATION**: Résumer TOUTE la commande
 `}
 
-🎨 FORMATAGE DES RÉPONSES:
-- Utilise **gras** pour les informations importantes
-- Utilise *italique* pour l'emphase
-- Saute des lignes pour aérer (utilise \\n\\n)
-- Émojis avec parcimonie pour la convivialité
-- Maximum 200 mots par réponse pour rester concis
+🎨 STYLE DE RÉPONSE:
+- **Naturelle et conversationnelle** (comme une vraie vendeuse)
+- Utilise **gras** pour les infos importantes
+- Émojis avec parcimonie (1-2 max par message)
+- Maximum 150 mots pour rester efficace
+- ${messageCount > 0 ? 'Continue la conversation naturellement' : 'Si premier message, salue et présente brièvement'}
 
-📝 INSTRUCTIONS DE CONVERSATION:
-1. **Premier message**: TOUJOURS mentionner le produit consulté si disponible
-2. **Questions ciblées**: Pose des questions pour comprendre les besoins
-3. **Expertise produit**: Utilise ta base de connaissance pour être précis
-4. **Détection intention**: Sois attentif aux signaux d'achat
-5. **Collecte structurée**: Suis la procédure exacte pour les commandes
-6. **Reste en rôle**: Tu es ${agentTitle} dans cette boutique, pas un chatbot générique
-
-🌍 ADAPTATION LOCALE:
-- Adapte-toi à la langue et culture du client
-- Utilise les devises et unités locales appropriées
-- Respecte les habitudes de paiement régionales
-- Sois sensible aux différences culturelles dans la vente
+📝 INSTRUCTIONS SPÉCIFIQUES SELON LE CONTEXTE:
+${messageCount === 0 ? 
+  '🆕 PREMIER MESSAGE: Salue chaleureusement + présente le produit brièvement' : 
+  '🔄 SUITE CONVERSATION: Réponds directement sans re-saluer ni re-présenter'
+}
 
 🚨 RÈGLES ABSOLUES:
 - Ne commence JAMAIS la collecte sans intention d'achat claire
-- Collecte les informations dans l'ORDRE EXACT indiqué
-- Une seule information à la fois
-- Confirme TOUJOURS avant de passer à l'étape suivante
-- Reste naturel et conversationnel même pendant la collecte
-- Si tu ne sais pas quelque chose, admets-le et propose de contacter l'équipe`;
+- Une seule information à la fois pendant la collecte
+- Reste naturelle même pendant la collecte
+- ${hasGreeted ? 'NE PLUS JAMAIS dire bonjour/salut' : 'Tu peux saluer si premier message'}
+- ${hasIntroducedProduct ? 'NE PLUS JAMAIS re-présenter le produit' : 'Présente le produit si pertinent'}
+- Après chaque réponse, pose une question pour encourager l'achat ("Souhaitez-vous le commander ?" ou similaire)`;
 
   return basePrompt;
 }
@@ -272,30 +317,20 @@ function getDetailedStepInstructions(step: string, data: any): string {
 // ✅ AMÉLIORATION : Détection intention d'achat plus précise
 function detectOrderIntent(message: string): boolean {
   const orderKeywords = [
-    // Intentions directes d'achat
     'acheter', 'commander', 'commande', 'achat', 'prendre', 'veux', 'souhaite',
     'vais prendre', 'je le veux', 'ça m\'intéresse', 'je vais l\'acheter',
-    
-    // Questions sur le processus d'achat
     'comment faire', 'comment commander', 'comment acheter', 'comment procéder',
     'où acheter', 'comment passer commande', 'comment finaliser',
-    
-    // Expressions d'intérêt fort
     'intéressé', 'intéresse', 'ça me plaît', 'parfait', 'c\'est bon', 
     'd\'accord', 'ok pour', 'je confirme', 'go', 'allons-y',
-    
-    // Actions liées à l'achat
     'réserver', 'livraison', 'payer', 'finaliser', 'confirmer', 'valider',
     'continuer', 'suivant', 'étape suivante',
-    
-    // Quantités (signalent souvent une intention d'achat)
     'exemplaire', 'unité', 'pièce', 'fois'
   ];
   
   const lowerMessage = message.toLowerCase();
   const hasKeyword = orderKeywords.some(keyword => lowerMessage.includes(keyword));
   
-  // Vérifications supplémentaires
   const hasQuantityPattern = /\b\d+\b|\b(un|une|deux|trois|quatre|cinq)\b/i.test(message);
   const hasPositiveSignal = /(oui|yes|ok|d'accord|parfait|bien|super)/i.test(message);
   
@@ -321,7 +356,6 @@ function extractOrderData(message: string, currentStep: string): any {
   
   switch (currentStep) {
     case 'quantity':
-      // Patterns de quantité améliorés
       const qtyPatterns = [
         /(\d+)\s*(?:exemplaires?|unités?|pièces?|fois)?/i,
         /\b(un|une)\s*(?:seule?|exemplaire|unité|pièce)?\b/i,
@@ -348,7 +382,6 @@ function extractOrderData(message: string, currentStep: string): any {
         }
       }
       
-      // Fallback: si on trouve juste un chiffre
       if (!data.quantity) {
         const simpleNumber = message.match(/\b(\d+)\b/);
         if (simpleNumber) {
@@ -357,7 +390,6 @@ function extractOrderData(message: string, currentStep: string): any {
         }
       }
       
-      // Default à 1 si "un seul", "seulement un", etc.
       if (!data.quantity && (cleanMessage.includes('un seul') || cleanMessage.includes('seulement un') || cleanMessage.includes('juste un'))) {
         data.quantity = 1;
         console.log(`✅ [EXTRACT] Quantité extraite (expression): 1`);
@@ -365,7 +397,6 @@ function extractOrderData(message: string, currentStep: string): any {
       break;
       
     case 'phone':
-      // Patterns téléphone améliorés (Sénégal + France + international)
       const phonePatterns = [
         /(?:\+?221[\s\-]?)([0-9\s\-\(\)]{8,})/g,
         /(?:\+?33[\s\-]?)([0-9\s\-\(\)]{8,})/g,
@@ -375,10 +406,8 @@ function extractOrderData(message: string, currentStep: string): any {
       for (const pattern of phonePatterns) {
         const match = message.match(pattern);
         if (match) {
-          // Nettoyer le numéro
           let cleanPhone = match[0].replace(/[\s\-\(\)]/g, '');
           
-          // Validation basique
           if (cleanPhone.length >= 8 && cleanPhone.length <= 15) {
             data.customerPhone = cleanPhone;
             console.log(`✅ [EXTRACT] Téléphone extrait: ${data.customerPhone}`);
@@ -389,7 +418,6 @@ function extractOrderData(message: string, currentStep: string): any {
       break;
       
     case 'name':
-      // Nettoyer le message pour extraire le nom
       let nameMessage = message.trim()
         .replace(/^(je\s+suis|mon\s+nom\s+est|je\s+m['\']appelle|c['\']est)\s*/i, '')
         .replace(/[.,!?;]+$/g, '');
@@ -410,7 +438,6 @@ function extractOrderData(message: string, currentStep: string): any {
       break;
       
     case 'address':
-      // Nettoyer l'adresse
       data.customerAddress = message.trim()
         .replace(/^(mon\s+adresse|adresse|c['\']est|voici|je\s+habite|j['\']habite)\s*/i, '')
         .replace(/[.,!?;]*$/g, '');
@@ -443,7 +470,6 @@ function extractOrderData(message: string, currentStep: string): any {
         }
       }
       
-      // Fallback : prendre le texte brut si pas de correspondance
       if (!data.paymentMethod && message.trim().length > 2) {
         data.paymentMethod = message.trim();
         console.log(`✅ [EXTRACT] Mode de paiement (fallback): ${data.paymentMethod}`);
@@ -460,23 +486,23 @@ async function checkExistingCustomer(phone: string) {
   try {
     const { data: existingOrder, error } = await supabaseServiceClient
       .from('orders')
-      .select('customer_name, customer_address, customer_email')  // ✅ CORRIGÉ : snake_case
-      .eq('customer_phone', phone)  // ✅ CORRIGÉ : customer_phone
-      .order('created_at', { ascending: false })  // ✅ CORRIGÉ : created_at
+      .select('customer_name, customer_address, customer_email')
+      .eq('customer_phone', phone)
+      .order('created_at', { ascending: false })
       .limit(1)
       .single();
     
-    if (error || !existingOrder || !existingOrder.customer_name) {  // ✅ CORRIGÉ : customer_name
+    if (error || !existingOrder || !existingOrder.customer_name) {
       return { exists: false };
     }
     
-    const firstName = existingOrder.customer_name.split(' ')[0];  // ✅ CORRIGÉ : customer_name
+    const firstName = existingOrder.customer_name.split(' ')[0];
     return {
       exists: true,
       firstName: firstName,
-      lastName: existingOrder.customer_name.split(' ').slice(1).join(' '),  // ✅ CORRIGÉ : customer_name
-      address: existingOrder.customer_address,  // ✅ CORRIGÉ : customer_address
-      email: existingOrder.customer_email  // ✅ CORRIGÉ : customer_email
+      lastName: existingOrder.customer_name.split(' ').slice(1).join(' '),
+      address: existingOrder.customer_address,
+      email: existingOrder.customer_email
     };
     
   } catch (error) {
@@ -491,23 +517,23 @@ async function saveOrderToDatabase(conversationId: string, shopId: string, agent
     const { data: order, error } = await supabaseServiceClient
       .from('orders')
       .insert({
-        shop_id: shopId,  // ✅ CORRIGÉ : shop_id
-        conversation_id: conversationId,  // ✅ CORRIGÉ : conversation_id
-        customer_name: orderData.customerFirstName && orderData.customerLastName   // ✅ CORRIGÉ : customer_name
+        shop_id: shopId,
+        conversation_id: conversationId,
+        customer_name: orderData.customerFirstName && orderData.customerLastName 
           ? `${orderData.customerFirstName} ${orderData.customerLastName}`
           : orderData.customerFirstName || null,
-        customer_phone: orderData.customerPhone || null,  // ✅ CORRIGÉ : customer_phone
-        customer_email: orderData.customerEmail || null,  // ✅ CORRIGÉ : customer_email
-        customer_address: orderData.customerAddress || null,  // ✅ CORRIGÉ : customer_address
-        product_items: {  // ✅ CORRIGÉ : product_items
+        customer_phone: orderData.customerPhone || null,
+        customer_email: orderData.customerEmail || null,
+        customer_address: orderData.customerAddress || null,
+        product_items: {
           productId: productInfo?.id || orderData.productId,
           productName: productInfo?.name || orderData.productName,
           productPrice: productInfo?.price || orderData.productPrice,
           quantity: orderData.quantity || 1
         },
-        total_amount: (productInfo?.price || 0) * (orderData.quantity || 1),  // ✅ CORRIGÉ : total_amount
-        currency: 'XOF',
-        payment_method: orderData.paymentMethod || null,  // ✅ CORRIGÉ : payment_method
+        total_amount: (productInfo?.price || 0) * (orderData.quantity || 1),
+        currency: 'CFA',
+        payment_method: orderData.paymentMethod || null,
         status: 'pending'
       })
       .select()
@@ -524,16 +550,16 @@ async function saveOrderToDatabase(conversationId: string, shopId: string, agent
   }
 }
 
-// ✅ FONCTION AMÉLIORÉE : Appeler GPT-4o-mini avec gestion d'erreurs COMPLÈTE
+// ✅ FONCTION AMÉLIORÉE : Appeler GPT-4o-mini AVEC ANTI-RÉPÉTITION
 async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, productInfo?: any, orderState?: OrderCollectionState): Promise<OpenAIResult> {
   try {
-    console.log('🤖 [OPENAI] Début traitement:', {
+    console.log('🤖 [OPENAI] Début traitement anti-répétition:', {
       orderState: orderState?.step,
       orderData: orderState?.data,
-      productInfo: productInfo?.name
+      productInfo: productInfo?.name,
+      messageCount: messages.length
     });
 
-    // ✅ VÉRIFICATION OPENAI_API_KEY
     if (!process.env.OPENAI_API_KEY) {
       console.warn('⚠️ OpenAI API Key manquante');
       return {
@@ -543,31 +569,28 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
       };
     }
 
-    // ✅ RÉCUPÉRER LE DERNIER MESSAGE UTILISATEUR
     const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
     console.log('📝 [OPENAI] Dernier message utilisateur:', lastUserMessage);
 
-    // ✅ VÉRIFIER SI CLIENT EXISTANT (si on est à l'étape phone et qu'on a un numéro)
     let existingCustomer = null;
     if (orderState?.step === 'phone' && orderState.data.customerPhone) {
       existingCustomer = await checkExistingCustomer(orderState.data.customerPhone);
       console.log('🔍 [OPENAI] Vérification client existant:', existingCustomer);
     }
 
-    // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC ÉTAT ACTUEL ET TITRE OBLIGATOIRE
-    const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, productInfo, orderState);
+    // ✅ NOUVEAU : Construire prompt avec historique pour éviter répétitions
+    const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, productInfo, orderState, messages);
 
-    // ✅ APPEL OPENAI
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         ...messages
       ],
-      max_tokens: 400,
+      max_tokens: 300, // ✅ Réduit pour des réponses plus courtes
       temperature: 0.7,
-      presence_penalty: 0.3,
-      frequency_penalty: 0.3
+      presence_penalty: 0.5, // ✅ Augmenté pour éviter répétitions
+      frequency_penalty: 0.5  // ✅ Augmenté pour éviter répétitions
     });
 
     let response = completion.choices[0]?.message?.content || "Je n'ai pas pu générer de réponse.";
@@ -575,23 +598,19 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
 
     console.log('🤖 [OPENAI] Réponse générée:', response.substring(0, 100) + '...');
 
-    // ✅ GESTION DE LA COLLECTE DE COMMANDES
+    // ✅ GESTION DE LA COLLECTE DE COMMANDES (reste identique)
     let newOrderState: OrderCollectionState | undefined;
     let isOrderIntent = false;
 
     if (orderState) {
-      // ✅ NOUS SOMMES EN COURS DE COLLECTE
       console.log(`📋 [ORDER] En cours de collecte, étape: ${orderState.step}`);
       
-      // Extraire les données du message utilisateur
       const extractedData = extractOrderData(lastUserMessage, orderState.step);
       console.log('📊 [ORDER] Données extraites:', extractedData);
       
-      // Fusionner avec les données existantes
       const updatedData = { ...orderState.data, ...extractedData };
       console.log('📋 [ORDER] Données mises à jour:', updatedData);
       
-      // ✅ GESTION SPÉCIALE POUR CLIENT EXISTANT
       if (orderState.step === 'phone' && existingCustomer?.exists && extractedData.customerPhone) {
         console.log('👥 [ORDER] Client existant détecté, ajout des données');
         updatedData.customerFirstName = existingCustomer.firstName;
@@ -599,7 +618,6 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
         updatedData.customerAddress = existingCustomer.address;
         updatedData.customerEmail = existingCustomer.email;
         
-        // Pour un client existant, on peut passer directement à l'adresse ou paiement
         const nextStep = existingCustomer.address ? 'payment' : 'address';
         
         newOrderState = {
@@ -607,14 +625,12 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
           data: updatedData
         };
         
-        // Modifier la réponse pour inclure la reconnaissance du client
         if (existingCustomer.firstName) {
           response = `Heureux de vous revoir, ${existingCustomer.firstName} ! 😊\n\n` + response;
         }
         
         console.log(`✅ [ORDER] Client existant, passage direct à: ${nextStep}`);
       } else {
-        // ✅ LOGIQUE NORMALE DE PROGRESSION
         const nextStep = getNextOrderStep(orderState.step, updatedData);
         console.log(`🔄 [ORDER] Progression normale: ${orderState.step} → ${nextStep}`);
         
@@ -625,7 +641,6 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
       }
       
     } else {
-      // ✅ PAS ENCORE EN COLLECTE, VÉRIFIER INTENTION D'ACHAT
       isOrderIntent = detectOrderIntent(lastUserMessage);
       console.log('🎯 [ORDER] Intention d\'achat détectée:', isOrderIntent);
       
@@ -663,7 +678,6 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
       };
     }
     
-    // ✅ FALLBACK INTELLIGENT SELON LE CONTEXTE
     let fallbackMessage = "Je rencontre un problème technique temporaire.";
     
     if (productInfo?.name) {
@@ -744,44 +758,53 @@ function getNextOrderStep(currentStep: string, data: any): OrderCollectionState[
   }
 }
 
-// ✅ MESSAGE D'ACCUEIL AMÉLIORÉ AVEC TITRE OBLIGATOIRE
-function generateWelcomeMessage(agent: any, productInfo?: any): string {
-  const baseName = agent.name || 'Assistant'
-  // ✅ CORRECTION MAJEURE : Assurer que le titre est toujours présent
+// ✅ MESSAGE D'ACCUEIL AMÉLIORÉ INTELLIGENT
+function generateWelcomeMessage(agent: any, productInfo?: any, shopName: string = "VIENS ON S'CONNAÎT"): string {
+  const baseName = agent.name || 'Rose'
   const baseTitle = agent.title || getDefaultTitle(agent.type || 'general')
+  const greeting = getTimeBasedGreeting()
   
   if (productInfo?.name) {
-    return `Salut ! 👋 Je suis ${baseName}, votre ${baseTitle}.
+    const productType = getProductType(productInfo.name)
+    
+    return `${greeting} 👋 Je suis ${baseName}, ${baseTitle} chez ${shopName}.
 
-Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! 💫
+Je vois que vous vous intéressez à notre ${productType} **"${productInfo.name}"**. Excellent choix ! 💫
 
-Comment puis-je vous aider avec ce produit ? 😊`
+Comment puis-je vous aider avec ce ${productType} ? 😊`
   }
   
-  return agent.welcomeMessage || `Salut ! 👋 Je suis ${baseName}, votre ${baseTitle}.
+  return agent.welcomeMessage || `${greeting} 👋 Je suis ${baseName}, ${baseTitle} chez ${shopName}.
 
-Quel produit vous intéresse aujourd'hui ? Je serais ravi de vous renseigner ! 😊`
+Quel produit vous intéresse aujourd'hui ? Je serais ravie de vous renseigner ! 😊`
 }
 
-// ✅ RÉPONSE SIMULÉE INTELLIGENTE AVEC TITRE OBLIGATOIRE
-function getIntelligentSimulatedResponse(message: string, productInfo: any, agentName: string = "Rose", agentTitle: string = "Spécialiste produit"): string {
+// ✅ RÉPONSE SIMULÉE INTELLIGENTE POUR DEMO
+function getIntelligentSimulatedResponse(message: string, productInfo: any, agentName: string = "Rose", agentTitle: string = "Vendeuse", messageCount: number = 0): string {
   const msg = message.toLowerCase();
   
-  if (msg.includes('bonjour') || msg.includes('salut') || msg.includes('hello')) {
-    return `Salut ! Je suis ${agentName}, votre ${agentTitle}. 👋
+  // ✅ Premier message = Accueil avec produit
+  if (messageCount === 0 || msg.includes('bonjour') || msg.includes('salut') || msg.includes('hello')) {
+    if (productInfo?.name) {
+      const productType = getProductType(productInfo.name)
+      return `${getTimeBasedGreeting()} 👋 Je suis ${agentName}, ${agentTitle} chez VIENS ON S'CONNAÎT.
 
-${productInfo?.name ? `Je vois que vous vous intéressez à **"${productInfo.name}"**.` : ''}
+Je vois que vous vous intéressez à notre ${productType} **"${productInfo.name}"**. Excellent choix ! ✨
 
-Comment puis-je vous aider ? 😊`;
+Comment puis-je vous aider avec ce ${productType} ? 😊`
+    }
+    
+    return `${getTimeBasedGreeting()} 👋 Je suis ${agentName}, ${agentTitle} chez VIENS ON S'CONNAÎT.
+
+Quel produit vous intéresse aujourd'hui ? 😊`
   }
   
+  // ✅ Messages suivants = Réponses directes sans re-saluer
   if (msg.includes('prix') || msg.includes('coût') || msg.includes('tarif')) {
     if (productInfo?.price) {
-      return `Le prix de **"${productInfo.name}"** est de **${productInfo.price}**. 💰
+      return `**"${productInfo.name}"** est à **${productInfo.price} CFA**. 💰
 
-C'est un excellent rapport qualité-prix ! 
-
-Voulez-vous que je vous aide à passer commande ? 🛒`;
+C'est un excellent rapport qualité-prix ! Souhaitez-vous le commander ? 🛒`;
     }
     return "Je vais vérifier le prix pour vous. Un instant... 🔍";
   }
@@ -789,18 +812,19 @@ Voulez-vous que je vous aide à passer commande ? 🛒`;
   if (msg.includes('acheter') || msg.includes('commander') || msg.includes('commande')) {
     return `Parfait ! Je vais vous aider à finaliser votre commande. ✨
 
-**Combien d'exemplaires** souhaitez-vous commander ? 📦`;
+**Combien d'exemplaires** souhaitez-vous ? 📦`;
   }
   
   if (msg.includes('info') || msg.includes('détail') || msg.includes('caractéristique')) {
-    return `**"${productInfo?.name || 'Ce produit'}"** est un excellent choix ! 👌
+    const productType = getProductType(productInfo?.name || '')
+    return `**"${productInfo?.name || 'Ce produit'}"** est un excellent ${productType} ! 👌
 
-C'est l'un de nos produits les plus appréciés. 
+${productInfo?.name?.includes('couple') ? 'Parfait pour renforcer votre complicité' : 'C\'est l\'un de nos produits les plus appréciés'}.
 
-Avez-vous des **questions spécifiques** ? 🤔`;
+Souhaitez-vous le commander ? 😊`;
   }
   
-  return `Merci pour votre message ! En tant que ${agentTitle}, comment puis-je vous aider davantage avec nos produits ? 😊`;
+  return `Merci pour votre question ! ${productInfo?.name ? `Concernant **"${productInfo.name}"**,` : ''} comment puis-je vous aider davantage ? 😊`;
 }
 
 export default async function publicRoutes(fastify: FastifyInstance) {
@@ -811,13 +835,11 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       const { shopId } = request.params;
       fastify.log.info(`🔍 [PUBLIC CONFIG] Récupération config pour shop: ${shopId}`);
       
-      // ✅ GESTION UUID vs DEMO
       if (!isValidUUID(shopId)) {
         fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
         return getFallbackShopConfig(shopId);
       }
       
-      // ✅ UTILISER SUPABASE AVEC COLONNES CORRIGÉES
       const { data: shop, error: shopError } = await supabaseServiceClient
         .from('shops')
         .select('id, name, is_active, widget_config, agent_config')
@@ -829,7 +851,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return getFallbackShopConfig(shopId);
       }
 
-      // ✅ RÉCUPÉRER AGENT AVEC TITRE OBLIGATOIRE
       const { data: agents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
@@ -868,7 +889,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         };
       }
 
-      // ✅ CONSTRUIRE KNOWLEDGE BASE
       const knowledgeContent = agent.agent_knowledge_base
         .map((akb: any) => `## ${akb.knowledge_base.title}\n${akb.knowledge_base.content}`)
         .join('\n\n---\n\n');
@@ -885,7 +905,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
           agent: {
             id: agent.id,
             name: agent.name,
-            title: agent.title || getDefaultTitle(agent.type || 'general'), // ✅ TITRE OBLIGATOIRE AVEC FALLBACK
+            title: agent.title || getDefaultTitle(agent.type || 'general'),
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
@@ -918,7 +938,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE CORRIGÉE : Chat public AVEC TITRE OBLIGATOIRE ET COLLECTE COMPLÈTE
+  // ✅ ROUTE CORRIGÉE : Chat public AVEC ANTI-RÉPÉTITION
   fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
     
@@ -927,7 +947,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       
       fastify.log.info(`💬 [PUBLIC CHAT] Nouveau message pour shop: ${shopId}${isFirstMessage ? ' (premier message)' : ''}`);
       
-      // ✅ VALIDATION DONNÉES
       if (!shopId || !message) {
         return reply.status(400).send({ 
           success: false, 
@@ -935,22 +954,26 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ MODE TEST AMÉLIORÉ POUR DEMO AVEC TITRE
+      // ✅ MODE TEST AMÉLIORÉ POUR DEMO AVEC ANTI-RÉPÉTITION
       if (!isValidUUID(shopId)) {
-        fastify.log.info(`💬 [MODE TEST] Réponse simulée pour shop: ${shopId}`);
+        fastify.log.info(`💬 [MODE TEST] Réponse simulée intelligente pour shop: ${shopId}`);
         
         const agentName = "Rose";
-        const agentTitle = "Vendeuse"; // ✅ TITRE EXPLICITE
+        const agentTitle = "Vendeuse";
         let simulatedResponse = '';
         
+        // ✅ Simuler un compteur de messages pour éviter les répétitions
+        const messageCount = request.headers['x-message-count'] ? parseInt(request.headers['x-message-count'] as string) : 0
+        
         if (isFirstMessage && productInfo?.name) {
-          simulatedResponse = `Salut ! 👋 Je suis ${agentName}, ${agentTitle} chez VIENS ON S'CONNAÎT.
+          const productType = getProductType(productInfo.name)
+          simulatedResponse = `${getTimeBasedGreeting()} 👋 Je suis ${agentName}, ${agentTitle} chez VIENS ON S'CONNAÎT.
 
-Je vois que vous vous intéressez à **"${productInfo.name}"**. C'est un excellent choix ! ✨
+Je vois que vous vous intéressez à notre ${productType} **"${productInfo.name}"**. Excellent choix ! ✨
 
-Comment puis-je vous aider ? 😊`;
+Comment puis-je vous aider avec ce ${productType} ? 😊`;
         } else {
-          simulatedResponse = getIntelligentSimulatedResponse(message, productInfo, agentName, agentTitle);
+          simulatedResponse = getIntelligentSimulatedResponse(message, productInfo, agentName, agentTitle, messageCount);
         }
         
         return {
@@ -960,8 +983,8 @@ Comment puis-je vous aider ? 😊`;
             message: simulatedResponse,
             agent: {
               name: agentName,
-              title: agentTitle, // ✅ AJOUT TITRE OBLIGATOIRE
-              avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff"
+              title: agentTitle,
+              avatar: "https://ui-avatars.com/api/?name=Rose&background=EC4899&color=fff"
             },
             responseTime: Date.now() - startTime,
             isWelcomeMessage: isFirstMessage,
@@ -1019,9 +1042,9 @@ Comment puis-je vous aider ? 😊`;
         `)
         .eq('agent_id', agent.id);
 
-      // ✅ PREMIER MESSAGE AUTOMATIQUE AVEC TITRE OBLIGATOIRE
+      // ✅ PREMIER MESSAGE AUTOMATIQUE INTELLIGENT
       if (isFirstMessage) {
-        const welcomeMessage = generateWelcomeMessage(agent, productInfo);
+        const welcomeMessage = generateWelcomeMessage(agent, productInfo, shopConfig.name);
         
         const conversationId = randomUUID();
         const { data: conversation, error: convError } = await supabaseServiceClient
@@ -1067,7 +1090,7 @@ Comment puis-je vous aider ? 😊`;
             model_used: 'welcome-message'
           });
 
-        fastify.log.info(`✅ [WELCOME] Message d'accueil envoyé avec titre pour conversation: ${conversation.id}`);
+        fastify.log.info(`✅ [WELCOME] Message d'accueil intelligent envoyé pour conversation: ${conversation.id}`);
 
         return {
           success: true,
@@ -1076,7 +1099,7 @@ Comment puis-je vous aider ? 😊`;
             message: welcomeMessage,
             agent: {
               name: agent.name,
-              title: agent.title, // ✅ TITRE OBLIGATOIRE INCLUS
+              title: agent.title,
               avatar: agent.avatar
             },
             responseTime: Date.now() - startTime,
@@ -1085,7 +1108,7 @@ Comment puis-je vous aider ? 😊`;
         };
       }
 
-      // ✅ GESTION CONVERSATION EXISTANTE
+      // ✅ GESTION CONVERSATION EXISTANTE AVEC HISTORIQUE
       let conversation;
       if (conversationId) {
         const { data: conv } = await supabaseServiceClient
@@ -1093,7 +1116,7 @@ Comment puis-je vous aider ? 😊`;
           .select('*, messages(*)')
           .eq('id', conversationId)
           .order('created_at', { foreignTable: 'messages', ascending: true })
-          .limit(10, { foreignTable: 'messages' })
+          .limit(10, { foreignTable: 'messages' }) // ✅ Limiter pour éviter trop de contexte
           .single();
         conversation = conv;
       }
@@ -1140,7 +1163,7 @@ Comment puis-je vous aider ? 😊`;
         .map((akb: any) => `## ${akb.knowledge_base.title}\n${akb.knowledge_base.content}`)
         .join('\n\n---\n\n');
 
-      // ✅ RÉCUPÉRER ÉTAT COLLECTE COMMANDE CORRIGÉ
+      // ✅ RÉCUPÉRER ÉTAT COLLECTE COMMANDE
       let orderState: OrderCollectionState | undefined;
       
       try {
@@ -1152,7 +1175,7 @@ Comment puis-je vous aider ? 😊`;
         console.warn('Erreur lecture customerData conversation:', error);
       }
 
-      // ✅ PRÉPARER HISTORIQUE MESSAGES
+      // ✅ PRÉPARER HISTORIQUE MESSAGES POUR ANTI-RÉPÉTITION
       const messageHistory = conversation.messages?.map((msg: any) => ({
         role: msg.role as 'user' | 'assistant',
         content: msg.content
@@ -1160,7 +1183,7 @@ Comment puis-je vous aider ? 😊`;
 
       messageHistory.push({ role: 'user', content: message });
 
-      // ✅ APPELER IA AVEC AGENT TITRE OBLIGATOIRE
+      // ✅ APPELER IA AVEC ANTI-RÉPÉTITION
       const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, productInfo, orderState);
       
       let aiResponse: string = aiResult.fallbackMessage || agent.fallback_message || "Je transmets votre question à notre équipe.";
@@ -1173,7 +1196,7 @@ Comment puis-je vous aider ? 😊`;
         fastify.log.error(`❌ [IA ERROR]: ${aiResult.error}`);
       }
 
-      // ✅ SAUVEGARDER ÉTAT COLLECTE AVEC SUPABASE CORRIGÉ
+      // ✅ SAUVEGARDER ÉTAT COLLECTE AVEC SUPABASE
       if (aiResult.orderCollection) {
         await supabaseServiceClient
           .from('conversations')
@@ -1184,10 +1207,8 @@ Comment puis-je vous aider ? 😊`;
           })
           .eq('id', conversation.id);
 
-        // ✅ SAUVEGARDER COMMANDE SI TERMINÉE AVEC SUPABASE CORRIGÉ
         if (aiResult.orderCollection.step === 'completed') {
           try {
-            // ✅ VÉRIFIER CLIENT EXISTANT AVANT SAUVEGARDE CORRIGÉ
             const { data: existingOrder } = await supabaseServiceClient
               .from('orders')
               .select('customer_name, customer_address, customer_email')
@@ -1245,7 +1266,7 @@ Comment puis-je vous aider ? 😊`;
           model_used: 'gpt-4o-mini'
         });
 
-      fastify.log.info(`✅ [CHAT SUCCESS] Réponse envoyée pour conversation: ${conversation.id} (${Date.now() - startTime}ms)`);
+      fastify.log.info(`✅ [CHAT SUCCESS] Réponse intelligente envoyée pour conversation: ${conversation.id} (${Date.now() - startTime}ms)`);
 
       return {
         success: true,
@@ -1254,7 +1275,7 @@ Comment puis-je vous aider ? 😊`;
           message: aiResponse,
           agent: {
             name: agent.name,
-            title: agent.title, // ✅ TITRE OBLIGATOIRE INCLUS
+            title: agent.title,
             avatar: agent.avatar
           },
           responseTime: Date.now() - startTime,
@@ -1266,21 +1287,21 @@ Comment puis-je vous aider ? 😊`;
     } catch (error: any) {
       fastify.log.error(`❌ [CHAT ERROR]: ${error.message || 'Erreur inconnue'}`);
       
-      // ✅ FALLBACK CONTEXTUEL AVEC TITRE OBLIGATOIRE
+      // ✅ FALLBACK CONTEXTUEL INTELLIGENT
       const userMessage = request.body.message || '';
       const productInfo = request.body.productInfo;
+      const isFirstMessage = request.body.isFirstMessage;
       const agentName = "Rose";
-      const agentTitle = "Vendeuse"; // ✅ TITRE EXPLICITE
+      const agentTitle = "Vendeuse";
       
       let fallbackResponse = `Merci pour votre message ! Je suis ${agentName}, votre ${agentTitle}. Comment puis-je vous aider davantage ?`;
       
-      if (userMessage.toLowerCase().includes('bonjour') || userMessage.toLowerCase().includes('salut')) {
-        if (productInfo?.name) {
-          fallbackResponse = `Salut ! Je suis ${agentName}, votre ${agentTitle} chez VIENS ON S'CONNAÎT. Je vois que vous vous intéressez à "${productInfo.name}". Comment puis-je vous aider avec ce produit ?`;
-        } else {
-          fallbackResponse = `Salut ! Je suis ${agentName}, votre ${agentTitle} chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?`;
-        }
-      } else if (productInfo?.name && userMessage.toLowerCase().includes('produit')) {
+      if (isFirstMessage && productInfo?.name) {
+        const productType = getProductType(productInfo.name)
+        fallbackResponse = `${getTimeBasedGreeting()} 👋 Je suis ${agentName}, votre ${agentTitle} chez VIENS ON S'CONNAÎT. Je vois que vous vous intéressez à notre ${productType} "${productInfo.name}". Comment puis-je vous aider ?`;
+      } else if (userMessage.toLowerCase().includes('bonjour') || userMessage.toLowerCase().includes('salut')) {
+        fallbackResponse = `${getTimeBasedGreeting()} ! Je suis ${agentName}, votre ${agentTitle} chez VIENS ON S'CONNAÎT. Comment puis-je vous aider ?`;
+      } else if (productInfo?.name) {
         fallbackResponse = `Concernant "${productInfo.name}", je vous mets en relation avec notre équipe pour vous donner les meilleures informations.`;
       }
       
@@ -1291,8 +1312,8 @@ Comment puis-je vous aider ? 😊`;
           message: fallbackResponse,
           agent: {
             name: agentName,
-            title: agentTitle, // ✅ TITRE OBLIGATOIRE INCLUS
-            avatar: "https://ui-avatars.com/api/?name=Rose&background=EF4444&color=fff"
+            title: agentTitle,
+            avatar: "https://ui-avatars.com/api/?name=Rose&background=EC4899&color=fff"
           },
           responseTime: Date.now() - startTime,
           mode: 'fallback'
