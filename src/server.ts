@@ -245,6 +245,8 @@ async function registerPlugins() {
     // ✅ CORS AMÉLIORÉ
     await fastify.register(cors, {
       origin: (origin, callback) => {
+        console.log('🌐 [CORS] Origin demandée:', origin)
+        
         const allowedOrigins = [
           'https://dashboard.chatseller.app',
           'https://chatseller.app', 
@@ -257,21 +259,60 @@ async function registerPlugins() {
           'https://chatseller-widget.vercel.app'
         ]
         
-        if (!origin) return callback(null, true)
-        
-        if (origin.includes('.chatseller.app') || origin.includes('vercel.app')) {
+        // ✅ PAS D'ORIGIN (REQUÊTES DIRECTES) - AUTORISER
+        if (!origin) {
+          console.log('✅ [CORS] Pas d\'origin - AUTORISÉ')
           return callback(null, true)
         }
         
-        if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
+        // ✅ DOMAINES CHATSELLER - AUTORISER
+        if (origin.includes('.chatseller.app') || 
+            origin.includes('chatseller') ||
+            origin.includes('vercel.app')) {
+          console.log('✅ [CORS] Domaine ChatSeller - AUTORISÉ:', origin)
           return callback(null, true)
         }
         
+        // ✅ DÉVELOPPEMENT LOCAL - AUTORISER
+        if (process.env.NODE_ENV !== 'production' && 
+            (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+          console.log('✅ [CORS] Développement local - AUTORISÉ:', origin)
+          return callback(null, true)
+        }
+        
+        // ✅ SHOPIFY ET AUTRES PLATEFORMES E-COMMERCE - AUTORISER
+        if (origin.includes('myshopify.com') || 
+            origin.includes('shopify') ||
+            origin.includes('woocommerce') ||
+            origin.includes('magento') ||
+            origin.includes('prestashop') ||
+            origin.includes('bigcommerce') ||
+            origin.includes('wix.com') ||
+            origin.includes('squarespace.com') ||
+            origin.includes('youcan.shop')) {
+          console.log('✅ [CORS] Plateforme e-commerce - AUTORISÉ:', origin)
+          return callback(null, true)
+        }
+        
+        // ✅ DOMAINES PERSONNALISÉS E-COMMERCE (HEURISTIQUES)
+        if (origin.includes('shop') || 
+            origin.includes('store') || 
+            origin.includes('boutique') ||
+            origin.includes('market') ||
+            origin.includes('commerce') ||
+            origin.match(/\.(com|fr|net|org|shop|store)$/)) {
+          console.log('✅ [CORS] Domaine e-commerce probable - AUTORISÉ:', origin)
+          return callback(null, true)
+        }
+        
+        // ✅ LISTE EXPLICITE - AUTORISER
         if (allowedOrigins.includes(origin)) {
+          console.log('✅ [CORS] Liste explicite - AUTORISÉ:', origin)
           return callback(null, true)
         }
         
-        console.log(`❌ Origin refusée: ${origin}`)
+        // ✅ REFUSER AVEC LOG
+        console.log(`❌ [CORS] Origin refusée: ${origin}`)
         callback(new Error('Non autorisé par CORS'), false)
       },
       credentials: true,
@@ -284,7 +325,8 @@ async function registerPlugins() {
         'Origin',
         'X-Auth-Token',
         'X-Shop-Id',
-        'User-Agent'
+        'User-Agent',
+        'Referer'
       ],
       optionsSuccessStatus: 200
     })
