@@ -367,6 +367,259 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
+  // 📨 GET /api/v1/conversations/:id/messages - RÉCUPÉRER LES MESSAGES
+  // ==========================================
+  fastify.get<{ Params: { conversationId: string } }>('/:conversationId/messages', async (request, reply) => {
+    try {
+      const { conversationId } = request.params
+      const shopId = getUserShopId(request)
+
+      if (!shopId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Shop ID non trouvé'
+        })
+      }
+
+      fastify.log.info(`📨 Récupération messages conversation: ${conversationId}`)
+
+      // ✅ VÉRIFICATION QUE LA CONVERSATION APPARTIENT AU SHOP
+      const { data: conversation, error: conversationError } = await supabaseServiceClient
+        .from('conversations')
+        .select('id, shop_id')
+        .eq('id', conversationId)
+        .eq('shop_id', shopId)
+        .single()
+
+      if (conversationError) {
+        if (conversationError.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Conversation non trouvée'
+          })
+        }
+        throw new Error(`Supabase error: ${conversationError.message}`)
+      }
+
+      // ✅ RÉCUPÉRER LES MESSAGES
+      const { data: messages, error: messagesError } = await supabaseServiceClient
+        .from('messages')
+        .select('id, content, role, created_at, tokens_used, response_time_ms, model_used')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
+
+      if (messagesError) {
+        throw new Error(`Supabase messages error: ${messagesError.message}`)
+      }
+
+      return {
+        success: true,
+        data: messages || []
+      }
+
+    } catch (error: any) {
+      fastify.log.error({
+        conversationId: request.params.conversationId,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur récupération messages')
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la récupération des messages'
+      })
+    }
+  })
+
+  // ==========================================
+  // 💬 POST /api/v1/conversations/:id/messages - ENVOYER UN MESSAGE
+  // ==========================================
+  fastify.post<{ 
+    Params: { conversationId: string }, 
+    Body: { content: string, sender: 'agent' | 'visitor' } 
+  }>('/:conversationId/messages', async (request, reply) => {
+    try {
+      const { conversationId } = request.params
+      const { content, sender } = request.body
+      const shopId = getUserShopId(request)
+
+      if (!shopId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Shop ID non trouvé'
+        })
+      }
+
+      if (!content || !sender) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Content et sender sont requis'
+        })
+      }
+
+      fastify.log.info(`💬 Envoi message dans conversation: ${conversationId}`)
+
+      // ✅ VÉRIFICATION QUE LA CONVERSATION APPARTIENT AU SHOP
+      const { data: conversation, error: conversationError } = await supabaseServiceClient
+        .from('conversations')
+        .select('id, shop_id')
+        .eq('id', conversationId)
+        .eq('shop_id', shopId)
+        .single()
+
+      if (conversationError) {
+        if (conversationError.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Conversation non trouvée'
+          })
+        }
+        throw new Error(`Supabase error: ${conversationError.message}`)
+      }
+
+      // ✅ CRÉER LE MESSAGE
+      const { data: newMessage, error: messageError } = await supabaseServiceClient
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          content,
+          role: sender,
+          created_at: new Date().toISOString(),
+          tokens_used: 0,
+          response_time_ms: 0
+        })
+        .select()
+        .single()
+
+      if (messageError) {
+        throw new Error(`Supabase message error: ${messageError.message}`)
+      }
+
+      // ✅ METTRE À JOUR LA CONVERSATION (last_activity, message_count)
+      const { data: currentConversation, error: fetchError } = await supabaseServiceClient
+        .from('conversations')
+        .select('message_count')
+        .eq('id', conversationId)
+        .single()
+
+      if (fetchError) {
+        fastify.log.warn(`⚠️ Erreur récupération message_count: ${fetchError.message}`)
+      }
+
+      // Puis mettre à jour avec le nouveau count
+      const newMessageCount = (currentConversation?.message_count || 0) + 1
+
+      const { error: updateError } = await supabaseServiceClient
+        .from('conversations')
+        .update({
+          last_activity: new Date().toISOString(),
+          message_count: newMessageCount
+        })
+        .eq('id', conversationId)
+
+      if (updateError) {
+        fastify.log.warn(`⚠️ Erreur mise à jour conversation: ${updateError.message}`)
+      }
+
+      return {
+        success: true,
+        data: newMessage
+      }
+
+    } catch (error: any) {
+      fastify.log.error({
+        conversationId: request.params.conversationId,
+        body: request.body,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur envoi message')
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de l\'envoi du message'
+      })
+    }
+  })
+
+  // ==========================================
+  // 👋 POST /api/v1/conversations/:id/takeover - PRISE EN CHARGE
+  // ==========================================
+  fastify.post<{ Params: { conversationId: string } }>('/:conversationId/takeover', async (request, reply) => {
+    try {
+      const { conversationId } = request.params
+      const shopId = getUserShopId(request)
+
+      if (!shopId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Shop ID non trouvé'
+        })
+      }
+
+      fastify.log.info(`👋 Prise en charge conversation: ${conversationId}`)
+
+      // ✅ VÉRIFICATION ET MISE À JOUR DE LA CONVERSATION
+      const { data: updatedConversation, error: updateError } = await supabaseServiceClient
+        .from('conversations')
+        .update({
+          status: 'taken_over',
+          taken_over_at: new Date().toISOString(),
+          taken_over_by: shopId, // L'utilisateur qui prend en charge
+          last_activity: new Date().toISOString()
+        })
+        .eq('id', conversationId)
+        .eq('shop_id', shopId)
+        .select()
+        .single()
+
+      if (updateError) {
+        if (updateError.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Conversation non trouvée'
+          })
+        }
+        throw new Error(`Supabase error: ${updateError.message}`)
+      }
+
+      // ✅ OPTIONNEL : AJOUTER UN MESSAGE SYSTÈME POUR INDIQUER LA PRISE EN CHARGE
+      try {
+        await supabaseServiceClient
+          .from('messages')
+          .insert({
+            conversation_id: conversationId,
+            content: 'Un agent humain a rejoint la conversation.',
+            role: 'system',
+            created_at: new Date().toISOString(),
+            tokens_used: 0,
+            response_time_ms: 0
+          })
+      } catch (systemMessageError) {
+        fastify.log.warn(`⚠️ Erreur ajout message système: ${systemMessageError}`)
+        // Ne pas faire échouer la prise en charge pour ça
+      }
+
+      return {
+        success: true,
+        data: updatedConversation,
+        message: 'Conversation prise en charge avec succès'
+      }
+
+    } catch (error: any) {
+      fastify.log.error({
+        conversationId: request.params.conversationId,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur prise en charge conversation')
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la prise en charge'
+      })
+    }
+  })
+
+  // ==========================================
   // 📊 GET /api/v1/conversations/stats - STATISTIQUES
   // ==========================================
   fastify.get('/stats', async (request: FastifyRequest, reply: FastifyReply) => {

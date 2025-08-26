@@ -406,6 +406,104 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     }
   });
 
+  const createPortalSchema = z.object({
+  returnUrl: z.string().url()
+});
+
+// ✅ ROUTE CUSTOMER PORTAL STRIPE
+fastify.post('/customer-portal', async (request, reply) => {
+  try {
+    fastify.log.info('🏛️ === CRÉATION CUSTOMER PORTAL ===');
+    
+    const body = createPortalSchema.parse(request.body);
+    fastify.log.info(`🔗 Return URL: ${body.returnUrl}`);
+    
+    const user = await verifySupabaseAuth(request);
+    fastify.log.info(`👤 Utilisateur authentifié: ${user.id} (${user.email})`);
+    
+    const shop = await getOrCreateShop(user, fastify);
+    if (!shop) {
+      throw new Error('Impossible de créer ou récupérer le shop');
+    }
+
+    // ✅ RECHERCHE OU CRÉATION CUSTOMER STRIPE
+    let customer;
+    try {
+      const existingCustomers = await stripe.customers.list({
+        email: shop.email,
+        limit: 1
+      });
+
+      if (existingCustomers.data.length > 0) {
+        customer = existingCustomers.data[0];
+        fastify.log.info(`✅ Customer existant trouvé: ${customer.id}`);
+      } else {
+        // Si pas de customer Stripe, on ne peut pas créer de portal
+        return reply.status(400).send({ 
+          error: 'Aucun abonnement actif trouvé. Souscrivez d\'abord à un plan pour gérer votre abonnement.' 
+        });
+      }
+    } catch (customerError: any) {
+      fastify.log.error('❌ Erreur customer Stripe:', customerError.message);
+      return reply.status(400).send({ 
+        error: 'Customer Stripe non trouvé. Souscrivez d\'abord à un plan.' 
+      });
+    }
+
+    // ✅ CRÉATION SESSION CUSTOMER PORTAL
+    try {
+      fastify.log.info('🏛️ Création session customer portal...');
+
+      const portalSession = await stripe.billingPortal.sessions.create({
+        customer: customer.id,
+        return_url: body.returnUrl,
+      });
+
+      fastify.log.info(`✅ Portal session créée: ${portalSession.id}`);
+      fastify.log.info(`🔗 URL portal: ${portalSession.url}`);
+
+      return { 
+        success: true, 
+        portalUrl: portalSession.url,
+        sessionId: portalSession.id,
+        message: 'Portail client créé avec succès'
+      };
+
+    } catch (portalError: any) {
+      fastify.log.error('❌ ERREUR CRÉATION PORTAL:', portalError.message);
+      
+      if (portalError.type === 'StripeInvalidRequestError') {
+        return reply.status(400).send({
+          error: 'Requête Stripe invalide',
+          details: portalError.message,
+          stripeCode: portalError.code
+        });
+      }
+      
+      throw new Error(`Portal session: ${portalError.message}`);
+    }
+
+  } catch (error: any) {
+    fastify.log.error('❌ ERREUR GLOBALE CUSTOMER PORTAL:', error.message);
+    
+    if (error.name === 'ZodError') {
+      return reply.status(400).send({
+        error: 'Données de requête invalides',
+        details: error.errors
+      });
+    }
+    
+    if (error.message === 'Token manquant' || error.message === 'Token invalide') {
+      return reply.status(401).send({ error: 'Authentification requise' });
+    }
+    
+    return reply.status(500).send({
+      error: 'Erreur lors de la création du portail client',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erreur interne du serveur'
+    });
+  }
+});
+
   // ✅ ROUTE STATUT ABONNEMENT SUPABASE
   fastify.get('/subscription-status', async (request, reply) => {
     try {

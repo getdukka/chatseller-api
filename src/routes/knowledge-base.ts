@@ -30,6 +30,7 @@ interface KnowledgeBaseDocument {
   shopId: string;
   title: string;
   content: string;
+  linkedAgents: string[];
   contentType: 'manual' | 'file' | 'url' | 'website';
   sourceFile: string | null;
   sourceUrl: string | null;
@@ -375,6 +376,289 @@ function mergeSafeMetadata(existing: Record<string, any>, updates: SafeMetadata)
   };
 }
 
+// ✅ HELPER: Découvrir toutes les pages d'un site web
+async function discoverWebsitePages(baseUrl: string, maxPages: number = 50): Promise<string[]> {
+  try {
+    console.log(`🔍 Découverte des pages du site: ${baseUrl}`);
+    
+    const discoveredUrls = new Set<string>();
+    const domain = new URL(baseUrl).hostname;
+    
+    // ✅ ÉTAPE 1: Essayer de récupérer le sitemap.xml
+    try {
+      const sitemapUrls = await extractSitemapUrls(baseUrl);
+      sitemapUrls.forEach(url => discoveredUrls.add(url));
+      console.log(`✅ Sitemap trouvé: ${sitemapUrls.length} URLs`);
+    } catch (sitemapError) {
+      console.log('⚠️ Sitemap non disponible, fallback vers crawling');
+    }
+    
+    // ✅ ÉTAPE 2: Si pas assez d'URLs ou pas de sitemap, crawler les liens
+    if (discoveredUrls.size < 5) {
+      try {
+        const crawledUrls = await crawlInternalLinks(baseUrl, domain, maxPages);
+        crawledUrls.forEach(url => discoveredUrls.add(url));
+        console.log(`✅ Crawling terminé: ${crawledUrls.length} URLs supplémentaires`);
+      } catch (crawlError) {
+        console.warn('⚠️ Erreur crawling:', crawlError);
+      }
+    }
+    
+    // ✅ ÉTAPE 3: S'assurer que l'URL de base est incluse
+    discoveredUrls.add(baseUrl);
+    
+    const finalUrls = Array.from(discoveredUrls).slice(0, maxPages);
+    console.log(`🎯 Pages découvertes au total: ${finalUrls.length}`);
+    
+    return finalUrls;
+    
+  } catch (error: any) {
+    console.error('❌ Erreur découverte pages:', error);
+    // Fallback: retourner au moins l'URL de base
+    return [baseUrl];
+  }
+}
+
+// ✅ HELPER: Extraire les URLs depuis sitemap.xml
+async function extractSitemapUrls(baseUrl: string): Promise<string[]> {
+  try {
+    const domain = new URL(baseUrl).origin;
+    const sitemapUrls = [
+      `${domain}/sitemap.xml`,
+      `${domain}/sitemap_index.xml`,
+      `${domain}/wp-sitemap.xml`,
+      `${domain}/sitemap/sitemap.xml`
+    ];
+    
+    for (const sitemapUrl of sitemapUrls) {
+      try {
+        console.log(`🔍 Tentative sitemap: ${sitemapUrl}`);
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const response = await fetch(sitemapUrl, {
+          headers: { 'User-Agent': 'ChatSeller-Bot/1.0' },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) continue;
+        
+        const xmlContent = await response.text();
+        const urls: string[] = [];
+        
+        // ✅ PARSER SIMPLE POUR SITEMAP XML
+        const urlMatches = xmlContent.match(/<loc>(.*?)<\/loc>/g);
+        if (urlMatches) {
+          urlMatches.forEach(match => {
+            const url = match.replace(/<\/?loc>/g, '').trim();
+            if (url.startsWith('http') && !url.includes('.xml')) {
+              urls.push(url);
+            }
+          });
+        }
+        
+        if (urls.length > 0) {
+          console.log(`✅ Sitemap parsé: ${urls.length} URLs trouvées`);
+          return urls.slice(0, 50); // Limite de sécurité
+        }
+        
+      } catch (error) {
+        console.log(`⚠️ Sitemap ${sitemapUrl} non accessible`);
+        continue;
+      }
+    }
+    
+    throw new Error('Aucun sitemap accessible');
+    
+  } catch (error: any) {
+    console.warn('⚠️ Erreur extraction sitemap:', error.message);
+    throw error;
+  }
+}
+
+// ✅ HELPER: Crawler les liens internes d'une page
+async function crawlInternalLinks(startUrl: string, domain: string, maxPages: number = 20): Promise<string[]> {
+  try {
+    console.log(`🕷️ Crawling des liens internes: ${startUrl}`);
+    
+    const visitedUrls = new Set<string>();
+    const discoveredUrls = new Set<string>();
+    const toVisit = [startUrl];
+    
+    while (toVisit.length > 0 && discoveredUrls.size < maxPages) {
+      const currentUrl = toVisit.shift();
+      if (!currentUrl || visitedUrls.has(currentUrl)) continue;
+      
+      visitedUrls.add(currentUrl);
+      
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        
+        const response = await fetch(currentUrl, {
+          headers: { 'User-Agent': 'ChatSeller-Bot/1.0' },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
+          continue;
+        }
+        
+        const html = await response.text();
+        discoveredUrls.add(currentUrl);
+        
+        // ✅ EXTRAIRE LES LIENS INTERNES
+        const linkMatches = html.match(/href=["']([^"']+)["']/g);
+        if (linkMatches && discoveredUrls.size < maxPages) {
+          linkMatches.forEach(match => {
+            try {
+              const href = match.match(/href=["']([^"']+)["']/)?.[1];
+              if (!href) return;
+              
+              let fullUrl = '';
+              if (href.startsWith('http')) {
+                fullUrl = href;
+              } else if (href.startsWith('/')) {
+                fullUrl = `https://${domain}${href}`;
+              } else if (!href.startsWith('#') && !href.startsWith('mailto:') && !href.startsWith('tel:')) {
+                fullUrl = new URL(href, currentUrl).toString();
+              }
+              
+              // ✅ VÉRIFIER QUE C'EST UN LIEN INTERNE VALIDE
+              if (fullUrl && fullUrl.includes(domain) && !visitedUrls.has(fullUrl) && discoveredUrls.size < maxPages) {
+                // Éviter les liens vers des fichiers
+                if (!/\.(pdf|jpg|jpeg|png|gif|css|js|ico|xml|json)$/i.test(fullUrl)) {
+                  toVisit.push(fullUrl);
+                }
+              }
+            } catch (urlError) {
+              // Ignorer les URLs malformées
+            }
+          });
+        }
+        
+      } catch (fetchError) {
+        console.log(`⚠️ Erreur crawl ${currentUrl}:`, (fetchError as Error).message);
+        continue;
+      }
+      
+      // ✅ PAUSE POUR ÉVITER LA SURCHARGE
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    const finalUrls = Array.from(discoveredUrls);
+    console.log(`✅ Crawling terminé: ${finalUrls.length} pages découvertes`);
+    return finalUrls;
+    
+  } catch (error: any) {
+    console.error('❌ Erreur crawling:', error);
+    return [];
+  }
+}
+
+// ✅ HELPER: Traiter plusieurs pages d'un site web
+async function processMultipleWebsitePages(
+  urls: string[], 
+  baseTitle: string, 
+  tags: string[] = [], 
+  shopId: string
+): Promise<KnowledgeBaseDocument[]> {
+  try {
+    console.log(`📄 Traitement de ${urls.length} pages...`);
+    
+    const processedDocuments: KnowledgeBaseDocument[] = [];
+    const errors: string[] = [];
+    
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      
+      try {
+        console.log(`📄 [${i + 1}/${urls.length}] Traitement: ${url}`);
+        
+        // ✅ EXTRAIRE LE CONTENU DE LA PAGE
+        const { title, content, metadata } = await extractContentFromUrl(url);
+        
+        // ✅ GÉNÉRER UN TITRE UNIQUE POUR CHAQUE PAGE
+        const pageTitle = title === 'Document extrait' 
+          ? `${baseTitle} - Page ${i + 1}` 
+          : `${baseTitle} - ${title}`;
+        
+        // ✅ CRÉER LE DOCUMENT EN BASE
+        const { data: newDocument, error } = await supabaseServiceClient
+          .from('knowledge_base')
+          .insert({
+            shop_id: shopId,
+            title: pageTitle.substring(0, 255), // Limite DB
+            content: content,
+            content_type: 'website',
+            source_file: null,
+            source_url: url,
+            tags: [...tags, 'website', 'multi-page'],
+            is_active: true,
+            metadata: createSafeMetadata({
+              ...metadata,
+              sourceUrl: url,
+              pageIndex: i + 1,
+              totalPages: urls.length,
+              processedAt: new Date().toISOString()
+            })
+          })
+          .select()
+          .single();
+        
+        if (error) {
+          console.error(`❌ Erreur création document pour ${url}:`, error);
+          errors.push(`Erreur pour ${url}: ${error.message}`);
+        } else if (newDocument) {
+          processedDocuments.push({
+            id: newDocument.id,
+            title: newDocument.title,
+            content: newDocument.content,
+            contentType: newDocument.content_type as any,
+            sourceFile: newDocument.source_file,
+            sourceUrl: newDocument.source_url,
+            tags: newDocument.tags,
+            isActive: newDocument.is_active,
+            shopId: newDocument.shop_id,
+            linkedAgents: [],
+            createdAt: newDocument.created_at,
+            updatedAt: newDocument.updated_at,
+            metadata: newDocument.metadata
+          });
+          
+          console.log(`✅ Document créé: ${newDocument.id} - ${pageTitle}`);
+        }
+        
+        // ✅ PAUSE ENTRE LES PAGES
+        if (i < urls.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
+      } catch (pageError: any) {
+        console.error(`❌ Erreur traitement page ${url}:`, pageError);
+        errors.push(`Erreur pour ${url}: ${pageError.message}`);
+      }
+    }
+    
+    console.log(`✅ Traitement terminé: ${processedDocuments.length} documents créés, ${errors.length} erreurs`);
+    
+    if (errors.length > 0) {
+      console.warn('⚠️ Erreurs rencontrées:', errors.slice(0, 3)); // Afficher max 3 erreurs
+    }
+    
+    return processedDocuments;
+    
+  } catch (error: any) {
+    console.error('❌ Erreur traitement multiple pages:', error);
+    throw new Error(`Erreur lors du traitement des pages: ${error.message}`);
+  }
+}
+
 export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
   
   // ✅ ENREGISTRER LE PLUGIN @FASTIFY/MULTIPART V6
@@ -618,7 +902,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
   // ✅ NOUVELLE ROUTE : TRAITEMENT D'UN SITE WEB (SUPABASE CORRIGÉ)
   fastify.post('/website', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      fastify.log.info('🌐 Traitement d\'un site web');
+      fastify.log.info('🌐 Traitement complet d\'un site web');
       
       const user = await verifySupabaseAuth(request);
       const { shop, canAccess, reason } = await getShopWithPlanCheck(user);
@@ -632,7 +916,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ VÉRIFIER LES LIMITES DU PLAN
+      // ✅ VÉRIFIER LES LIMITES DU PLAN AVANT DÉCOUVERTE
       const planLimits = await checkPlanLimits(shop.id, shop.subscription_plan);
       if (!planLimits.canAdd) {
         return reply.status(403).send({
@@ -642,49 +926,79 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ EXTRAIRE LE CONTENU DU SITE WEB
-      const { title, content, metadata } = await extractContentFromUrl(body.url);
-
-      const { data: newDocument, error } = await supabaseServiceClient
-        .from('knowledge_base')
-        .insert({
-          shop_id: shop.id,                    // ✅ CORRIGÉ : shop_id au lieu de shopId
-          title: body.title || title,
-          content: content,
-          content_type: 'website',             // ✅ CORRIGÉ : content_type au lieu de contentType
-          source_file: null,                   // ✅ CORRIGÉ : source_file au lieu de sourceFile
-          source_url: body.url,                // ✅ CORRIGÉ : source_url au lieu de sourceUrl
-          tags: body.tags.length > 0 ? body.tags : ['website', 'automatique'],
-          is_active: true,                     // ✅ CORRIGÉ : is_active au lieu de isActive
-          metadata: createSafeMetadata(metadata)
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Erreur création document website:', error);
-        return reply.status(500).send({
+      // ✅ ÉTAPE 1: DÉCOUVRIR TOUTES LES PAGES DU SITE
+      fastify.log.info(`🔍 Découverte des pages pour: ${body.url}`);
+      
+      // Calculer le nombre max de pages selon le plan
+      const maxPagesPerPlan = {
+        free: 5,
+        starter: 10, 
+        pro: 25,
+        enterprise: 50
+      };
+      
+      const maxPages = Math.min(
+        maxPagesPerPlan[shop.subscription_plan as keyof typeof maxPagesPerPlan] || 5,
+        planLimits.limit === -1 ? 50 : Math.max(1, planLimits.limit - planLimits.currentCount)
+      );
+      
+      const discoveredUrls = await discoverWebsitePages(body.url, maxPages);
+      
+      if (discoveredUrls.length === 0) {
+        return reply.status(400).send({
           success: false,
-          error: 'Erreur lors de la création du document'
+          error: 'Aucune page accessible trouvée sur ce site web'
         });
       }
 
-      fastify.log.info(`✅ Site web traité et document créé: ${newDocument.id}`);
+      fastify.log.info(`✅ ${discoveredUrls.length} page(s) découverte(s), traitement en cours...`);
 
+      // ✅ ÉTAPE 2: VÉRIFIER QUE NOUS AVONS ASSEZ D'ESPACE SELON LE PLAN
+      const availableSlots = planLimits.limit === -1 ? discoveredUrls.length : (planLimits.limit - planLimits.currentCount);
+      
+      if (availableSlots < discoveredUrls.length) {
+        return reply.status(403).send({
+          success: false,
+          error: `Pas assez d'espace dans votre plan. ${discoveredUrls.length} pages découvertes mais seulement ${availableSlots} emplacement(s) disponible(s). Passez au plan supérieur.`,
+          requiresUpgrade: true,
+          meta: {
+            discoveredPages: discoveredUrls.length,
+            availableSlots: availableSlots,
+            planLimit: planLimits.limit
+          }
+        });
+      }
+
+      // ✅ ÉTAPE 3: TRAITER TOUTES LES PAGES DÉCOUVERTES
+      const baseTitle = body.title || new URL(body.url).hostname;
+      const websiteTags = body.tags.length > 0 ? body.tags : ['website', 'indexation-complete'];
+      
+      const processedDocuments = await processMultipleWebsitePages(
+        discoveredUrls,
+        baseTitle,
+        websiteTags,
+        shop.id
+      );
+
+      if (processedDocuments.length === 0) {
+        return reply.status(500).send({
+          success: false,
+          error: 'Aucune page n\'a pu être traitée avec succès'
+        });
+      }
+
+      fastify.log.info(`✅ Site web traité: ${processedDocuments.length} document(s) créé(s)`);
+
+      // ✅ RETOURNER LA LISTE DES DOCUMENTS CRÉÉS
       return {
         success: true,
-        data: {
-          id: newDocument.id,
-          title: newDocument.title,
-          content: newDocument.content,
-          contentType: newDocument.content_type,    // ✅ CORRIGÉ : content_type
-          sourceFile: newDocument.source_file,      // ✅ CORRIGÉ : source_file
-          sourceUrl: newDocument.source_url,        // ✅ CORRIGÉ : source_url
-          tags: newDocument.tags,
-          isActive: newDocument.is_active,          // ✅ CORRIGÉ : is_active
-          metadata: newDocument.metadata,
-          createdAt: newDocument.created_at,
-          updatedAt: newDocument.updated_at
+        data: processedDocuments,
+        meta: {
+          totalPagesDiscovered: discoveredUrls.length,
+          totalDocumentsCreated: processedDocuments.length,
+          baseUrl: body.url,
+          indexationType: 'complete-website',
+          processedAt: new Date().toISOString()
         }
       };
 
