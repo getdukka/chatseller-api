@@ -1,4 +1,4 @@
-// src/routes/public.ts 
+// src/routes/public.ts - VERSION CORRIGÉE COMPLÈTE
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -77,8 +77,13 @@ function getDefaultTitle(type: string): string {
   return titles[type as keyof typeof titles] || 'Vendeur IA'
 }
 
-// ✅ HELPER : Déterminer le type de produit pour un message naturel
-function getProductType(productName: string): string {
+// ✅ CORRECTION MAJEURE : Helper déterminant le type de produit AVEC customProductType
+function getProductType(productName: string, customProductType?: string): string {
+  // Si customProductType est fourni, l'utiliser en priorité
+  if (customProductType && customProductType.trim()) {
+    return customProductType.trim()
+  }
+  
   if (!productName) return 'produit'
   
   const name = productName.toLowerCase()
@@ -104,6 +109,31 @@ function getTimeBasedGreeting(): string {
   return 'Bonsoir'
 }
 
+// ✅ NOUVELLE FONCTION : Remplacer les variables dynamiques dans un message
+function replaceMessageVariables(message: string, variables: {
+  agentName?: string;
+  agentTitle?: string;
+  shopName?: string;
+  productName?: string;
+  productType?: string;
+  greeting?: string;
+  productPrice?: string;
+}): string {
+  if (!message) return message;
+  
+  let processedMessage = message;
+  
+  // Remplacer chaque variable si elle existe
+  Object.entries(variables).forEach(([key, value]) => {
+    if (value) {
+      const placeholder = `\${${key}}`;
+      processedMessage = processedMessage.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value);
+    }
+  });
+  
+  return processedMessage;
+}
+
 // ✅ CONFIGURATION FALLBACK CORRIGÉE DYNAMIQUE
 function getFallbackShopConfig(shopId: string) {
   return {
@@ -111,18 +141,18 @@ function getFallbackShopConfig(shopId: string) {
     data: {
       shop: {
         id: shopId,
-        name: 'Ma Boutique', // ✅ CORRECTION : Nom générique, plus spécifique
+        name: 'Ma Boutique',
         widgetConfig: {
           theme: "modern",
           language: "fr", 
           position: "above-cta",
           buttonText: "Parler au vendeur",
-          primaryColor: "#8B5CF6", // ✅ Violet par défaut (plus neutre)
+          primaryColor: "#8B5CF6",
           borderRadius: "full"
         },
         agentConfig: {
           name: "Assistant",
-          title: "Conseiller commercial", // ✅ AJOUT : Titre générique
+          title: "Conseiller commercial",
           avatar: "https://ui-avatars.com/api/?name=Assistant&background=8B5CF6&color=fff",
           upsellEnabled: false,
           welcomeMessage: "Bonjour ! Je suis votre conseiller commercial. Comment puis-je vous aider ?",
@@ -133,7 +163,7 @@ function getFallbackShopConfig(shopId: string) {
       agent: {
         id: `agent-${shopId}`,
         name: "Assistant",
-        title: "Conseiller commercial", // ✅ AJOUT : Titre générique
+        title: "Conseiller commercial",
         type: "product_specialist",
         personality: "friendly",
         description: "Assistant IA spécialisé dans l'accompagnement client",
@@ -224,7 +254,7 @@ ${hasIntroducedProduct ? '❌ NE PLUS PRÉSENTER LE PRODUIT - Tu l\'as déjà fa
 ${productInfo ? `
 🛍️ PRODUIT ACTUELLEMENT CONSULTÉ:
 - **Nom**: ${productInfo.name}
-- **Type**: ${getProductType(productInfo.name)}
+- **Type**: ${getProductType(productInfo.name, agent.customProductType)}
 - **Prix**: ${productInfo.price ? productInfo.price + ' CFA' : 'Prix sur demande'}
 
 ${hasIntroducedProduct ? 
@@ -360,11 +390,16 @@ function extractOrderData(message: string, currentStep: string): any {
   
   switch (currentStep) {
     case 'quantity':
+      // ✅ CORRECTION : Patterns améliorés pour "un seul"
       const qtyPatterns = [
         /(\d+)\s*(?:exemplaires?|unités?|pièces?|fois)?/i,
         /\b(un|une)\s*(?:seule?|exemplaire|unité|pièce)?\b/i,
         /\b(deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\b/i,
-        /\b(1|2|3|4|5|6|7|8|9|10)\b/
+        /\b(1|2|3|4|5|6|7|8|9|10)\b/,
+        // ✅ NOUVEAU : Pattern spécifique pour "un seul"
+        /\b(?:un|une)\s+seule?\b/i,
+        /\bseule?ment\s+(?:un|une)\b/i,
+        /\bjuste\s+(?:un|une)\b/i
       ];
       
       for (const pattern of qtyPatterns) {
@@ -386,17 +421,20 @@ function extractOrderData(message: string, currentStep: string): any {
         }
       }
       
+      // ✅ CORRECTION : Fallback pour "un seul", "seulement un", etc.
       if (!data.quantity) {
-        const simpleNumber = message.match(/\b(\d+)\b/);
-        if (simpleNumber) {
-          data.quantity = parseInt(simpleNumber[1]);
-          console.log(`✅ [EXTRACT] Quantité extraite (fallback): ${data.quantity}`);
+        if (cleanMessage.includes('un seul') || cleanMessage.includes('une seule') || 
+            cleanMessage.includes('seulement un') || cleanMessage.includes('juste un') ||
+            cleanMessage.match(/\b(?:un|une)\b/) && (cleanMessage.includes('seul') || cleanMessage.includes('seule'))) {
+          data.quantity = 1;
+          console.log(`✅ [EXTRACT] Quantité extraite (expression "un seul"): 1`);
+        } else {
+          const simpleNumber = message.match(/\b(\d+)\b/);
+          if (simpleNumber) {
+            data.quantity = parseInt(simpleNumber[1]);
+            console.log(`✅ [EXTRACT] Quantité extraite (fallback): ${data.quantity}`);
+          }
         }
-      }
-      
-      if (!data.quantity && (cleanMessage.includes('un seul') || cleanMessage.includes('seulement un') || cleanMessage.includes('juste un'))) {
-        data.quantity = 1;
-        console.log(`✅ [EXTRACT] Quantité extraite (expression): 1`);
       }
       break;
       
@@ -763,15 +801,37 @@ function getNextOrderStep(currentStep: string, data: any): OrderCollectionState[
   }
 }
 
-// ✅ MESSAGE D'ACCUEIL CORRIGÉ DYNAMIQUE
-function generateWelcomeMessage(agent: any, productInfo?: any, shopName: string = "notre boutique"): string {
+// ✅ CORRECTION MAJEURE : MESSAGE D'ACCUEIL AVEC PRIORITÉ AU MESSAGE PERSONNALISÉ
+function generateWelcomeMessage(agent: any, productInfo?: any, shopName: string = "notre boutique", customProductType?: string): string {
   const baseName = agent.name || 'Assistant'
   const baseTitle = agent.title || getDefaultTitle(agent.type || 'general')
   const greeting = getTimeBasedGreeting()
-  const dynamicShopName = shopName || 'notre boutique' // ✅ DYNAMIQUE
+  const dynamicShopName = shopName || 'notre boutique'
+  
+  // ✅ PRIORITÉ 1 : MESSAGE PERSONNALISÉ DE L'UTILISATEUR
+  if (agent.welcome_message && agent.welcome_message.trim()) {
+    console.log('📝 [WELCOME] Utilisation message personnalisé utilisateur');
+    
+    // Préparer variables pour remplacement
+    const variables = {
+      agentName: baseName,
+      agentTitle: baseTitle,
+      shopName: dynamicShopName,
+      productName: productInfo?.name || 'Nom du Produit',
+      productType: getProductType(productInfo?.name || '', customProductType),
+      greeting: greeting,
+      productPrice: productInfo?.price ? `${productInfo.price} CFA` : ''
+    };
+    
+    // Remplacer les variables dans le message personnalisé
+    return replaceMessageVariables(agent.welcome_message, variables);
+  }
+  
+  // ✅ PRIORITÉ 2 : MESSAGE GÉNÉRÉ AUTOMATIQUEMENT
+  console.log('📝 [WELCOME] Utilisation message généré automatiquement');
   
   if (productInfo?.name) {
-    const productType = getProductType(productInfo.name)
+    const productType = getProductType(productInfo.name, customProductType)
     
     return `${greeting} 👋 Je suis ${baseName}, ${baseTitle} chez ${dynamicShopName}.
 
@@ -780,20 +840,20 @@ Je vois que vous vous intéressez à notre ${productType} **"${productInfo.name}
 Comment puis-je vous aider avec ce ${productType} ? 😊`
   }
   
-  return agent.welcomeMessage || `${greeting} 👋 Je suis ${baseName}, ${baseTitle} chez ${dynamicShopName}.
+  return `${greeting} 👋 Je suis ${baseName}, ${baseTitle} chez ${dynamicShopName}.
 
 Quel produit vous intéresse aujourd'hui ? Je serais ravi(e) de vous renseigner ! 😊`
 }
 
 // ✅ RÉPONSE SIMULÉE CORRIGÉE DYNAMIQUE POUR DEMO
-function getIntelligentSimulatedResponse(message: string, productInfo: any, agentName: string = "Assistant", agentTitle: string = "Conseiller", shopName: string = "notre boutique", messageCount: number = 0): string {
+function getIntelligentSimulatedResponse(message: string, productInfo: any, agentName: string = "Assistant", agentTitle: string = "Conseiller", shopName: string = "notre boutique", messageCount: number = 0, customProductType?: string): string {
   const msg = message.toLowerCase();
-  const dynamicShopName = shopName || 'notre boutique' // ✅ DYNAMIQUE
+  const dynamicShopName = shopName || 'notre boutique'
   
   // ✅ Premier message = Accueil avec produit
   if (messageCount === 0 || msg.includes('bonjour') || msg.includes('salut') || msg.includes('hello')) {
     if (productInfo?.name) {
-      const productType = getProductType(productInfo.name)
+      const productType = getProductType(productInfo.name, customProductType)
       return `${getTimeBasedGreeting()} 👋 Je suis ${agentName}, ${agentTitle} chez ${dynamicShopName}.
 
 Je vois que vous vous intéressez à notre ${productType} **"${productInfo.name}"**. Excellent choix ! ✨
@@ -823,7 +883,7 @@ C'est un excellent rapport qualité-prix ! Souhaitez-vous le commander ? 🛒`;
   }
   
   if (msg.includes('info') || msg.includes('détail') || msg.includes('caractéristique')) {
-    const productType = getProductType(productInfo?.name || '')
+    const productType = getProductType(productInfo?.name || '', customProductType)
     return `**"${productInfo?.name || 'Ce produit'}"** est un excellent ${productType} ! 👌
 
 ${productInfo?.name?.includes('couple') ? 'Parfait pour renforcer votre complicité' : 'C\'est l\'un de nos produits les plus appréciés'}.
@@ -836,7 +896,7 @@ Souhaitez-vous le commander ? 😊`;
 
 export default async function publicRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE CORRIGÉE : Configuration publique AVEC NOM DYNAMIQUE
+  // ✅ ROUTE CORRIGÉE : Configuration publique AVEC NOM DYNAMIQUE ET customProductType
   fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
     try {
       const { shopId } = request.params;
@@ -858,11 +918,13 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return getFallbackShopConfig(shopId);
       }
 
+      // ✅ CORRECTION : Inclure customProductType dans la requête agent
       const { data: agents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description, 
           welcome_message, fallback_message, avatar, config,
+          product_type, custom_product_type,
           agent_knowledge_base!inner(
             knowledge_base!inner(
               id, title, content, content_type, tags
@@ -882,7 +944,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
           data: {
             shop: {
               id: shop.id,
-              name: shop.name, // ✅ NOM DYNAMIQUE
+              name: shop.name,
               widgetConfig: shop.widget_config,
               agentConfig: shop.agent_config
             },
@@ -905,7 +967,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         data: {
           shop: {
             id: shop.id,
-            name: shop.name, // ✅ NOM DYNAMIQUE RÉCUPÉRÉ DE LA DB
+            name: shop.name,
             widgetConfig: shop.widget_config,
             agentConfig: shop.agent_config
           },
@@ -916,10 +978,12 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
-            welcomeMessage: agent.welcome_message,
+            welcomeMessage: agent.welcome_message, // ✅ CORRECTION : Inclure le message personnalisé
             fallbackMessage: agent.fallback_message,
             avatar: agent.avatar,
-            config: agent.config
+            config: agent.config,
+            productType: agent.product_type, // ✅ AJOUT
+            customProductType: agent.custom_product_type // ✅ AJOUT
           },
           knowledgeBase: {
             content: knowledgeContent,
@@ -934,7 +998,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         }
       };
 
-      fastify.log.info(`✅ [PUBLIC CONFIG] Configuration envoyée pour ${shopId} - Agent: ${response.data.agent.name} (${response.data.agent.title}), Shop: ${response.data.shop.name}, Documents: ${response.data.knowledgeBase.documentsCount}`);
+      fastify.log.info(`✅ [PUBLIC CONFIG] Configuration envoyée pour ${shopId} - Agent: ${response.data.agent.name} (${response.data.agent.title}), Shop: ${response.data.shop.name}, Documents: ${response.data.knowledgeBase.documentsCount}, CustomProductType: ${response.data.agent.customProductType || 'aucun'}`);
 
       return response;
 
@@ -945,7 +1009,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE CORRIGÉE : Chat public AVEC NOM DYNAMIQUE ET ANTI-RÉPÉTITION
+  // ✅ ROUTE CORRIGÉE : Chat public AVEC MESSAGE D'ACCUEIL PERSONNALISÉ PRIORITAIRE
   fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
     
@@ -967,10 +1031,9 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         
         const agentName = "Assistant";
         const agentTitle = "Conseiller";
-        const shopName = "Ma Boutique"; // ✅ GÉNÉRIQUE pour les tests
+        const shopName = "Ma Boutique";
         let simulatedResponse = '';
         
-        // ✅ Simuler un compteur de messages pour éviter les répétitions
         const messageCount = request.headers['x-message-count'] ? parseInt(request.headers['x-message-count'] as string) : 0
         
         if (isFirstMessage && productInfo?.name) {
@@ -1004,7 +1067,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       // ✅ VÉRIFICATION SHOP AVEC SUPABASE ET RÉCUPÉRATION NOM
       const { data: shopConfig, error: shopError } = await supabaseServiceClient
         .from('shops')
-        .select('id, name, is_active') // ✅ INCLURE LE NOM
+        .select('id, name, is_active')
         .eq('id', shopId)
         .single();
 
@@ -1015,12 +1078,13 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
         });
       }
 
-      // ✅ RÉCUPÉRATION AGENT AVEC TITRE OBLIGATOIRE
+      // ✅ CORRECTION MAJEURE : Récupérer agent avec customProductType et welcomeMessage
       const { data: agents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description,
-          welcome_message, fallback_message, avatar, config
+          welcome_message, fallback_message, avatar, config,
+          product_type, custom_product_type
         `)
         .eq('shop_id', shopId)
         .eq('is_active', true)
@@ -1050,9 +1114,14 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
         `)
         .eq('agent_id', agent.id);
 
-      // ✅ PREMIER MESSAGE AUTOMATIQUE INTELLIGENT AVEC NOM DYNAMIQUE
+      // ✅ CORRECTION CRITIQUE : PREMIER MESSAGE AVEC PRIORITÉ AU MESSAGE PERSONNALISÉ
       if (isFirstMessage) {
-        const welcomeMessage = generateWelcomeMessage(agent, productInfo, shopConfig.name); // ✅ NOM DYNAMIQUE
+        const welcomeMessage = generateWelcomeMessage(
+          agent, 
+          productInfo, 
+          shopConfig.name, 
+          agent.custom_product_type // ✅ AJOUT customProductType
+        );
         
         const conversationId = randomUUID();
         const { data: conversation, error: convError } = await supabaseServiceClient
@@ -1098,7 +1167,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
             model_used: 'welcome-message'
           });
 
-        fastify.log.info(`✅ [WELCOME] Message d'accueil intelligent envoyé pour conversation: ${conversation.id} - Shop: ${shopConfig.name}`);
+        fastify.log.info(`✅ [WELCOME] Message d'accueil personnalisé envoyé pour conversation: ${conversation.id} - Shop: ${shopConfig.name}`);
 
         return {
           success: true,
@@ -1191,7 +1260,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
 
       messageHistory.push({ role: 'user', content: message });
 
-      // ✅ APPELER IA AVEC NOM DYNAMIQUE
+      // ✅ APPELER IA AVEC NOM DYNAMIQUE ET customProductType
       const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, shopConfig.name, productInfo, orderState);
       
       let aiResponse: string = aiResult.fallbackMessage || agent.fallback_message || "Je transmets votre question à notre équipe.";
@@ -1301,7 +1370,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       const isFirstMessage = request.body.isFirstMessage;
       const agentName = "Assistant";
       const agentTitle = "Conseiller";
-      const shopName = "notre boutique"; // ✅ GÉNÉRIQUE pour les fallbacks
+      const shopName = "notre boutique";
       
       let fallbackResponse = `Merci pour votre message ! Je suis ${agentName}, votre ${agentTitle}. Comment puis-je vous aider davantage ?`;
       
