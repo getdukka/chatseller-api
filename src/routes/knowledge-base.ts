@@ -1,4 +1,4 @@
-// src/routes/knowledge-base.ts - VERSION SUPABASE CORRIGÉE ✅
+// src/routes/knowledge-base.ts 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient } from '../lib/supabase';
@@ -167,7 +167,7 @@ async function checkPlanLimits(shopId: string, plan: string): Promise<{
   const { count, error } = await supabaseServiceClient
     .from('knowledge_base')
     .select('*', { count: 'exact', head: true })
-    .eq('shop_id', shopId);  // ✅ CORRIGÉ : shop_id au lieu de shopId
+    .eq('shop_id', shopId);
 
   if (error) {
     console.error('Erreur comptage documents:', error);
@@ -190,74 +190,233 @@ async function checkPlanLimits(shopId: string, plan: string): Promise<{
   };
 }
 
-// ✅ HELPER: Extraire contenu d'une URL (VERSION AMÉLIORÉE)
+// ✅ HELPER: Extraire contenu d'une URL (VERSION ULTRA-ROBUSTE)
 async function extractContentFromUrl(url: string): Promise<{ title: string; content: string; metadata: SafeMetadata }> {
+  const startTime = Date.now();
+  
   try {
-    console.log('🌐 Extraction de contenu depuis:', url);
+    console.log(`🌐 [EXTRACTION] Début extraction: ${url}`);
     
-    // ✅ TIMEOUT VIA ABORTCONTROLLER
+    // ✅ VALIDATION URL
+    if (!url || !url.startsWith('http')) {
+      throw new Error(`URL invalide: ${url}`);
+    }
+    
+    // ✅ TIMEOUT PLUS LONG ET ROBUSTE
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => {
+      console.log(`⏰ [EXTRACTION] Timeout pour ${url} après 45s`);
+      controller.abort();
+    }, 45000); // 45 secondes
     
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'ChatSeller-Bot/1.0'
-      },
-      signal: controller.signal
-    });
+    let response: Response;
+    
+    try {
+      response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; ChatSeller-Bot/1.0; +https://chatseller.app)',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'fr-FR,fr;q=0.8,en-US;q=0.5,en;q=0.3',
+          'Accept-Encoding': 'gzip, deflate',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        },
+        signal: controller.signal,
+        redirect: 'follow',
+        referrer: 'no-referrer'
+      });
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        throw new Error(`Timeout lors de la récupération de ${url}`);
+      }
+      
+      console.error(`❌ [EXTRACTION] Erreur fetch ${url}:`, fetchError.message);
+      throw new Error(`Erreur réseau pour ${url}: ${fetchError.message}`);
+    }
     
     clearTimeout(timeoutId);
     
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      console.error(`❌ [EXTRACTION] HTTP ${response.status} pour ${url}`);
+      throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    // ✅ VÉRIFIER LE CONTENT-TYPE
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) {
+      console.warn(`⚠️ [EXTRACTION] Content-type inattendu pour ${url}: ${contentType}`);
+      // Continuer quand même, certains sites ne définissent pas correctement le content-type
     }
     
     const html = await response.text();
+    console.log(`📥 [EXTRACTION] HTML récupéré: ${html.length} caractères`);
     
-    // ✅ EXTRACTION AMÉLIORÉE DU TITRE
+    // ✅ EXTRACTION ULTRA-ROBUSTE DU TITRE
     let title = 'Document extrait';
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (titleMatch) {
-      title = titleMatch[1].trim().substring(0, 200);
+    
+    try {
+      // Plusieurs patterns pour récupérer le titre
+      const titlePatterns = [
+        /<title[^>]*>([^<]+)<\/title>/i,
+        /<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i,
+        /<meta\s+name=["']twitter:title["']\s+content=["']([^"']+)["']/i,
+        /<h1[^>]*>([^<]+)<\/h1>/i
+      ];
+      
+      for (const pattern of titlePatterns) {
+        const match = html.match(pattern);
+        if (match && match[1] && match[1].trim().length > 0) {
+          title = match[1]
+            .trim()
+            .replace(/\s+/g, ' ')
+            .replace(/[^\w\s\-\.\,\!\?\:\;]/g, '')
+            .substring(0, 200);
+          
+          if (title.length > 10) { // Titre valide trouvé
+            console.log(`✅ [EXTRACTION] Titre extrait: ${title}`);
+            break;
+          }
+        }
+      }
+      
+      // Fallback: utiliser le domaine
+      if (title === 'Document extrait' || title.length < 5) {
+        try {
+          const urlObj = new URL(url);
+          title = `Page de ${urlObj.hostname}`;
+          console.log(`📝 [EXTRACTION] Titre fallback: ${title}`);
+        } catch (e) {
+          title = 'Document extrait';
+        }
+      }
+      
+    } catch (titleError) {
+      console.warn(`⚠️ [EXTRACTION] Erreur extraction titre:`, titleError);
     }
     
-    // ✅ EXTRACTION AMÉLIORÉE DU CONTENU
-    let cleanContent = html
-      // Supprimer scripts et styles
-      .replace(/<script[^>]*>.*?<\/script>/gis, '')
-      .replace(/<style[^>]*>.*?<\/style>/gis, '')
-      .replace(/<noscript[^>]*>.*?<\/noscript>/gis, '')
-      // Supprimer commentaires HTML
-      .replace(/<!--.*?-->/gis, '')
-      // Supprimer balises HTML mais garder le contenu
-      .replace(/<[^>]*>/g, ' ')
-      // Nettoyer les espaces
-      .replace(/\s+/g, ' ')
-      .trim();
+    // ✅ EXTRACTION ULTRA-ROBUSTE DU CONTENU
+    let cleanContent = '';
     
-    // Limiter la taille du contenu
-    const maxContentLength = 10000;
+    try {
+      console.log(`🧹 [EXTRACTION] Nettoyage du contenu HTML...`);
+      
+      // Étape 1: Supprimer les balises indésirables et leurs contenus
+      let processedHtml = html
+        // Scripts et styles
+        .replace(/<script[^>]*>.*?<\/script>/gis, '')
+        .replace(/<style[^>]*>.*?<\/style>/gis, '')
+        .replace(/<noscript[^>]*>.*?<\/noscript>/gis, '')
+        // Navigation et menus
+        .replace(/<nav[^>]*>.*?<\/nav>/gis, '')
+        .replace(/<header[^>]*>.*?<\/header>/gis, '')
+        .replace(/<footer[^>]*>.*?<\/footer>/gis, '')
+        .replace(/<aside[^>]*>.*?<\/aside>/gis, '')
+        // Commentaires
+        .replace(/<!--.*?-->/gis, '')
+        // Balises meta et link
+        .replace(/<meta[^>]*>/gi, '')
+        .replace(/<link[^>]*>/gi, '')
+        .replace(/<base[^>]*>/gi, '');
+      
+      // Étape 2: Préserver les sauts de ligne importants
+      processedHtml = processedHtml
+        .replace(/<br[^>]*>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<\/h[1-6]>/gi, '\n\n')
+        .replace(/<\/li>/gi, '\n');
+      
+      // Étape 3: Supprimer toutes les balises HTML restantes
+      cleanContent = processedHtml
+        .replace(/<[^>]*>/g, ' ')
+        // Nettoyer les entités HTML
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&[a-zA-Z0-9]+;/g, ' ')
+        // Nettoyer les espaces multiples
+        .replace(/\s+/g, ' ')
+        // Nettoyer les sauts de ligne multiples
+        .replace(/\n\s*\n\s*\n/g, '\n\n')
+        .trim();
+      
+      console.log(`✂️ [EXTRACTION] Contenu nettoyé: ${cleanContent.length} caractères`);
+      
+    } catch (contentError) {
+      console.error(`❌ [EXTRACTION] Erreur nettoyage contenu:`, contentError);
+      // Fallback: contenu minimal
+      cleanContent = html
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 5000);
+    }
+    
+    // ✅ VALIDATION ET LIMITATION DE CONTENU
+    if (!cleanContent || cleanContent.length < 50) {
+      console.warn(`⚠️ [EXTRACTION] Contenu trop court ou vide pour ${url}`);
+      cleanContent = `Contenu de la page: ${url}\n\nLe contenu de cette page n'a pas pu être extrait automatiquement, mais la page a été indexée et peut être consultée à l'adresse ci-dessus.`;
+    }
+    
+    const maxContentLength = 15000; // 15K caractères max
     if (cleanContent.length > maxContentLength) {
-      cleanContent = cleanContent.substring(0, maxContentLength) + '... [contenu tronqué]';
+      cleanContent = cleanContent.substring(0, maxContentLength) + '\n\n... [contenu tronqué pour respecter les limites]';
+      console.log(`✂️ [EXTRACTION] Contenu tronqué à ${maxContentLength} caractères`);
     }
     
-    const wordCount = cleanContent.split(' ').filter(word => word.length > 0).length;
+    const wordCount = cleanContent.split(/\s+/).filter(word => word.length > 0).length;
+    const processingTime = Date.now() - startTime;
     
     const metadata: SafeMetadata = {
       extractedAt: new Date().toISOString(),
       sourceUrl: url,
       wordCount: wordCount,
-      extractionMethod: 'html-parse',
-      contentLength: cleanContent.length
+      extractionMethod: 'html-parse-v2',
+      contentLength: cleanContent.length,
+      processingTimeMs: processingTime,
+      httpStatus: response.status,
+      contentType: contentType
     };
     
-    console.log(`✅ Contenu extrait: ${wordCount} mots, ${cleanContent.length} caractères`);
+    console.log(`✅ [EXTRACTION] Terminé en ${processingTime}ms: ${wordCount} mots, ${cleanContent.length} caractères`);
     
     return { title, content: cleanContent, metadata };
     
   } catch (error: any) {
-    console.error('❌ Erreur extraction URL:', error);
-    throw new Error(`Erreur lors de l'extraction du contenu: ${error.message}`);
+    const processingTime = Date.now() - startTime;
+    console.error(`❌ [EXTRACTION] Échec pour ${url} après ${processingTime}ms:`, error.message);
+    
+    // ✅ FALLBACK GRACIEUX AU LIEU DE THROW
+    const fallbackContent = `Page web: ${url}
+
+Cette page n'a pas pu être analysée automatiquement.
+Raison: ${error.message}
+
+Vous pouvez consulter cette page directement à l'adresse ci-dessus.`;
+
+    const fallbackMetadata: SafeMetadata = {
+      extractedAt: new Date().toISOString(),
+      sourceUrl: url,
+      wordCount: fallbackContent.split(' ').length,
+      extractionMethod: 'fallback',
+      contentLength: fallbackContent.length,
+      processingTimeMs: processingTime,
+      error: error.message,
+      extractionFailed: true
+    };
+
+    console.log(`🔄 [EXTRACTION] Fallback appliqué pour ${url}`);
+    
+    return { 
+      title: `Page de ${url}`, 
+      content: fallbackContent, 
+      metadata: fallbackMetadata 
+    };
   }
 }
 
@@ -376,31 +535,35 @@ function mergeSafeMetadata(existing: Record<string, any>, updates: SafeMetadata)
   };
 }
 
-// ✅ HELPER: Découvrir toutes les pages d'un site web
+// ✅ HELPER: Découvrir toutes les pages d'un site web (VERSION AMÉLIORÉE)
 async function discoverWebsitePages(baseUrl: string, maxPages: number = 50): Promise<string[]> {
+  const startTime = Date.now();
+  
   try {
-    console.log(`🔍 Découverte des pages du site: ${baseUrl}`);
+    console.log(`🔍 [DÉCOUVERTE] Début pour: ${baseUrl} (max: ${maxPages})`);
     
     const discoveredUrls = new Set<string>();
     const domain = new URL(baseUrl).hostname;
     
     // ✅ ÉTAPE 1: Essayer de récupérer le sitemap.xml
     try {
+      console.log(`🗺️ [DÉCOUVERTE] Recherche sitemap...`);
       const sitemapUrls = await extractSitemapUrls(baseUrl);
       sitemapUrls.forEach(url => discoveredUrls.add(url));
-      console.log(`✅ Sitemap trouvé: ${sitemapUrls.length} URLs`);
+      console.log(`✅ [DÉCOUVERTE] Sitemap: ${sitemapUrls.length} URLs trouvées`);
     } catch (sitemapError) {
-      console.log('⚠️ Sitemap non disponible, fallback vers crawling');
+      console.log(`⚠️ [DÉCOUVERTE] Sitemap non disponible:`, sitemapError instanceof Error ? sitemapError.message : String(sitemapError));
     }
     
     // ✅ ÉTAPE 2: Si pas assez d'URLs ou pas de sitemap, crawler les liens
-    if (discoveredUrls.size < 5) {
+    if (discoveredUrls.size < 3) {
       try {
+        console.log(`🕷️ [DÉCOUVERTE] Crawling des liens internes...`);
         const crawledUrls = await crawlInternalLinks(baseUrl, domain, maxPages);
         crawledUrls.forEach(url => discoveredUrls.add(url));
-        console.log(`✅ Crawling terminé: ${crawledUrls.length} URLs supplémentaires`);
+        console.log(`✅ [DÉCOUVERTE] Crawling: ${crawledUrls.length} URLs supplémentaires`);
       } catch (crawlError) {
-        console.warn('⚠️ Erreur crawling:', crawlError);
+        console.warn(`⚠️ [DÉCOUVERTE] Erreur crawling:`, crawlError instanceof Error ? crawlError.message : String(crawlError));
       }
     }
     
@@ -408,18 +571,21 @@ async function discoverWebsitePages(baseUrl: string, maxPages: number = 50): Pro
     discoveredUrls.add(baseUrl);
     
     const finalUrls = Array.from(discoveredUrls).slice(0, maxPages);
-    console.log(`🎯 Pages découvertes au total: ${finalUrls.length}`);
+    const processingTime = Date.now() - startTime;
+    
+    console.log(`🎯 [DÉCOUVERTE] Terminé en ${processingTime}ms: ${finalUrls.length} pages trouvées`);
     
     return finalUrls;
     
   } catch (error: any) {
-    console.error('❌ Erreur découverte pages:', error);
+    console.error(`❌ [DÉCOUVERTE] Erreur:`, error.message);
     // Fallback: retourner au moins l'URL de base
+    console.log(`🔄 [DÉCOUVERTE] Fallback: URL de base uniquement`);
     return [baseUrl];
   }
 }
 
-// ✅ HELPER: Extraire les URLs depuis sitemap.xml
+// ✅ HELPER: Extraire les URLs depuis sitemap.xml (VERSION AMÉLIORÉE)
 async function extractSitemapUrls(baseUrl: string): Promise<string[]> {
   try {
     const domain = new URL(baseUrl).origin;
@@ -432,92 +598,108 @@ async function extractSitemapUrls(baseUrl: string): Promise<string[]> {
     
     for (const sitemapUrl of sitemapUrls) {
       try {
-        console.log(`🔍 Tentative sitemap: ${sitemapUrl}`);
+        console.log(`🔍 [SITEMAP] Tentative: ${sitemapUrl}`);
         
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s pour sitemap
         
         const response = await fetch(sitemapUrl, {
-          headers: { 'User-Agent': 'ChatSeller-Bot/1.0' },
+          headers: { 
+            'User-Agent': 'Mozilla/5.0 (compatible; ChatSeller-Bot/1.0)',
+            'Accept': 'application/xml,text/xml,*/*'
+          },
           signal: controller.signal
         });
         
         clearTimeout(timeoutId);
         
-        if (!response.ok) continue;
+        if (!response.ok) {
+          console.log(`⚠️ [SITEMAP] ${sitemapUrl}: HTTP ${response.status}`);
+          continue;
+        }
         
         const xmlContent = await response.text();
         const urls: string[] = [];
         
-        // ✅ PARSER SIMPLE POUR SITEMAP XML
+        // ✅ PARSER AMÉLIORÉ POUR SITEMAP XML
         const urlMatches = xmlContent.match(/<loc>(.*?)<\/loc>/g);
         if (urlMatches) {
           urlMatches.forEach(match => {
             const url = match.replace(/<\/?loc>/g, '').trim();
-            if (url.startsWith('http') && !url.includes('.xml')) {
+            if (url.startsWith('http') && !url.includes('.xml') && !url.includes('.pdf') && !url.includes('.jpg')) {
               urls.push(url);
             }
           });
         }
         
         if (urls.length > 0) {
-          console.log(`✅ Sitemap parsé: ${urls.length} URLs trouvées`);
+          console.log(`✅ [SITEMAP] ${urls.length} URLs extraites de ${sitemapUrl}`);
           return urls.slice(0, 50); // Limite de sécurité
         }
         
-      } catch (error) {
-        console.log(`⚠️ Sitemap ${sitemapUrl} non accessible`);
+      } catch (error: any) {
+        console.log(`⚠️ [SITEMAP] Erreur ${sitemapUrl}: ${error.message}`);
         continue;
       }
     }
     
-    throw new Error('Aucun sitemap accessible');
+    throw new Error('Aucun sitemap accessible trouvé');
     
   } catch (error: any) {
-    console.warn('⚠️ Erreur extraction sitemap:', error.message);
+    console.log(`⚠️ [SITEMAP] Échec total: ${error.message}`);
     throw error;
   }
 }
 
-// ✅ HELPER: Crawler les liens internes d'une page
+// ✅ HELPER: Crawler les liens internes d'une page (VERSION AMÉLIORÉE)
 async function crawlInternalLinks(startUrl: string, domain: string, maxPages: number = 20): Promise<string[]> {
   try {
-    console.log(`🕷️ Crawling des liens internes: ${startUrl}`);
+    console.log(`🕷️ [CRAWL] Début: ${startUrl} (max: ${maxPages})`);
     
     const visitedUrls = new Set<string>();
     const discoveredUrls = new Set<string>();
     const toVisit = [startUrl];
+    let errorCount = 0;
+    const maxErrors = 3;
     
-    while (toVisit.length > 0 && discoveredUrls.size < maxPages) {
+    while (toVisit.length > 0 && discoveredUrls.size < maxPages && errorCount < maxErrors) {
       const currentUrl = toVisit.shift();
       if (!currentUrl || visitedUrls.has(currentUrl)) continue;
       
       visitedUrls.add(currentUrl);
       
       try {
+        console.log(`🔍 [CRAWL] Analyse: ${currentUrl}`);
+        
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s par page
         
         const response = await fetch(currentUrl, {
-          headers: { 'User-Agent': 'ChatSeller-Bot/1.0' },
+          headers: { 
+            'User-Agent': 'Mozilla/5.0 (compatible; ChatSeller-Bot/1.0)',
+            'Accept': 'text/html,application/xhtml+xml'
+          },
           signal: controller.signal
         });
         
         clearTimeout(timeoutId);
         
         if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
+          console.log(`⚠️ [CRAWL] Ignoré: ${currentUrl} (${response.status})`);
           continue;
         }
         
         const html = await response.text();
         discoveredUrls.add(currentUrl);
         
-        // ✅ EXTRAIRE LES LIENS INTERNES
-        const linkMatches = html.match(/href=["']([^"']+)["']/g);
+        // ✅ EXTRAIRE LES LIENS INTERNES AVEC REGEX AMÉLIORÉ
+        const linkMatches = html.match(/href=["']([^"']+)["']/gi);
         if (linkMatches && discoveredUrls.size < maxPages) {
+          let newLinksFound = 0;
+          
           linkMatches.forEach(match => {
             try {
-              const href = match.match(/href=["']([^"']+)["']/)?.[1];
+              const href = match.match(/href=["']([^"']+)["']/i)?.[1];
               if (!href) return;
               
               let fullUrl = '';
@@ -530,90 +712,123 @@ async function crawlInternalLinks(startUrl: string, domain: string, maxPages: nu
               }
               
               // ✅ VÉRIFIER QUE C'EST UN LIEN INTERNE VALIDE
-              if (fullUrl && fullUrl.includes(domain) && !visitedUrls.has(fullUrl) && discoveredUrls.size < maxPages) {
-                // Éviter les liens vers des fichiers
-                if (!/\.(pdf|jpg|jpeg|png|gif|css|js|ico|xml|json)$/i.test(fullUrl)) {
+              if (fullUrl && 
+                  fullUrl.includes(domain) && 
+                  !visitedUrls.has(fullUrl) && 
+                  !discoveredUrls.has(fullUrl) &&
+                  discoveredUrls.size + newLinksFound < maxPages) {
+                
+                // Éviter les fichiers et URLs spéciales
+                if (!/\.(pdf|jpg|jpeg|png|gif|css|js|ico|xml|json|zip|mp4|mp3)(\?|$)/i.test(fullUrl)) {
                   toVisit.push(fullUrl);
+                  newLinksFound++;
                 }
               }
             } catch (urlError) {
               // Ignorer les URLs malformées
             }
           });
+          
+          console.log(`📎 [CRAWL] ${newLinksFound} nouveaux liens trouvés sur ${currentUrl}`);
         }
         
-      } catch (fetchError) {
-        console.log(`⚠️ Erreur crawl ${currentUrl}:`, (fetchError as Error).message);
+        errorCount = 0; // Reset compteur d'erreurs
+        
+      } catch (fetchError: any) {
+        errorCount++;
+        console.log(`❌ [CRAWL] Erreur ${currentUrl}: ${fetchError.message}`);
+        if (errorCount >= maxErrors) {
+          console.log(`⚠️ [CRAWL] Trop d'erreurs, arrêt du crawling`);
+          break;
+        }
         continue;
       }
       
       // ✅ PAUSE POUR ÉVITER LA SURCHARGE
-      await new Promise(resolve => setTimeout(resolve, 100));
+      if (toVisit.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
     }
     
     const finalUrls = Array.from(discoveredUrls);
-    console.log(`✅ Crawling terminé: ${finalUrls.length} pages découvertes`);
+    console.log(`✅ [CRAWL] Terminé: ${finalUrls.length} pages découvertes`);
     return finalUrls;
     
   } catch (error: any) {
-    console.error('❌ Erreur crawling:', error);
+    console.error(`❌ [CRAWL] Erreur globale:`, error.message);
     return [];
   }
 }
 
-// ✅ HELPER: Traiter plusieurs pages d'un site web
+// ✅ HELPER: Traiter plusieurs pages d'un site web (VERSION ULTRA-ROBUSTE)
 async function processMultipleWebsitePages(
   urls: string[], 
   baseTitle: string, 
   tags: string[] = [], 
   shopId: string
 ): Promise<KnowledgeBaseDocument[]> {
+  const startTime = Date.now();
+  
   try {
-    console.log(`📄 Traitement de ${urls.length} pages...`);
+    console.log(`📄 [TRAITEMENT] Début pour ${urls.length} pages`);
     
     const processedDocuments: KnowledgeBaseDocument[] = [];
-    const errors: string[] = [];
+    const errors: Array<{ url: string; error: string }> = [];
+    let successCount = 0;
     
     for (let i = 0; i < urls.length; i++) {
       const url = urls[i];
       
       try {
-        console.log(`📄 [${i + 1}/${urls.length}] Traitement: ${url}`);
+        console.log(`📄 [TRAITEMENT] [${i + 1}/${urls.length}] ${url}`);
         
-        // ✅ EXTRAIRE LE CONTENU DE LA PAGE
+        // ✅ EXTRAIRE LE CONTENU DE LA PAGE AVEC FALLBACK INTÉGRÉ
         const { title, content, metadata } = await extractContentFromUrl(url);
         
         // ✅ GÉNÉRER UN TITRE UNIQUE POUR CHAQUE PAGE
-        const pageTitle = title === 'Document extrait' 
-          ? `${baseTitle} - Page ${i + 1}` 
-          : `${baseTitle} - ${title}`;
+        let pageTitle = baseTitle;
+        if (urls.length > 1) {
+          if (title && title !== 'Document extrait' && !title.includes('Page de')) {
+            pageTitle = `${baseTitle} - ${title}`;
+          } else {
+            pageTitle = `${baseTitle} - Page ${i + 1}`;
+          }
+        }
         
-        // ✅ CRÉER LE DOCUMENT EN BASE
+        // Limiter la longueur du titre
+        if (pageTitle.length > 255) {
+          pageTitle = pageTitle.substring(0, 252) + '...';
+        }
+        
+        console.log(`💾 [TRAITEMENT] Sauvegarde: ${pageTitle}`);
+        
+        // ✅ CRÉER LE DOCUMENT EN BASE AVEC GESTION D'ERREUR ROBUSTE
         const { data: newDocument, error } = await supabaseServiceClient
           .from('knowledge_base')
           .insert({
             shop_id: shopId,
-            title: pageTitle.substring(0, 255), // Limite DB
+            title: pageTitle,
             content: content,
             content_type: 'website',
             source_file: null,
             source_url: url,
-            tags: [...tags, 'website', 'multi-page'],
+            tags: [...tags, 'website', 'indexation-auto'],
             is_active: true,
             metadata: createSafeMetadata({
               ...metadata,
               sourceUrl: url,
               pageIndex: i + 1,
               totalPages: urls.length,
-              processedAt: new Date().toISOString()
+              processedAt: new Date().toISOString(),
+              batchId: `batch_${Date.now()}`
             })
           })
           .select()
           .single();
         
         if (error) {
-          console.error(`❌ Erreur création document pour ${url}:`, error);
-          errors.push(`Erreur pour ${url}: ${error.message}`);
+          console.error(`❌ [TRAITEMENT] Erreur DB pour ${url}:`, error.message);
+          errors.push({ url, error: `Erreur base de données: ${error.message}` });
         } else if (newDocument) {
           processedDocuments.push({
             id: newDocument.id,
@@ -631,30 +846,34 @@ async function processMultipleWebsitePages(
             metadata: newDocument.metadata
           });
           
-          console.log(`✅ Document créé: ${newDocument.id} - ${pageTitle}`);
+          successCount++;
+          console.log(`✅ [TRAITEMENT] Document créé: ${newDocument.id}`);
         }
         
-        // ✅ PAUSE ENTRE LES PAGES
+        // ✅ PAUSE ENTRE LES PAGES POUR ÉVITER LA SURCHARGE
         if (i < urls.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 250));
         }
         
       } catch (pageError: any) {
-        console.error(`❌ Erreur traitement page ${url}:`, pageError);
-        errors.push(`Erreur pour ${url}: ${pageError.message}`);
+        console.error(`❌ [TRAITEMENT] Erreur page ${url}:`, pageError.message);
+        errors.push({ url, error: pageError.message });
       }
     }
     
-    console.log(`✅ Traitement terminé: ${processedDocuments.length} documents créés, ${errors.length} erreurs`);
+    const processingTime = Date.now() - startTime;
     
-    if (errors.length > 0) {
-      console.warn('⚠️ Erreurs rencontrées:', errors.slice(0, 3)); // Afficher max 3 erreurs
+    console.log(`✅ [TRAITEMENT] Terminé en ${processingTime}ms: ${successCount}/${urls.length} succès, ${errors.length} erreurs`);
+    
+    if (errors.length > 0 && errors.length < 5) {
+      console.warn(`⚠️ [TRAITEMENT] Erreurs détaillées:`, errors);
     }
     
+    // ✅ RETOURNER LES DOCUMENTS CRÉÉS MÊME S'IL Y A EU QUELQUES ERREURS
     return processedDocuments;
     
   } catch (error: any) {
-    console.error('❌ Erreur traitement multiple pages:', error);
+    console.error(`❌ [TRAITEMENT] Erreur globale:`, error.message);
     throw new Error(`Erreur lors du traitement des pages: ${error.message}`);
   }
 }
@@ -686,11 +905,10 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ REQUÊTE SIMPLIFIÉE POUR DEBUGGING : Pas de join complexe
       const { data: documents, error } = await supabaseServiceClient
         .from('knowledge_base')
         .select('*')
-        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
+        .eq('shop_id', shop.id)
         .order('updated_at', { ascending: false });
 
       if (error) {
@@ -701,20 +919,19 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ OBTENIR LES LIMITES DU PLAN
       const planLimits = await checkPlanLimits(shop.id, shop.subscription_plan);
 
       const formattedDocuments = (documents || []).map((doc: any) => ({
         id: doc.id,
         title: doc.title,
         content: doc.content,
-        contentType: doc.content_type,     // ✅ CORRIGÉ : content_type
-        sourceFile: doc.source_file,       // ✅ CORRIGÉ : source_file
-        sourceUrl: doc.source_url,         // ✅ CORRIGÉ : source_url
+        contentType: doc.content_type,
+        sourceFile: doc.source_file,
+        sourceUrl: doc.source_url,
         tags: Array.isArray(doc.tags) ? doc.tags : [],
-        isActive: doc.is_active,           // ✅ CORRIGÉ : is_active
+        isActive: doc.is_active,
         metadata: doc.metadata || {},
-        linkedAgents: [],                  // ✅ TEMPORAIRE : Pas de join pour l'instant
+        linkedAgents: [],
         createdAt: doc.created_at,
         updatedAt: doc.updated_at
       }));
@@ -724,7 +941,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         data: formattedDocuments,
         meta: {
           total: documents?.length || 0,
-          activeCount: documents?.filter(doc => doc.is_active).length || 0,  // ✅ CORRIGÉ : is_active
+          activeCount: documents?.filter(doc => doc.is_active).length || 0,
           plan: {
             name: shop.subscription_plan,
             limits: {
@@ -840,14 +1057,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
-          shop_id: shop.id,              // ✅ CORRIGÉ : shop_id au lieu de shopId
+          shop_id: shop.id,
           title: data.filename || 'Fichier uploadé',
           content: content,
-          content_type: 'file',          // ✅ CORRIGÉ : content_type au lieu de contentType
-          source_file: data.filename,    // ✅ CORRIGÉ : source_file au lieu de sourceFile
-          source_url: storageUrl,        // ✅ CORRIGÉ : source_url au lieu de sourceUrl
+          content_type: 'file',
+          source_file: data.filename,
+          source_url: storageUrl,
           tags: ['fichier', 'upload'],
-          is_active: true,               // ✅ CORRIGÉ : is_active au lieu de isActive
+          is_active: true,
           metadata: metadata
         })
         .select()
@@ -869,11 +1086,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: newDocument.id,
           title: newDocument.title,
           content: newDocument.content,
-          contentType: newDocument.content_type,    // ✅ CORRIGÉ : content_type
-          sourceFile: newDocument.source_file,      // ✅ CORRIGÉ : source_file
-          sourceUrl: newDocument.source_url,        // ✅ CORRIGÉ : source_url
+          contentType: newDocument.content_type,
+          sourceFile: newDocument.source_file,
+          sourceUrl: newDocument.source_url,
           tags: newDocument.tags,
-          isActive: newDocument.is_active,          // ✅ CORRIGÉ : is_active
+          isActive: newDocument.is_active,
           metadata: newDocument.metadata,
           linkedAgents: [],
           createdAt: newDocument.created_at,
@@ -899,14 +1116,18 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ NOUVELLE ROUTE : TRAITEMENT D'UN SITE WEB (SUPABASE CORRIGÉ)
+  // ✅ NOUVELLE ROUTE : TRAITEMENT D'UN SITE WEB (VERSION ULTRA-ROBUSTE)
   fastify.post('/website', async (request: FastifyRequest, reply: FastifyReply) => {
+    const requestId = `req_${Date.now()}`;
+    
     try {
-      fastify.log.info('🌐 Traitement complet d\'un site web');
+      fastify.log.info(`🌐 [${requestId}] DÉBUT traitement complet site web`);
       
       const user = await verifySupabaseAuth(request);
       const { shop, canAccess, reason } = await getShopWithPlanCheck(user);
       const body = websiteProcessSchema.parse(request.body);
+
+      fastify.log.info(`🔐 [${requestId}] Auth OK - Shop: ${shop.id}, Plan: ${shop.subscription_plan}`);
 
       if (!canAccess) {
         return reply.status(403).send({ 
@@ -926,10 +1147,9 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
 
+      fastify.log.info(`📊 [${requestId}] Plan vérifié - ${planLimits.currentCount}/${planLimits.limit} documents`);
+
       // ✅ ÉTAPE 1: DÉCOUVRIR TOUTES LES PAGES DU SITE
-      fastify.log.info(`🔍 Découverte des pages pour: ${body.url}`);
-      
-      // Calculer le nombre max de pages selon le plan
       const maxPagesPerPlan = {
         free: 5,
         starter: 10, 
@@ -942,24 +1162,27 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         planLimits.limit === -1 ? 50 : Math.max(1, planLimits.limit - planLimits.currentCount)
       );
       
+      fastify.log.info(`🔍 [${requestId}] Découverte max ${maxPages} pages pour ${body.url}`);
+      
       const discoveredUrls = await discoverWebsitePages(body.url, maxPages);
       
       if (discoveredUrls.length === 0) {
+        fastify.log.warn(`❌ [${requestId}] Aucune page trouvée`);
         return reply.status(400).send({
           success: false,
-          error: 'Aucune page accessible trouvée sur ce site web'
+          error: 'Aucune page accessible trouvée sur ce site web. Vérifiez que l\'URL est correcte et accessible.'
         });
       }
 
-      fastify.log.info(`✅ ${discoveredUrls.length} page(s) découverte(s), traitement en cours...`);
+      fastify.log.info(`✅ [${requestId}] ${discoveredUrls.length} page(s) découverte(s)`);
 
-      // ✅ ÉTAPE 2: VÉRIFIER QUE NOUS AVONS ASSEZ D'ESPACE SELON LE PLAN
+      // ✅ ÉTAPE 2: VÉRIFIER QUE NOUS AVONS ASSEZ D'ESPACE
       const availableSlots = planLimits.limit === -1 ? discoveredUrls.length : (planLimits.limit - planLimits.currentCount);
       
       if (availableSlots < discoveredUrls.length) {
         return reply.status(403).send({
           success: false,
-          error: `Pas assez d'espace dans votre plan. ${discoveredUrls.length} pages découvertes mais seulement ${availableSlots} emplacement(s) disponible(s). Passez au plan supérieur.`,
+          error: `Pas assez d'espace dans votre plan. ${discoveredUrls.length} pages découvertes mais seulement ${availableSlots} emplacement(s) disponible(s). Passez au plan supérieur ou supprimez quelques documents existants.`,
           requiresUpgrade: true,
           meta: {
             discoveredPages: discoveredUrls.length,
@@ -970,8 +1193,10 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ ÉTAPE 3: TRAITER TOUTES LES PAGES DÉCOUVERTES
-      const baseTitle = body.title || new URL(body.url).hostname;
+      const baseTitle = body.title || `Site ${new URL(body.url).hostname}`;
       const websiteTags = body.tags.length > 0 ? body.tags : ['website', 'indexation-complete'];
+      
+      fastify.log.info(`🏗️ [${requestId}] Traitement ${discoveredUrls.length} pages...`);
       
       const processedDocuments = await processMultipleWebsitePages(
         discoveredUrls,
@@ -981,34 +1206,37 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       );
 
       if (processedDocuments.length === 0) {
+        fastify.log.error(`❌ [${requestId}] Aucune page traitée avec succès`);
         return reply.status(500).send({
           success: false,
-          error: 'Aucune page n\'a pu être traitée avec succès'
+          error: 'Aucune page n\'a pu être traitée avec succès. Le site web pourrait être inaccessible ou protégé contre l\'indexation automatique.'
         });
       }
 
-      fastify.log.info(`✅ Site web traité: ${processedDocuments.length} document(s) créé(s)`);
+      fastify.log.info(`✅ [${requestId}] SUCCÈS: ${processedDocuments.length}/${discoveredUrls.length} documents créés`);
 
-      // ✅ RETOURNER LA LISTE DES DOCUMENTS CRÉÉS
+      // ✅ RETOURNER LA LISTE DES DOCUMENTS CRÉÉS AVEC MÉTADONNÉES DÉTAILLÉES
       return {
         success: true,
         data: processedDocuments,
         meta: {
           totalPagesDiscovered: discoveredUrls.length,
           totalDocumentsCreated: processedDocuments.length,
+          successRate: Math.round((processedDocuments.length / discoveredUrls.length) * 100),
           baseUrl: body.url,
           indexationType: 'complete-website',
-          processedAt: new Date().toISOString()
+          processedAt: new Date().toISOString(),
+          requestId: requestId
         }
       };
 
     } catch (error: any) {
-      fastify.log.error('❌ Process website error:', error);
+      fastify.log.error(`❌ [${requestId}] Erreur globale:`, error);
       
       if (error.name === 'ZodError') {
         return reply.status(400).send({
           success: false,
-          error: 'URL invalide',
+          error: 'URL invalide ou données manquantes',
           details: error.errors
         });
       }
@@ -1020,10 +1248,26 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
       
+      // ✅ GESTION D'ERREUR DÉTAILLÉE
+      let errorMessage = 'Erreur lors du traitement du site web';
+      
+      if (error.message.includes('fetch')) {
+        errorMessage += ': Impossible de récupérer le contenu du site. Vérifiez que l\'URL est accessible.';
+      } else if (error.message.includes('timeout')) {
+        errorMessage += ': Le site web met trop de temps à répondre.';
+      } else if (error.message.includes('DNS')) {
+        errorMessage += ': Nom de domaine invalide ou inaccessible.';
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      }
+      
       return reply.status(500).send({
         success: false,
-        error: 'Erreur lors du traitement du site web',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          requestId: requestId
+        } : undefined
       });
     }
   });
@@ -1068,14 +1312,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
-          shop_id: shop.id,                    // ✅ CORRIGÉ : shop_id au lieu de shopId
+          shop_id: shop.id,
           title: body.title,
           content: body.content,
-          content_type: body.contentType,      // ✅ CORRIGÉ : content_type au lieu de contentType
-          source_file: body.sourceFile || null,       // ✅ CORRIGÉ : source_file au lieu de sourceFile
-          source_url: body.sourceUrl || null,         // ✅ CORRIGÉ : source_url au lieu de sourceUrl
+          content_type: body.contentType,
+          source_file: body.sourceFile || null,
+          source_url: body.sourceUrl || null,
           tags: body.tags,
-          is_active: body.isActive,            // ✅ CORRIGÉ : is_active au lieu de isActive
+          is_active: body.isActive,
           metadata: metadata
         })
         .select()
@@ -1097,11 +1341,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: newDocument.id,
           title: newDocument.title,
           content: newDocument.content,
-          contentType: newDocument.content_type,    // ✅ CORRIGÉ : content_type
-          sourceFile: newDocument.source_file,      // ✅ CORRIGÉ : source_file
-          sourceUrl: newDocument.source_url,        // ✅ CORRIGÉ : source_url
+          contentType: newDocument.content_type,
+          sourceFile: newDocument.source_file,
+          sourceUrl: newDocument.source_url,
           tags: newDocument.tags,
-          isActive: newDocument.is_active,          // ✅ CORRIGÉ : is_active
+          isActive: newDocument.is_active,
           metadata: newDocument.metadata,
           linkedAgents: [],
           createdAt: newDocument.created_at,
@@ -1166,14 +1410,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
-          shop_id: shop.id,                    // ✅ CORRIGÉ : shop_id au lieu de shopId
+          shop_id: shop.id,
           title: body.title || title,
           content: content,
-          content_type: 'url',                 // ✅ CORRIGÉ : content_type au lieu de contentType
-          source_file: null,                   // ✅ CORRIGÉ : source_file au lieu de sourceFile
-          source_url: body.url,                // ✅ CORRIGÉ : source_url au lieu de sourceUrl
+          content_type: 'url',
+          source_file: null,
+          source_url: body.url,
           tags: [],
-          is_active: true,                     // ✅ CORRIGÉ : is_active au lieu de isActive
+          is_active: true,
           metadata: createSafeMetadata(metadata)
         })
         .select()
@@ -1195,11 +1439,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: newDocument.id,
           title: newDocument.title,
           content: newDocument.content,
-          contentType: newDocument.content_type,    // ✅ CORRIGÉ : content_type
-          sourceFile: newDocument.source_file,      // ✅ CORRIGÉ : source_file
-          sourceUrl: newDocument.source_url,        // ✅ CORRIGÉ : source_url
+          contentType: newDocument.content_type,
+          sourceFile: newDocument.source_file,
+          sourceUrl: newDocument.source_url,
           tags: newDocument.tags,
-          isActive: newDocument.is_active,          // ✅ CORRIGÉ : is_active
+          isActive: newDocument.is_active,
           metadata: newDocument.metadata,
           createdAt: newDocument.created_at,
           updatedAt: newDocument.updated_at
@@ -1244,7 +1488,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         .from('knowledge_base')
         .select('*')
         .eq('id', id)
-        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
+        .eq('shop_id', shop.id)
         .single();
 
       if (error || !document) {
@@ -1260,13 +1504,13 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: document.id,
           title: document.title,
           content: document.content,
-          contentType: document.content_type,    // ✅ CORRIGÉ : content_type
-          sourceFile: document.source_file,      // ✅ CORRIGÉ : source_file
-          sourceUrl: document.source_url,        // ✅ CORRIGÉ : source_url
+          contentType: document.content_type,
+          sourceFile: document.source_file,
+          sourceUrl: document.source_url,
           tags: document.tags,
-          isActive: document.is_active,          // ✅ CORRIGÉ : is_active
+          isActive: document.is_active,
           metadata: document.metadata,
-          linkedAgents: [],                      // ✅ TEMPORAIRE : Pas de join pour l'instant
+          linkedAgents: [],
           createdAt: document.created_at,
           updatedAt: document.updated_at
         }
@@ -1311,7 +1555,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         .from('knowledge_base')
         .select('*')
         .eq('id', id)
-        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
+        .eq('shop_id', shop.id)
         .single();
 
       if (fetchError || !existingDocument) {
@@ -1333,7 +1577,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         });
       }
       if (body.tags) updateData.tags = body.tags;
-      if (body.isActive !== undefined) updateData.is_active = body.isActive;  // ✅ CORRIGÉ : is_active
+      if (body.isActive !== undefined) updateData.is_active = body.isActive;
 
       const { data: updatedDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
@@ -1356,11 +1600,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           id: updatedDocument.id,
           title: updatedDocument.title,
           content: updatedDocument.content,
-          contentType: updatedDocument.content_type,    // ✅ CORRIGÉ : content_type
-          sourceFile: updatedDocument.source_file,      // ✅ CORRIGÉ : source_file
-          sourceUrl: updatedDocument.source_url,        // ✅ CORRIGÉ : source_url
+          contentType: updatedDocument.content_type,
+          sourceFile: updatedDocument.source_file,
+          sourceUrl: updatedDocument.source_url,
           tags: updatedDocument.tags,
-          isActive: updatedDocument.is_active,          // ✅ CORRIGÉ : is_active
+          isActive: updatedDocument.is_active,
           metadata: updatedDocument.metadata,
           createdAt: updatedDocument.created_at,
           updatedAt: updatedDocument.updated_at
@@ -1396,7 +1640,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         .from('knowledge_base')
         .select('*')
         .eq('id', id)
-        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
+        .eq('shop_id', shop.id)
         .single();
 
       if (fetchError || !existingDocument) {
@@ -1407,7 +1651,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ SUPPRIMER LE FICHIER DE SUPABASE STORAGE SI C'EST UN FICHIER
-      if (existingDocument.content_type === 'file' && existingDocument.metadata) {  // ✅ CORRIGÉ : content_type
+      if (existingDocument.content_type === 'file' && existingDocument.metadata) {
         try {
           const metadata = existingDocument.metadata as SafeMetadata;
           if (metadata.storagePath) {
@@ -1475,7 +1719,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         .from('knowledge_base')
         .select('id')
         .eq('id', id)
-        .eq('shop_id', shop.id)  // ✅ CORRIGÉ : shop_id au lieu de shopId
+        .eq('shop_id', shop.id)
         .single();
 
       if (fetchError || !existingDocument) {
@@ -1488,11 +1732,11 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: updatedDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .update({ 
-          is_active: body.isActive,             // ✅ CORRIGÉ : is_active au lieu de isActive
+          is_active: body.isActive,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .select('id, is_active, updated_at')   // ✅ CORRIGÉ : is_active
+        .select('id, is_active, updated_at')
         .single();
 
       if (error) {
@@ -1509,7 +1753,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
         success: true,
         data: {
           id: updatedDocument.id,
-          isActive: updatedDocument.is_active,    // ✅ CORRIGÉ : is_active
+          isActive: updatedDocument.is_active,
           updatedAt: updatedDocument.updated_at
         }
       };
