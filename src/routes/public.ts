@@ -895,8 +895,6 @@ Souhaitez-vous le commander ? 😊`;
 }
 
 export default async function publicRoutes(fastify: FastifyInstance) {
-
-  // ✅ CORRECTION CRITIQUE : AJOUTER LE PRÉFIXE /public/ POUR TOUTES LES ROUTES
   
   // ✅ ROUTE DEBUG POUR VÉRIFIER FONCTIONNEMENT
   fastify.get('/debug/:shopId', async (request, reply) => {
