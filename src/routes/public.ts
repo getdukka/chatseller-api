@@ -895,9 +895,24 @@ Souhaitez-vous le commander ? 😊`;
 }
 
 export default async function publicRoutes(fastify: FastifyInstance) {
+
+  // ✅ ROUTE DEBUG POUR VÉRIFIER FONCTIONNEMENT
+fastify.get('/debug/:shopId', async (request, reply) => {
+  const { shopId } = request.params as any;
+  return {
+    success: true,
+    message: 'Route publique debug',
+    shopId: shopId,
+    timestamp: new Date().toISOString(),
+    routes: {
+      config: `/api/v1/public/shops/${shopId}/config`,
+      chat: '/api/v1/public/chat'
+    }
+  }
+})
   
   // ✅ ROUTE CORRIGÉE : Configuration publique AVEC NOM DYNAMIQUE ET customProductType
-  fastify.get<{ Params: ShopParamsType }>('/shops/public/:shopId/config', async (request, reply) => {
+  fastify.get<{ Params: ShopParamsType }>('/shops/:shopId/config', async (request, reply) => {
     try {
       const { shopId } = request.params;
       fastify.log.info(`🔍 [PUBLIC CONFIG] Récupération config pour shop: ${shopId}`);

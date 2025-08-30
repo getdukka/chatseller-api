@@ -562,6 +562,16 @@ async function registerRoutes() {
       
       // ✅ ENREGISTRER ROUTES PUBLIQUES EXISTANTES
       await fastify.register(publicRoutes)
+
+      // ✅ AJOUT: Route de test pour debug
+      fastify.get('/test', async (request, reply) => {
+        return {
+          success: true,
+          message: 'Route publique test OK',
+          timestamp: new Date().toISOString(),
+          prefix: '/api/v1/public'
+        }
+      })
       
     }, { prefix: '/api/v1/public' })
 
