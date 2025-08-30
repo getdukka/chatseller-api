@@ -896,20 +896,22 @@ Souhaitez-vous le commander ? 😊`;
 
 export default async function publicRoutes(fastify: FastifyInstance) {
 
+  // ✅ CORRECTION CRITIQUE : AJOUTER LE PRÉFIXE /public/ POUR TOUTES LES ROUTES
+  
   // ✅ ROUTE DEBUG POUR VÉRIFIER FONCTIONNEMENT
-fastify.get('/debug/:shopId', async (request, reply) => {
-  const { shopId } = request.params as any;
-  return {
-    success: true,
-    message: 'Route publique debug',
-    shopId: shopId,
-    timestamp: new Date().toISOString(),
-    routes: {
-      config: `/api/v1/public/shops/${shopId}/config`,
-      chat: '/api/v1/public/chat'
+  fastify.get('/debug/:shopId', async (request, reply) => {
+    const { shopId } = request.params as any;
+    return {
+      success: true,
+      message: 'Route publique debug',
+      shopId: shopId,
+      timestamp: new Date().toISOString(),
+      routes: {
+        config: `/api/v1/public/shops/${shopId}/config`,
+        chat: '/api/v1/public/chat'
+      }
     }
-  }
-})
+  })
   
   // ✅ ROUTE CORRIGÉE : Configuration publique AVEC NOM DYNAMIQUE ET customProductType
   fastify.get<{ Params: ShopParamsType }>('/shops/:shopId/config', async (request, reply) => {
@@ -993,12 +995,12 @@ fastify.get('/debug/:shopId', async (request, reply) => {
             type: agent.type,
             personality: agent.personality,
             description: agent.description,
-            welcomeMessage: agent.welcome_message, // ✅ CORRECTION : Inclure le message personnalisé
+            welcomeMessage: agent.welcome_message,
             fallbackMessage: agent.fallback_message,
             avatar: agent.avatar,
             config: agent.config,
-            productType: agent.product_type, // ✅ AJOUT
-            customProductType: agent.custom_product_type // ✅ AJOUT
+            productType: agent.product_type,
+            customProductType: agent.custom_product_type
           },
           knowledgeBase: {
             content: knowledgeContent,
@@ -1135,7 +1137,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
           agent, 
           productInfo, 
           shopConfig.name, 
-          agent.custom_product_type // ✅ AJOUT customProductType
+          agent.custom_product_type
         );
         
         const conversationId = randomUUID();
