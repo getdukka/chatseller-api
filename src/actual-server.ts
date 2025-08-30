@@ -1,5 +1,5 @@
 // =====================================
-// SERVER.TS - VERSION FINALE CORRIGÉE AVEC TOUTES LES ROUTES
+// SERVER.TS - VERSION FINALE CORRIGÉE AVEC CORS COMPLET POUR E-COMMERCE
 // =====================================
 
 import dotenv from 'dotenv'
@@ -26,7 +26,7 @@ import supportRoutes from './routes/support'
 // ✅ SUPABASE CLIENT INTÉGRÉ
 import { createClient } from '@supabase/supabase-js'
 
-console.log('🚀 === DÉMARRAGE CHATSELLER API v1.6.1 (PRODUCTION FINALE CORRIGÉE) ===')
+console.log('🚀 === DÉMARRAGE CHATSELLER API v1.6.2 (CORS E-COMMERCE CORRIGÉ) ===')
 
 // ✅ VALIDATION VARIABLES D'ENVIRONNEMENT
 const requiredEnvVars = {
@@ -242,77 +242,134 @@ async function registerPlugins() {
       crossOriginEmbedderPolicy: false
     })
 
-    // ✅ CORS AMÉLIORÉ
+    // ✅ CORS CORRIGÉ COMPLET POUR E-COMMERCE - CONFIGURATION MAXIMALE
     await fastify.register(cors, {
       origin: (origin, callback) => {
-        console.log('🌐 [CORS] Origin demandée:', origin)
+        console.log('🌐 [CORS] Origin demandée:', origin || 'NO_ORIGIN')
         
-        const allowedOrigins = [
+        // ✅ PAS D'ORIGIN (REQUÊTES DIRECTES, POSTMAN, CURL) - AUTORISER
+        if (!origin) {
+          console.log('✅ [CORS] Pas d\'origin (requête directe) - AUTORISÉ')
+          return callback(null, true)
+        }
+        
+        // ✅ DOMAINES CHATSELLER OFFICIELS - AUTORISER
+        const chatseller_domains = [
           'https://dashboard.chatseller.app',
           'https://chatseller.app', 
           'https://docs.chatseller.app',
           'https://widget.chatseller.app',
-          'http://localhost:3000',
-          'http://localhost:3002',
-          'http://localhost:8080',
           'https://chatseller-dashboard.vercel.app',
           'https://chatseller-widget.vercel.app'
         ]
         
-        // ✅ PAS D'ORIGIN (REQUÊTES DIRECTES) - AUTORISER
-        if (!origin) {
-          console.log('✅ [CORS] Pas d\'origin - AUTORISÉ')
-          return callback(null, true)
-        }
-        
-        // ✅ DOMAINES CHATSELLER - AUTORISER
-        if (origin.includes('.chatseller.app') || 
-            origin.includes('chatseller') ||
-            origin.includes('vercel.app')) {
-          console.log('✅ [CORS] Domaine ChatSeller - AUTORISÉ:', origin)
+        if (chatseller_domains.includes(origin)) {
+          console.log('✅ [CORS] Domaine ChatSeller officiel - AUTORISÉ:', origin)
           return callback(null, true)
         }
         
         // ✅ DÉVELOPPEMENT LOCAL - AUTORISER
-        if (process.env.NODE_ENV !== 'production' && 
-            (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+        if (origin.includes('localhost') || 
+            origin.includes('127.0.0.1') || 
+            origin.includes('192.168.') ||
+            origin.includes(':3000') ||
+            origin.includes(':3001') ||
+            origin.includes(':3002') ||
+            origin.includes(':8080')) {
           console.log('✅ [CORS] Développement local - AUTORISÉ:', origin)
           return callback(null, true)
         }
         
-        // ✅ SHOPIFY ET AUTRES PLATEFORMES E-COMMERCE - AUTORISER
-        if (origin.includes('myshopify.com') || 
-            origin.includes('shopify') ||
-            origin.includes('woocommerce') ||
-            origin.includes('magento') ||
-            origin.includes('prestashop') ||
-            origin.includes('bigcommerce') ||
-            origin.includes('wix.com') ||
-            origin.includes('squarespace.com') ||
-            origin.includes('youcan.shop')) {
-          console.log('✅ [CORS] Plateforme e-commerce - AUTORISÉ:', origin)
+        // ✅ PLATEFORMES E-COMMERCE OFFICIELLES - AUTORISER
+        const ecommerce_patterns = [
+          /\.myshopify\.com$/,
+          /\.shopify\.com$/,
+          /\.shopifypreview\.com$/,
+          /\.woocommerce\.com$/,
+          /\.magento\.com$/,
+          /\.prestashop\.com$/,
+          /\.bigcommerce\.com$/,
+          /\.wix\.com$/,
+          /\.squarespace\.com$/,
+          /\.youcan\.shop$/,
+          /\.vercel\.app$/,
+          /\.netlify\.app$/,
+          /\.herokuapp\.com$/
+        ]
+        
+        for (const pattern of ecommerce_patterns) {
+          if (pattern.test(origin)) {
+            console.log('✅ [CORS] Plateforme e-commerce - AUTORISÉ:', origin)
+            return callback(null, true)
+          }
+        }
+        
+        // ✅ HEURISTIQUES E-COMMERCE (MOTS-CLÉS DANS L'URL) - AUTORISER
+        const ecommerce_keywords = [
+          'shop', 'store', 'boutique', 'market', 'commerce', 'vente',
+          'buy', 'sell', 'product', 'produit', 'achat'
+        ]
+        
+        const hasEcommerceKeyword = ecommerce_keywords.some(keyword => 
+          origin.toLowerCase().includes(keyword)
+        )
+        
+        if (hasEcommerceKeyword) {
+          console.log('✅ [CORS] Domaine e-commerce (heuristique) - AUTORISÉ:', origin)
           return callback(null, true)
         }
         
-        // ✅ DOMAINES PERSONNALISÉS E-COMMERCE (HEURISTIQUES)
-        if (origin.includes('shop') || 
-            origin.includes('store') || 
-            origin.includes('boutique') ||
-            origin.includes('market') ||
-            origin.includes('commerce') ||
-            origin.match(/\.(com|fr|net|org|shop|store)$/)) {
-          console.log('✅ [CORS] Domaine e-commerce probable - AUTORISÉ:', origin)
+        // ✅ DOMAINES GÉNÉRIQUES TRÈS PERMISSIFS POUR E-COMMERCE - AUTORISER
+        const generic_patterns = [
+          /^https:\/\/[^.]+\.com$/,
+          /^https:\/\/[^.]+\.fr$/,
+          /^https:\/\/[^.]+\.net$/,
+          /^https:\/\/[^.]+\.org$/,
+          /^https:\/\/[^.]+\.sn$/,
+          /^https:\/\/[^.]+\.shop$/,
+          /^https:\/\/[^.]+\.store$/,
+          /^https:\/\/www\.[^.]+\.(com|fr|net|org|sn|shop|store)$/
+        ]
+        
+        for (const pattern of generic_patterns) {
+          if (pattern.test(origin)) {
+            console.log('✅ [CORS] Domaine générique e-commerce - AUTORISÉ:', origin)
+            return callback(null, true)
+          }
+        }
+        
+        // ✅ SITES SPÉCIFIQUES CONNUS (TON SITE DE TEST)
+        const specific_sites = [
+          'https://www.viensonseconnait.com',
+          'https://viensonseconnait.com',
+          'http://www.viensonseconnait.com',
+          'http://viensonseconnait.com'
+        ]
+        
+        if (specific_sites.includes(origin)) {
+          console.log('✅ [CORS] Site spécifique connu - AUTORISÉ:', origin)
           return callback(null, true)
         }
         
-        // ✅ LISTE EXPLICITE - AUTORISER
-        if (allowedOrigins.includes(origin)) {
-          console.log('✅ [CORS] Liste explicite - AUTORISÉ:', origin)
+        // ✅ MODE DÉVELOPPEMENT - TRÈS PERMISSIF
+        if (process.env.NODE_ENV === 'development') {
+          console.log('✅ [CORS] Mode développement - TOUT AUTORISÉ:', origin)
           return callback(null, true)
         }
         
-        // ✅ REFUSER AVEC LOG
+        // ✅ FALLBACK - REFUSER AVEC LOG DÉTAILLÉ
         console.log(`❌ [CORS] Origin refusée: ${origin}`)
+        console.log(`    - Pas un domaine ChatSeller`)
+        console.log(`    - Pas un domaine e-commerce reconnu`)
+        console.log(`    - Pas un site spécifique autorisé`)
+        console.log(`    - Pas en mode développement`)
+        
+        // ✅ EN PRODUCTION, ÊTRE TRÈS PERMISSIF POUR LES E-COMMERCES
+        if (process.env.NODE_ENV === 'production') {
+          console.log('⚠️ [CORS] Production - AUTORISATION PERMISSIVE pour e-commerce:', origin)
+          return callback(null, true) // ✅ TRÈS PERMISSIF EN PRODUCTION
+        }
+        
         callback(new Error('Non autorisé par CORS'), false)
       },
       credentials: true,
@@ -325,16 +382,63 @@ async function registerPlugins() {
         'Origin',
         'X-Auth-Token',
         'X-Shop-Id',
+        'X-Message-Count',
         'User-Agent',
-        'Referer'
+        'Referer',
+        'Cache-Control',
+        'Pragma'
       ],
-      optionsSuccessStatus: 200
+      exposedHeaders: [
+        'X-Total-Count',
+        'X-Page-Count',
+        'Link'
+      ],
+      optionsSuccessStatus: 200,
+      preflightContinue: false,
+      preflight: true
+    })
+
+    // ✅ AJOUT CRITIQUE : Handler spécial pour OPTIONS (preflight CORS)
+    fastify.addHook('onRequest', async (request, reply) => {
+      if (request.method === 'OPTIONS') {
+        console.log('🔄 [CORS] Requête OPTIONS preflight détectée:', request.headers.origin)
+        
+        // ✅ Headers CORS manuels pour garantir compatibilité
+        reply.header('Access-Control-Allow-Origin', request.headers.origin || '*')
+        reply.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH')
+        reply.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth-Token,X-Shop-Id,X-Message-Count,User-Agent,Referer,Cache-Control')
+        reply.header('Access-Control-Allow-Credentials', 'true')
+        reply.header('Access-Control-Max-Age', '86400') // 24h cache preflight
+        
+        return reply.status(200).send('OK')
+      }
+    })
+
+    // ✅ HOOK POUR AJOUTER HEADERS CORS SUR TOUTES LES RÉPONSES
+    fastify.addHook('onSend', async (request, reply, payload) => {
+      const origin = request.headers.origin
+      if (origin) {
+        reply.header('Access-Control-Allow-Origin', origin)
+        reply.header('Access-Control-Allow-Credentials', 'true')
+      }
+      
+      // ✅ Headers de sécurité pour e-commerce
+      reply.header('X-Content-Type-Options', 'nosniff')
+      reply.header('X-Frame-Options', 'SAMEORIGIN')
+      reply.header('Referrer-Policy', 'strict-origin-when-cross-origin')
+      
+      return payload
     })
 
     await fastify.register(rateLimit, {
-      max: 500,
+      max: 1000, // ✅ Augmenté pour e-commerce
       timeWindow: '1 minute',
-      keyGenerator: (request) => `${request.ip}-${request.headers['user-agent']?.slice(0, 50) || 'unknown'}`,
+      keyGenerator: (request) => {
+        // ✅ Rate limiting par IP + domaine d'origine
+        const origin = request.headers.origin || 'no-origin'
+        const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
+        return `${request.ip}-${origin.replace(/https?:\/\//, '')}-${shopId}`.substring(0, 100)
+      },
       errorResponseBuilder: (request, context) => ({
         success: false,
         error: 'Trop de requêtes',
@@ -342,7 +446,7 @@ async function registerPlugins() {
       })
     })
 
-    console.log('✅ Plugins Fastify enregistrés')
+    console.log('✅ Plugins Fastify enregistrés avec CORS e-commerce complet')
 
   } catch (error) {
     console.error('❌ Erreur enregistrement plugins:', error)
@@ -359,10 +463,11 @@ async function registerRoutes() {
       return reply.status(200).send({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        version: '1.6.1',
+        version: '1.6.2',
         environment: process.env.NODE_ENV || 'production',
         uptime: Math.round(process.uptime()),
-        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+        memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+        cors: 'e-commerce-enabled'
       })
     })
 
@@ -373,7 +478,8 @@ async function registerRoutes() {
         timestamp: new Date().toISOString(),
         services: {
           api: 'ok',
-          supabase: 'checking...'
+          supabase: 'checking...',
+          cors: 'e-commerce-enabled'
         },
         uptime: Math.round(process.uptime()),
         memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
@@ -389,18 +495,42 @@ async function registerRoutes() {
       return reply.status(200).send(healthData)
     })
 
+    // ✅ NOUVEAU : ENDPOINT DE TEST CORS SPÉCIFIQUE
+    fastify.get('/cors-test', async (request, reply) => {
+      const origin = request.headers.origin
+      return {
+        success: true,
+        message: 'CORS test endpoint',
+        origin: origin || 'NO_ORIGIN',
+        timestamp: new Date().toISOString(),
+        headers: {
+          'user-agent': request.headers['user-agent'],
+          'referer': request.headers.referer,
+          'host': request.headers.host
+        }
+      }
+    })
+
     // ✅ ROUTE RACINE
     fastify.get('/', async (request, reply) => {
       return {
         success: true,
-        message: 'ChatSeller API is running (Production avec Routes Complètes CORRIGÉE)',
-        version: '1.6.1',
+        message: 'ChatSeller API is running (Production avec CORS E-Commerce Corrigé)',
+        version: '1.6.2',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'production',
         database: 'Supabase',
+        cors: {
+          status: 'e-commerce-enabled',
+          supportedPlatforms: [
+            'Shopify', 'WooCommerce', 'Magento', 'PrestaShop', 
+            'BigCommerce', 'Wix', 'Squarespace', 'YouCan'
+          ]
+        },
         routes: {
           health: '/health',
           healthFull: '/health/full',
+          corsTest: '/cors-test',
           diagnostic: '/api/v1/diagnostic',
           testSupabase: '/api/v1/test-supabase',
           public: '/api/v1/public/*',
@@ -411,20 +541,37 @@ async function registerRoutes() {
     })
 
     // =====================================
-    // ✅ ROUTES PUBLIQUES (POUR WIDGET)
+    // ✅ ROUTES PUBLIQUES (POUR WIDGET) - RATE LIMITING ADAPTÉ E-COMMERCE
     // =====================================
     await fastify.register(async function (fastify) {
       await fastify.register(rateLimit, {
-        max: 1000,
+        max: 2000, // ✅ Très élevé pour les e-commerces
         timeWindow: '1 minute',
         keyGenerator: (request) => {
           const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
-          return `public-${request.ip}-${shopId}`
-        }
+          const origin = request.headers.origin || 'no-origin'
+          return `public-${request.ip}-${shopId}-${origin.replace(/https?:\/\//, '').substring(0, 30)}`
+        },
+        errorResponseBuilder: (request, context) => ({
+          success: false,
+          error: 'Limite de requêtes atteinte pour ce site',
+          retryAfter: context.after,
+          shopId: (request.body as any)?.shopId || 'unknown'
+        })
       })
       
       // ✅ ENREGISTRER ROUTES PUBLIQUES EXISTANTES
       await fastify.register(publicRoutes)
+
+      // ✅ AJOUT: Route de test pour debug
+      fastify.get('/test', async (request, reply) => {
+        return {
+          success: true,
+          message: 'Route publique test OK',
+          timestamp: new Date().toISOString(),
+          prefix: '/api/v1/public'
+        }
+      })
       
     }, { prefix: '/api/v1/public' })
 
@@ -492,7 +639,7 @@ async function registerRoutes() {
       fastify.addHook('preHandler', authenticate)
       
       // =====================================
-      // 🩺 ROUTE DIAGNOSTIC PROTÉGÉE BUSINESS
+      // 🩺 ROUTE DIAGNOSTIC PROTÉGÉE BUSINESS AVEC TEST CORS
       // =====================================
       fastify.get('/diagnostic', async (request, reply) => {
         try {
@@ -509,6 +656,11 @@ async function registerRoutes() {
           const diagnosticResults = {
             timestamp: new Date().toISOString(),
             environment: process.env.NODE_ENV,
+            cors: {
+              status: 'e-commerce-enabled',
+              origin: request.headers.origin || 'NO_ORIGIN',
+              userAgent: request.headers['user-agent'] || 'NO_USER_AGENT'
+            },
             user: {
               id: user.id,
               email: user.email,
@@ -604,6 +756,28 @@ async function registerRoutes() {
             }
           }
 
+          // ✅ TEST 4 : Test endpoint public depuis cette origine
+          try {
+            console.log('🧪 Test 4: Test endpoint public CORS')
+            const publicTestUrl = `${request.protocol}://${request.headers.host}/cors-test`
+            const corsTestResult = await fetch(publicTestUrl, {
+              headers: {
+                'Origin': request.headers.origin || 'https://test-cors.com'
+              }
+            }).then(res => res.ok).catch(() => false)
+            
+            diagnosticResults.tests.corsTest = {
+              success: corsTestResult,
+              testUrl: publicTestUrl,
+              origin: request.headers.origin
+            }
+          } catch (error: any) {
+            diagnosticResults.tests.corsTest = {
+              success: false,
+              error: error.message
+            }
+          }
+
           // ✅ GÉNÉRER RECOMMANDATIONS
           const recommendations = []
           const failedTables: string[] = []
@@ -620,7 +794,7 @@ async function registerRoutes() {
             failedTables.push(...failed)
 
             if (failed.length > 0) {
-              recommendations.push(`📊 Tables inaccessibles: ${failed.join(', ')} - DÉSACTIVER RLS`)
+              recommendations.push(`📊 Tables inaccessibles: ${failed.join(', ')} - DÉSACTIVER RLS avec: ${failed.map(t => `ALTER TABLE public.${t} DISABLE ROW LEVEL SECURITY;`).join(' ')}`)
             }
           }
 
@@ -628,8 +802,12 @@ async function registerRoutes() {
             recommendations.push('🏪 Problème accès shop utilisateur - Vérifier RLS sur table shops')
           }
 
+          if (!diagnosticResults.tests.corsTest?.success) {
+            recommendations.push('🌐 Problème CORS détecté - Vérifier configuration CORS')
+          }
+
           if (recommendations.length === 0) {
-            recommendations.push('✅ Toutes les vérifications sont passées avec succès')
+            recommendations.push('✅ Toutes les vérifications sont passées avec succès!')
           }
 
           console.log('🩺 === FIN DIAGNOSTIC ===')
@@ -640,7 +818,14 @@ async function registerRoutes() {
             recommendations: recommendations,
             sqlFix: failedTables.length > 0 ? 
               `-- Solution rapide: Copier dans Supabase SQL Editor\n${failedTables.map(table => `ALTER TABLE public.${table} DISABLE ROW LEVEL SECURITY;`).join('\n')}` 
-              : null
+              : null,
+            corsDebug: {
+              currentOrigin: request.headers.origin,
+              userAgent: request.headers['user-agent'],
+              referer: request.headers.referer,
+              allowedMethods: 'GET,POST,PUT,DELETE,OPTIONS,PATCH',
+              status: 'fully-permissive-for-ecommerce'
+            }
           }
 
         } catch (error: any) {
@@ -755,7 +940,7 @@ async function registerRoutes() {
       
     }, { prefix: '/api/v1' })
 
-    // ✅ FALLBACK 404 AMÉLIORÉ
+    // ✅ FALLBACK 404 AMÉLIORÉ AVEC INFO CORS
     fastify.setNotFoundHandler(async (request, reply) => {
       console.log(`❌ Route non trouvée: ${request.method} ${request.url}`)
       
@@ -765,8 +950,11 @@ async function registerRoutes() {
         method: request.method,
         url: request.url,
         timestamp: new Date().toISOString(),
+        origin: request.headers.origin,
+        cors: 'e-commerce-enabled',
         availableRoutes: {
           health: ['GET /health', 'GET /health/full'],
+          corsTest: ['GET /cors-test'],
           diagnostic: ['GET /api/v1/diagnostic'],
           testSupabase: ['GET /api/v1/test-supabase'],
           public: [
@@ -820,6 +1008,7 @@ async function start() {
   try {
     console.log('📊 Environment:', process.env.NODE_ENV || 'production')
     console.log('🗄️ Database: Supabase')
+    console.log('🌐 CORS: E-Commerce Full Support Enabled')
 
     const port = parseInt(process.env.PORT || '3001', 10)
     const host = '0.0.0.0'
@@ -838,6 +1027,8 @@ async function start() {
     console.log(`📝 Routes business complètes enregistrées`)
     console.log(`🩺 Route diagnostic: /api/v1/diagnostic`)
     console.log(`🧪 Route test: /api/v1/test-supabase`)
+    console.log(`🌐 Route test CORS: /cors-test`)
+    console.log(`🔓 CORS: Shopify, WooCommerce et tous e-commerces autorisés`)
     
     // Test Supabase en arrière-plan
     setTimeout(async () => {
