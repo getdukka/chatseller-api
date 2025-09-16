@@ -1,4 +1,4 @@
-// src/middleware/auth.ts - VERSION SUPABASE PURE
+// src/middleware/auth.ts
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { supabaseAuthClient } from '../lib/supabase'
 

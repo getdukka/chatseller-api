@@ -67,7 +67,7 @@ const updateShopSchema = z.object({
   domain: z.string().nullable().optional(),
   industry: z.string().optional(),
   platform: z.string().optional(),
-  subscription_plan: z.enum(['free', 'starter', 'pro', 'professional', 'enterprise']).optional(),
+  subscription_plan: z.enum(['starter', 'growth', 'performance']).optional(),
   onboarding_completed: z.boolean().optional(),
   onboarding_completed_at: z.string().datetime().nullable().optional(),
   widget_config: z.object({
@@ -106,7 +106,7 @@ const createShopSchema = z.object({
   domain: z.string().nullable().optional(),
   industry: z.string().optional(),
   platform: z.string().optional(),
-  subscription_plan: z.enum(['free', 'starter', 'pro', 'professional', 'enterprise']).default('free'),
+  subscription_plan: z.enum(['starter', 'growth', 'performance']).default('starter'),
   is_active: z.boolean().default(true),
   onboarding_completed: z.boolean().default(false),
   onboarding_completed_at: z.string().datetime().nullable().optional(),
@@ -202,10 +202,25 @@ async function getOrCreateShop(user: any, fastify: FastifyInstance) {
         id: user.id,
         name: user.user_metadata?.full_name || user.email.split('@')[0] || 'Boutique',
         email: user.email,
-        subscription_plan: 'free',
+        // ✅ CORRIGÉ : Nouveau plan par défaut
+        subscription_plan: 'starter',
         is_active: true,
         widget_config: defaultWidgetConfig,
-        agent_config: defaultAgentConfig
+        agent_config: defaultAgentConfig,
+        // ✅ AJOUTER : Quotas par défaut
+        quotas: {
+          aiResponses: 1000,
+          knowledgeDocuments: 50,
+          indexablePages: 500,
+          agents: -1,
+          additionalAgentCost: 10
+        },
+        quotas_usage: {
+          aiResponses: 0,
+          knowledgeDocuments: 0,
+          indexablePages: 0,
+          agents: 0
+        }
       })
       .select()
       .single();
@@ -534,7 +549,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           domain: body.domain,
           industry: body.industry, 
           platform: body.platform,
-          subscription_plan: body.subscription_plan,
+          subscription_plan: body.subscription_plan || 'starter',
           is_active: body.is_active,
           onboarding_completed: body.onboarding_completed, 
           onboarding_completed_at: body.onboarding_completed_at ? body.onboarding_completed_at : null, 
@@ -859,6 +874,157 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       });
     }
   });
+
+  // ✅ GET quotas actuels
+fastify.get<{ Params: { shopId: string } }>('/:shopId/quotas', async (request, reply) => {
+  try {
+    const { shopId } = request.params
+    const user = await verifySupabaseAuth(request)
+    
+    // Vérifier ownership
+    if (user.id !== shopId) {
+      return reply.status(403).send({ success: false, error: 'Accès refusé' })
+    }
+    
+    const { data: shop, error } = await supabaseServiceClient
+      .from('shops')
+      .select('quotas_usage, subscription_plan')
+      .eq('id', shopId)
+      .single()
+    
+    if (error || !shop) {
+      return reply.status(404).send({ success: false, error: 'Shop non trouvé' })
+    }
+    
+    return {
+      success: true,
+      data: {
+        quotas_usage: shop.quotas_usage || {
+          aiResponses: 0,
+          knowledgeDocuments: 0,
+          indexablePages: 0,
+          agents: 0
+        },
+        subscription_plan: shop.subscription_plan
+      }
+    }
+  } catch (error: any) {
+    return reply.status(500).send({ success: false, error: error.message })
+  }
+})
+
+// ✅ POST incrémenter quota
+fastify.post<{ 
+  Params: { shopId: string }
+  Body: { quota: string, amount: number }
+}>('/:shopId/quotas/increment', async (request, reply) => {
+  try {
+    const { shopId } = request.params
+    const { quota, amount } = request.body
+    const user = await verifySupabaseAuth(request)
+    
+    if (user.id !== shopId) {
+      return reply.status(403).send({ success: false, error: 'Accès refusé' })
+    }
+    
+    // Valider quota type
+    const validQuotas = ['aiResponses', 'knowledgeDocuments', 'indexablePages', 'agents']
+    if (!validQuotas.includes(quota)) {
+      return reply.status(400).send({ success: false, error: 'Type de quota invalide' })
+    }
+    
+    // Récupérer quotas actuels
+    const { data: shop, error: fetchError } = await supabaseServiceClient
+      .from('shops')
+      .select('quotas_usage')
+      .eq('id', shopId)
+      .single()
+    
+    if (fetchError || !shop) {
+      return reply.status(404).send({ success: false, error: 'Shop non trouvé' })
+    }
+    
+    // Calculer nouveaux quotas
+    const currentQuotas = shop.quotas_usage || {}
+    const newQuotas = {
+      ...currentQuotas,
+      [quota]: (currentQuotas[quota] || 0) + amount
+    }
+    
+    // Mettre à jour
+    const { data: updatedShop, error: updateError } = await supabaseServiceClient
+      .from('shops')
+      .update({ quotas_usage: newQuotas })
+      .eq('id', shopId)
+      .select('quotas_usage')
+      .single()
+    
+    if (updateError) {
+      throw updateError
+    }
+    
+    fastify.log.info(`✅ Quota ${quota} incrémenté de ${amount} pour shop ${shopId}`)
+    
+    return {
+      success: true,
+      data: {
+        quotas_usage: updatedShop.quotas_usage
+      }
+    }
+  } catch (error: any) {
+    return reply.status(500).send({ success: false, error: error.message })
+  }
+})
+
+// ✅ POST reset quotas mensuels
+fastify.post<{ Params: { shopId: string } }>('/:shopId/quotas/reset', async (request, reply) => {
+  try {
+    const { shopId } = request.params
+    const user = await verifySupabaseAuth(request)
+    
+    if (user.id !== shopId) {
+      return reply.status(403).send({ success: false, error: 'Accès refusé' })
+    }
+    
+    // Reset quotas (garder agents)
+    const { data: shop, error: fetchError } = await supabaseServiceClient
+      .from('shops')
+      .select('quotas_usage')
+      .eq('id', shopId)
+      .single()
+    
+    const currentAgents = shop?.quotas_usage?.agents || 0
+    
+    const resetQuotas = {
+      aiResponses: 0,
+      knowledgeDocuments: 0, 
+      indexablePages: 0,
+      agents: currentAgents // Garder le nombre d'agents
+    }
+    
+    const { data: updatedShop, error: updateError } = await supabaseServiceClient
+      .from('shops')
+      .update({ quotas_usage: resetQuotas })
+      .eq('id', shopId)
+      .select('quotas_usage')
+      .single()
+    
+    if (updateError) {
+      throw updateError
+    }
+    
+    fastify.log.info(`✅ Quotas mensuels réinitialisés pour shop ${shopId}`)
+    
+    return {
+      success: true,
+      data: {
+        quotas_usage: updatedShop.quotas_usage
+      }
+    }
+  } catch (error: any) {
+    return reply.status(500).send({ success: false, error: error.message })
+  }
+})
 
   // ✅ ROUTE : LISTE DES SHOPS - REQUÊTE AGENTS CORRIGÉE
   fastify.get('/', async (request, reply) => {

@@ -1,8 +1,8 @@
-// src/routes/orders.ts - VERSION SUPABASE PURE CORRIGÉE ✅
+// src/routes/orders.ts - VERSION CORRIGÉE COMPATIBLE ANALYTICS ✅
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { supabaseServiceClient } from '../lib/supabase'; // ✅ UNIQUEMENT SUPABASE
+import { supabaseServiceClient } from '../lib/supabase';
 
 // ✅ SCHÉMAS DE VALIDATION
 const orderStepSchema = z.object({
@@ -18,17 +18,32 @@ const completeOrderSchema = z.object({
       id: z.string().optional(),
       name: z.string(),
       price: z.number(),
-      quantity: z.number()
+      quantity: z.number(),
+      category: z.string().optional(),
+      ai_recommended: z.boolean().optional()
     })),
     customer: z.object({
       name: z.string(),
       phone: z.string(),
       email: z.string().optional(),
-      address: z.string().optional()
+      address: z.string().optional(),
+      profile: z.object({
+        beauty_category: z.string().optional(),
+        skin_type: z.string().optional(),
+        age_range: z.string().optional(),
+        preferences: z.array(z.string()).optional()
+      }).optional()
     }),
     paymentMethod: z.string(),
     totalAmount: z.number(),
-    notes: z.string().optional()
+    upsellAmount: z.number().optional(),
+    notes: z.string().optional(),
+    // ✅ NOUVEAUX CHAMPS ANALYTICS
+    attribution: z.object({
+      method: z.enum(['utm', 'cookie', 'session', 'referral']).optional(),
+      confidence_score: z.number().min(0).max(100).optional(),
+      tracking_data: z.record(z.any()).optional()
+    }).optional()
   })
 });
 
@@ -42,15 +57,24 @@ interface OrderWorkflow {
       name: string;
       price: number;
       quantity: number;
+      category?: string;
+      ai_recommended?: boolean;
     }>;
     customer?: {
       name?: string;
       phone?: string;
       email?: string;
       address?: string;
+      profile?: {
+        beauty_category?: string;
+        skin_type?: string;
+        age_range?: string;
+        preferences?: string[];
+      };
     };
     paymentMethod?: string;
     totalAmount?: number;
+    upsellAmount?: number;
     notes?: string;
   };
   startedAt: Date;
@@ -109,7 +133,6 @@ function extractOrderData(message: string, step: string): any {
   
   switch (step) {
     case 'product':
-      // Extraire quantité si mentionnée
       const quantityMatch = msg.match(/(\d+)\s*(exemplaires?|pièces?|unités?)?/);
       return {
         quantity: quantityMatch ? parseInt(quantityMatch[1]) : 1,
@@ -123,7 +146,6 @@ function extractOrderData(message: string, step: string): any {
       };
     
     case 'name':
-      // Extraire le nom (éviter les mots courants)
       const nameWords = message.split(' ').filter(word => 
         word.length > 2 && 
         !['bonjour', 'salut', 'oui', 'merci', 'suis', 'appelle'].includes(word.toLowerCase())
@@ -133,7 +155,6 @@ function extractOrderData(message: string, step: string): any {
       };
     
     case 'phone':
-      // Extraire numéro de téléphone
       const phoneMatch = msg.match(/(\+?[0-9\s\-\(\)]{8,})/);
       return {
         phone: phoneMatch ? phoneMatch[1].replace(/\s/g, '') : null
@@ -179,18 +200,52 @@ function getUserShopId(request: any): string | null {
   return user?.shopId || user?.shop_id || user?.id || null
 }
 
+// ✅ HELPER : Calculer attribution automatique
+function calculateAttribution(conversationId: string, trackingData?: any): {
+  method: 'utm' | 'cookie' | 'session' | 'referral';
+  confidence_score: number;
+  tracking_data: any;
+} {
+  // Logique d'attribution simplifiée
+  // En production, analyser UTM, cookies, referrers, etc.
+  
+  if (trackingData?.utm_source) {
+    return {
+      method: 'utm',
+      confidence_score: 95,
+      tracking_data: trackingData
+    };
+  }
+  
+  if (trackingData?.referral_code) {
+    return {
+      method: 'referral',
+      confidence_score: 98,
+      tracking_data: trackingData
+    };
+  }
+  
+  // Par défaut : session ID
+  return {
+    method: 'session',
+    confidence_score: 85,
+    tracking_data: { session_id: conversationId }
+  };
+}
+
 export default async function ordersRoutes(fastify: FastifyInstance) {
   
-  // ✅ ROUTE : Démarrer une nouvelle commande
+  // ✅ ROUTE : Démarrer une nouvelle commande (COMPATIBLE ANALYTICS)
   fastify.post<{ 
     Body: { 
       conversationId: string;
       productInfo?: any;
       message?: string;
+      trackingData?: any;
     } 
   }>('/start-order', async (request, reply) => {
     try {
-      const { conversationId, productInfo, message } = request.body;
+      const { conversationId, productInfo, message, trackingData } = request.body;
       
       fastify.log.info(`🛒 Démarrage commande pour conversation: ${conversationId}`);
       
@@ -203,7 +258,9 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
             id: productInfo.id,
             name: productInfo.name,
             price: productInfo.price || 0,
-            quantity: 1
+            quantity: 1,
+            category: productInfo.category || 'Beauté',
+            ai_recommended: true
           }] : []
         },
         startedAt: new Date(),
@@ -248,14 +305,13 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Traiter une étape de commande
+  // ✅ ROUTE : Traiter une étape de commande (INCHANGÉE)
   fastify.post<{ Body: typeof orderStepSchema._type }>('/process-step', async (request, reply) => {
     try {
       const { conversationId, step, data } = orderStepSchema.parse(request.body);
       
       fastify.log.info(`📝 Traitement étape ${step} pour conversation: ${conversationId}`);
       
-      // Récupérer le workflow existant
       const workflow = orderWorkflows.get(conversationId);
       if (!workflow) {
         return reply.status(404).send({
@@ -302,7 +358,6 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       const currentIndex = stepOrder.indexOf(step);
       let nextStep = stepOrder[currentIndex + 1];
       
-      // Skip address si pas nécessaire (retrait magasin)
       if (nextStep === 'address' && data.paymentMethod === 'Retrait en magasin') {
         nextStep = 'payment';
       }
@@ -315,7 +370,6 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       let responseData: any = workflow.collectedData;
       
       if (nextStep === 'confirmation') {
-        // Générer le récapitulatif
         const summary = generateOrderSummary(workflow);
         responseMessage = getStepMessage('confirmation', { summary });
         responseData = { ...workflow.collectedData, summary };
@@ -323,7 +377,6 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         responseMessage = getStepMessage(nextStep, workflow.collectedData);
       }
       
-      // Sauvegarder le workflow mis à jour
       orderWorkflows.set(conversationId, workflow);
       
       return {
@@ -345,47 +398,81 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Finaliser et sauvegarder la commande (VERSION SUPABASE CORRIGÉE)
+  // ✅ ROUTE : Finaliser et sauvegarder la commande (VERSION ANALYTICS COMPLÈTE)
   fastify.post<{ Body: typeof completeOrderSchema._type }>('/complete', async (request, reply) => {
     try {
       const { conversationId, orderData } = completeOrderSchema.parse(request.body);
       
       fastify.log.info(`✅ Finalisation commande pour conversation: ${conversationId}`);
       
-      // ✅ RÉCUPÉRER INFORMATIONS DE LA CONVERSATION AVEC SUPABASE - COLONNES CORRIGÉES
+      // ✅ RÉCUPÉRER INFORMATIONS DE LA CONVERSATION
       const { data: conversation, error: convError } = await supabaseServiceClient
         .from('conversations')
-        .select('shop_id, agent_id')  // ✅ CORRIGÉ : shop_id, agent_id
+        .select('shop_id, agent_id, visitor_id, product_name, created_at')
         .eq('id', conversationId)
         .single();
 
       if (convError || !conversation) {
-        fastify.log.error(`❌ Conversation non trouvée: ${convError?.message || 'Conversation inexistante'}`);
+        fastify.log.error(`❌ Conversation non trouvée: ${convError?.message}`);
         return reply.status(404).send({
           success: false,
           error: 'Conversation non trouvée'
         });
       }
       
-      // ✅ CRÉER LA COMMANDE AVEC SUPABASE - TOUTES COLONNES CORRIGÉES
+      // ✅ CALCULER ATTRIBUTION AUTOMATIQUE
+      const attribution = calculateAttribution(conversationId, orderData.attribution?.tracking_data);
+      
+      // ✅ CALCULER MÉTRIQUES ANALYTICS
+      const conversationDuration = calculateConversationDuration(conversation.created_at, new Date().toISOString());
+      
+      // ✅ CRÉER LA COMMANDE AVEC DONNÉES ANALYTICS COMPLÈTES
+      const orderInsertData = {
+        // Données de base
+        conversation_id: conversationId,
+        shop_id: conversation.shop_id,
+        customer_name: orderData.customer.name,
+        customer_phone: orderData.customer.phone,
+        customer_email: orderData.customer.email || null,
+        customer_address: orderData.customer.address || null,
+        
+        // ✅ NOUVEAU : Profil client beauté
+        customer_profile: orderData.customer.profile || null,
+        
+        // Produits
+        product_items: orderData.products,
+        total_amount: orderData.totalAmount,
+        upsell_amount: orderData.upsellAmount || null,
+        currency: 'XOF',
+        payment_method: orderData.paymentMethod,
+        notes: orderData.notes || null,
+        status: 'pending',
+        
+        // ✅ NOUVELLES DONNÉES ANALYTICS
+        attribution_method: attribution.method,
+        confidence_score: orderData.attribution?.confidence_score || attribution.confidence_score,
+        tracking_data: attribution.tracking_data,
+        ai_attributed_revenue: orderData.totalAmount, // 100% attribué à l'IA pour les commandes via workflow
+        organic_revenue: 0,
+        
+        // ✅ MÉTRIQUES DE CONVERSATION
+        conversation_duration: conversationDuration,
+        messages_count: 8, // TODO: Calculer vraiment depuis la conversation
+        satisfaction_score: null, // TODO: Collecter si disponible
+        personalized_recommendations: true, // Toujours true pour workflow IA
+        
+        // ✅ ROI et coûts
+        roi: null, // Sera calculé côté analytics
+        attributed_cost: Math.round(orderData.totalAmount * 0.15), // 15% du CA comme coût par défaut
+        
+        // Timestamps
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
       const { data: order, error: orderError } = await supabaseServiceClient
         .from('orders')
-        .insert({
-          conversation_id: conversationId,           // ✅ CORRIGÉ : conversation_id
-          shop_id: conversation.shop_id,             // ✅ CORRIGÉ : shop_id
-          customer_name: orderData.customer.name,    // ✅ CORRIGÉ : customer_name
-          customer_phone: orderData.customer.phone,  // ✅ CORRIGÉ : customer_phone
-          customer_email: orderData.customer.email || null,    // ✅ CORRIGÉ : customer_email
-          customer_address: orderData.customer.address || null, // ✅ CORRIGÉ : customer_address
-          product_items: orderData.products,         // ✅ CORRIGÉ : product_items
-          total_amount: orderData.totalAmount,       // ✅ CORRIGÉ : total_amount
-          currency: 'XOF',
-          payment_method: orderData.paymentMethod,   // ✅ CORRIGÉ : payment_method
-          notes: orderData.notes || null,
-          status: 'pending',
-          created_at: new Date().toISOString(),      // ✅ CORRIGÉ : created_at
-          updated_at: new Date().toISOString()       // ✅ CORRIGÉ : updated_at
-        })
+        .insert(orderInsertData)
         .select()
         .single();
       
@@ -397,18 +484,17 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
       
-      // ✅ METTRE À JOUR LA CONVERSATION AVEC SUPABASE - COLONNES CORRIGÉES
+      // ✅ METTRE À JOUR LA CONVERSATION
       const { error: updateError } = await supabaseServiceClient
         .from('conversations')
         .update({ 
-          conversion_completed: true,               // ✅ CORRIGÉ : conversion_completed
-          completed_at: new Date().toISOString()    // ✅ CORRIGÉ : completed_at
+          conversion_completed: true,
+          completed_at: new Date().toISOString()
         })
         .eq('id', conversationId);
       
       if (updateError) {
         fastify.log.warn(`⚠️ Erreur mise à jour conversation: ${updateError.message}`);
-        // Ne pas bloquer pour cette erreur
       }
       
       // ✅ NETTOYER LE WORKFLOW TEMPORAIRE
@@ -422,7 +508,13 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         data: {
           orderId: order.id,
           message: confirmationMessage,
-          orderNumber: orderNumber
+          orderNumber: orderNumber,
+          attribution: attribution,
+          analytics: {
+            ai_attributed_revenue: orderData.totalAmount,
+            conversation_duration: conversationDuration,
+            confidence_score: attribution.confidence_score
+          }
         }
       };
       
@@ -435,7 +527,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Analyser un message pour détecter une intention de commande
+  // ✅ ROUTE : Analyser intention commande (INCHANGÉE)
   fastify.post<{ 
     Body: { 
       message: string;
@@ -450,7 +542,6 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       const workflow = orderWorkflows.get(conversationId);
       
       if (hasOrderIntent && !workflow) {
-        // Nouveau workflow de commande
         return {
           success: true,
           data: {
@@ -460,7 +551,6 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
           }
         };
       } else if (workflow) {
-        // Workflow en cours
         const extracted = extractOrderData(message, workflow.currentStep);
         return {
           success: true,
@@ -490,7 +580,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Obtenir le statut d'un workflow de commande
+  // ✅ ROUTE : Workflow status (INCHANGÉE)
   fastify.get<{ 
     Params: { conversationId: string } 
   }>('/workflow/:conversationId', async (request, reply) => {
@@ -520,17 +610,28 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Lister les commandes d'une boutique (VERSION SUPABASE CORRIGÉE)
+  // ✅ ROUTE : Lister commandes (VERSION ANALYTICS ENRICHIE)
   fastify.get<{ 
     Querystring: { 
       page?: number;
       limit?: number;
       status?: string;
+      attribution_method?: string;
+      date_from?: string;
+      date_to?: string;
     } 
   }>('/list', async (request, reply) => {
     try {
-      const { page = 1, limit = 20, status } = request.query;
-      const shopId = getUserShopId(request);  // ✅ UTILISE HELPER
+      const { 
+        page = 1, 
+        limit = 20, 
+        status, 
+        attribution_method,
+        date_from,
+        date_to
+      } = request.query;
+      
+      const shopId = getUserShopId(request);
 
       if (!shopId) {
         return reply.status(400).send({
@@ -539,16 +640,38 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CONSTRUIRE LA REQUÊTE SUPABASE - COLONNES CORRIGÉES
+      // ✅ CONSTRUIRE REQUÊTE AVEC FILTRES ANALYTICS
       let query = supabaseServiceClient
         .from('orders')
-        .select('*')
-        .eq('shop_id', shopId)                     // ✅ CORRIGÉ : shop_id
-        .order('created_at', { ascending: false }); // ✅ CORRIGÉ : created_at
+        .select(`
+          *,
+          conversations (
+            id,
+            visitor_id,
+            product_name,
+            agent_id,
+            created_at,
+            completed_at
+          )
+        `)
+        .eq('shop_id', shopId)
+        .order('created_at', { ascending: false });
 
-      // Filtrer par statut si spécifié
+      // Filtres
       if (status) {
         query = query.eq('status', status);
+      }
+      
+      if (attribution_method) {
+        query = query.eq('attribution_method', attribution_method);
+      }
+      
+      if (date_from) {
+        query = query.gte('created_at', date_from);
+      }
+      
+      if (date_to) {
+        query = query.lte('created_at', date_to);
       }
 
       // Pagination
@@ -566,15 +689,35 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // ✅ ENRICHIR AVEC MÉTRIQUES ANALYTICS
+      const enrichedOrders = (orders || []).map(order => ({
+        ...order,
+        // Calculer métriques manquantes si nécessaire
+        roi: order.roi || (order.total_amount && order.attributed_cost 
+          ? Math.round((order.total_amount / order.attributed_cost) * 10) / 10 
+          : null),
+        conversion_rate: order.conversations ? 100 : 0, // Simplifié
+        personalized_recommendations: order.personalized_recommendations ?? true
+      }));
+
       return {
         success: true,
         data: {
-          orders: orders || [],
+          orders: enrichedOrders,
           pagination: {
             page,
             limit,
             total: count || 0,
             pages: Math.ceil((count || 0) / limit)
+          },
+          analytics: {
+            total_revenue: enrichedOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0),
+            avg_order_value: enrichedOrders.length > 0 
+              ? Math.round(enrichedOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0) / enrichedOrders.length)
+              : 0,
+            ai_attribution_rate: enrichedOrders.length > 0
+              ? Math.round((enrichedOrders.filter(o => o.ai_attributed_revenue > 0).length / enrichedOrders.length) * 100)
+              : 0
           }
         }
       };
@@ -588,13 +731,13 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Obtenir les détails d'une commande (VERSION SUPABASE CORRIGÉE)
+  // ✅ ROUTE : Détails commande (VERSION ANALYTICS ENRICHIE)
   fastify.get<{ 
     Params: { orderId: string } 
   }>('/details/:orderId', async (request, reply) => {
     try {
       const { orderId } = request.params;
-      const shopId = getUserShopId(request);  // ✅ UTILISE HELPER
+      const shopId = getUserShopId(request);
 
       if (!shopId) {
         return reply.status(400).send({
@@ -603,7 +746,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER LA COMMANDE AVEC SUPABASE - COLONNES CORRIGÉES
+      // ✅ RÉCUPÉRER AVEC DONNÉES ANALYTICS COMPLÈTES
       const { data: order, error } = await supabaseServiceClient
         .from('orders')
         .select(`
@@ -612,11 +755,14 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
             id,
             visitor_id,
             product_name,
-            created_at
+            agent_id,
+            message_count,
+            created_at,
+            completed_at
           )
         `)
         .eq('id', orderId)
-        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
+        .eq('shop_id', shopId)
         .single();
 
       if (error || !order) {
@@ -626,9 +772,30 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // ✅ ENRICHIR AVEC ANALYSES
+      const enrichedOrder = {
+        ...order,
+        analytics: {
+          attribution_confidence: order.confidence_score || 85,
+          conversion_journey: {
+            started_at: order.conversations?.created_at,
+            completed_at: order.conversations?.completed_at,
+            duration: order.conversation_duration,
+            touchpoints: order.messages_count || 0
+          },
+          performance: {
+            roi: order.roi || (order.total_amount && order.attributed_cost 
+              ? Math.round((order.total_amount / order.attributed_cost) * 10) / 10 
+              : null),
+            ai_contribution: order.ai_attributed_revenue || order.total_amount,
+            organic_contribution: order.organic_revenue || 0
+          }
+        }
+      };
+
       return {
         success: true,
-        data: { order }
+        data: { order: enrichedOrder }
       };
 
     } catch (error: any) {
@@ -640,7 +807,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE : Mettre à jour le statut d'une commande (VERSION SUPABASE CORRIGÉE)
+  // ✅ ROUTE : Update status (INCHANGÉE)
   fastify.patch<{ 
     Params: { orderId: string };
     Body: { status: string; notes?: string }
@@ -648,7 +815,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     try {
       const { orderId } = request.params;
       const { status, notes } = request.body;
-      const shopId = getUserShopId(request);  // ✅ UTILISE HELPER
+      const shopId = getUserShopId(request);
 
       if (!shopId) {
         return reply.status(400).send({
@@ -657,10 +824,9 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ METTRE À JOUR LE STATUT AVEC SUPABASE - COLONNES CORRIGÉES
       const updateData: any = {
         status,
-        updated_at: new Date().toISOString()  // ✅ CORRIGÉ : updated_at
+        updated_at: new Date().toISOString()
       };
 
       if (notes) {
@@ -671,7 +837,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         .from('orders')
         .update(updateData)
         .eq('id', orderId)
-        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
+        .eq('shop_id', shopId)
         .select()
         .single();
 
@@ -703,4 +869,20 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       });
     }
   });
+}
+
+// ✅ HELPER : Calculer durée entre deux dates
+function calculateConversationDuration(start: string, end: string): string {
+  const startTime = new Date(start).getTime();
+  const endTime = new Date(end).getTime();
+  const diffMinutes = Math.round((endTime - startTime) / (1000 * 60));
+  
+  if (diffMinutes < 60) {
+    return `${diffMinutes}min`;
+  }
+  
+  const hours = Math.floor(diffMinutes / 60);
+  const minutes = diffMinutes % 60;
+  
+  return minutes > 0 ? `${hours}h${minutes}min` : `${hours}h`;
 }

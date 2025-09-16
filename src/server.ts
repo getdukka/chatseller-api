@@ -1,5 +1,5 @@
 // =====================================
-// SERVER.TS - VERSION FINALE CORRIGÉE AVEC CORS COMPLET POUR E-COMMERCE
+// SERVER.TS - SERVEUR FASTIFY PRINCIPAL
 // =====================================
 
 import dotenv from 'dotenv'
@@ -22,6 +22,9 @@ import productsRoutes from './routes/products'
 import publicRoutes from './routes/public'
 import shopsRoutes from './routes/shops'
 import supportRoutes from './routes/support'
+import quotasRoutes from './routes/quotas'
+import settingsRoutes from './routes/settings';
+
 
 // ✅ SUPABASE CLIENT INTÉGRÉ
 import { createClient } from '@supabase/supabase-js'
@@ -937,6 +940,13 @@ async function registerRoutes() {
       
       await fastify.register(supportRoutes, { prefix: '/support' })
       console.log('✅ Routes support enregistrées')
+      
+      // ✅ NOUVELLES ROUTES AJOUTÉES
+      await fastify.register(quotasRoutes, { prefix: '/quotas' })
+      console.log('✅ Routes quotas enregistrées')
+      
+      await fastify.register(settingsRoutes, { prefix: '/settings' })
+      console.log('✅ Routes settings enregistrées')
       
     }, { prefix: '/api/v1' })
 

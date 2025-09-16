@@ -204,10 +204,89 @@ Nous sommes là pour vous aider à trouver le produit parfait.`,
   };
 }
 
+// ✅ NOUVELLES FONCTIONS BEAUTÉ (à ajouter vers ligne 150)
+function detectBeautyDomain(agentType: string, agentTitle: string): string {
+  const title = agentTitle.toLowerCase();
+  
+  if (title.includes('esthéticienne') || title.includes('soin')) return 'skincare';
+  if (title.includes('maquillage') || title.includes('makeup')) return 'makeup';
+  if (title.includes('parfum') || title.includes('fragrance')) return 'fragrance';
+  if (title.includes('cheveux') || title.includes('capillaire')) return 'haircare';
+  if (title.includes('ongles') || title.includes('manucure')) return 'nails';
+  
+  return 'multi-beauté';
+}
+
+function getBeautyExpertise(beautyDomain: string) {
+  const expertiseMap = {
+    skincare: {
+      specialization: "Soins visage et corps",
+      skills: [
+        "Diagnostic professionnel des types de peau",
+        "Maîtrise des ingrédients actifs (rétinol, acide hyaluronique, vitamine C...)",
+        "Création de routines sur-mesure selon âge et problématiques",
+        "Expertise anti-âge, hydratation, acné, sensibilité",
+        "Conseil en protection solaire et prévention"
+      ]
+    },
+    makeup: {
+      specialization: "Maquillage et colorimétrie",
+      skills: [
+        "Analyse du teint et détermination des sous-tons",
+        "Techniques d'application professionnelles",
+        "Colorimétrie et harmonies selon morphologie",
+        "Maquillage adapté aux occasions et personnalité",
+        "Tendances actuelles et looks intemporels"
+      ]
+    },
+    fragrance: {
+      specialization: "Parfumerie et conseil olfactif", 
+      skills: [
+        "Connaissance des familles olfactives et accords",
+        "Analyse des goûts et personnalité olfactive",
+        "Conseil selon saisons, occasions et style de vie",
+        "Techniques de layering et optimisation de la tenue",
+        "Culture parfumerie et histoire des fragrances"
+      ]
+    },
+    'multi-beauté': {
+      specialization: "Conseil beauté global",
+      skills: [
+        "Vision holistique de la routine beauté",
+        "Coordination soins/maquillage/parfum",
+        "Conseils lifestyle et confiance en soi",
+        "Adaptation aux budgets et contraintes",
+        "Accompagnement personnalisé long terme"
+      ]
+    }
+  };
+  
+  return expertiseMap[beautyDomain as keyof typeof expertiseMap] || expertiseMap['multi-beauté'];
+}
+
+function analyzeBeautyProduct(productName: string): string {
+  if (!productName) return "produit de qualité adapté à vos besoins";
+  
+  const name = productName.toLowerCase();
+  
+  if (name.includes('sérum')) return "concentration d'actifs pour des résultats ciblés";
+  if (name.includes('crème')) return "hydratation et protection quotidienne";
+  if (name.includes('rouge')) return "couleur et tenue longue durée pour vos lèvres";
+  if (name.includes('fond de teint')) return "teint unifié et naturel toute la journée";
+  if (name.includes('parfum')) return "signature olfactive unique et mémorable";
+  if (name.includes('mascara')) return "regard intensifié et cils sublimés";
+  
+  return "formulation experte pour révéler votre beauté";
+}
+
 // ✅ PROMPT SYSTÈME 
 function buildAgentPrompt(agent: any, knowledgeBase: string, shopName: string, productInfo?: any, orderState?: OrderCollectionState, messageHistory?: any[]) {
   const agentTitle = agent.title || getDefaultTitle(agent.type || 'general')
   const dynamicShopName = shopName || 'notre boutique'
+
+  // ✅ NOUVEAU : DÉTECTION DOMAINE BEAUTÉ
+  const beautyDomain = detectBeautyDomain(agent.type || 'general', agentTitle)
+  const beautyExpertise = getBeautyExpertise(beautyDomain)
   
   // ✅ NOUVEAU : Analyser l'historique des messages pour éviter les répétitions
   const hasGreeted = messageHistory && messageHistory.some(msg => 
@@ -225,7 +304,21 @@ function buildAgentPrompt(agent: any, knowledgeBase: string, shopName: string, p
   
   const messageCount = messageHistory ? messageHistory.filter(msg => msg.role === 'assistant').length : 0
   
-  const basePrompt = `Tu es ${agent.name}, ${agentTitle} expérimenté chez ${dynamicShopName}.
+  const basePrompt = `Tu es ${agent.name}, ${agentTitle} experte en beauté chez ${dynamicShopName}.
+
+🌟 EXPERTISE BEAUTÉ SPÉCIALISÉE : ${beautyExpertise.specialization}
+💄 DOMAINE PRINCIPAL : ${beautyDomain}
+
+✨ COMPÉTENCES EXPERTES BEAUTÉ :
+${beautyExpertise.skills.map(skill => `- ${skill}`).join('\n')}
+
+💡 APPROCHE CONSEIL BEAUTÉ :
+- Qualification systématique (type de peau/cheveux, âge, routine, budget)
+- Conseils adaptés au profil beauté unique de chaque cliente
+- Explications des bénéfices produits avec expertise accessible
+- Rassurance sur ingrédients, application, résultats
+- Routines complètes selon les besoins et objectifs
+- Upsell naturel vers gammes complémentaires
 
 🎯 CONTEXTE CONVERSATION ACTUEL:
 - Nombre de messages déjà échangés : ${messageCount}
@@ -233,38 +326,31 @@ function buildAgentPrompt(agent: any, knowledgeBase: string, shopName: string, p
 - A déjà présenté le produit : ${hasIntroducedProduct ? 'OUI' : 'NON'}
 
 💡 PERSONNALITÉ: ${agent.personality === 'friendly' ? 'Chaleureuse, bienveillante et authentique' : 'Professionnelle et experte'}
-- ${agent.personality === 'friendly' ? 'Tu parles naturellement comme une vraie vendeuse humaine sympathique' : 'Tu es précise et efficace'}
-- Tu ne répètes JAMAIS les salutations ou présentations de produits ou services déjà faites
-- Tu maintiens le fil de la conversation de manière fluide, logique, cohérente et naturelle
-- Expert en techniques de vente mais sans être agressive
+- Expert en techniques de vente beauté sans être agressive
+- Bienveillante face aux complexes et valorise la beauté naturelle
 
 🎯 RÈGLES ANTI-RÉPÉTITION STRICTES:
 ${hasGreeted ? '❌ NE PLUS SALUER - Tu as déjà dit bonjour/salut' : '✅ Tu peux saluer si c\'est ton premier message'}
-${hasIntroducedProduct ? '❌ NE PLUS PRÉSENTER LE PRODUIT - Tu l\'as déjà fait' : '✅ Tu peux présenter le produit si pertinent, ou si le client le demande'}
-- Souviens-toi du contexte des messages précédents
-- Réponds de manière directe, efficace, précise et pertinente
-- Évite les formules répétitives
-
-🎯 OBJECTIFS PRINCIPAUX:
-1. **Conseil expert** : Apporter des réponses précises, efficaces et utiles sur nos produits
-2. **Conversion efficace** : Encourager l'achat de manière naturelle et efficace, sans être agressif
-3. **Collecte commande** : Guider vers l'achat quand l'intérêt est manifesté, et collecter la commande de manière conversationnelle
-4. **Efficacité** : Réponses courtes et pertinentes (max 150 mots)
+${hasIntroducedProduct ? '❌ NE PLUS PRÉSENTER LE PRODUIT - Tu l\'as déjà fait' : '✅ Tu peux présenter le produit si pertinent'}
 
 ${productInfo ? `
-🛍️ PRODUIT ACTUELLEMENT CONSULTÉ:
+💄 PRODUIT BEAUTÉ ANALYSÉ:
 - **Nom**: ${productInfo.name}
 - **Type**: ${getProductType(productInfo.name, agent.customProductType)}
 - **Prix**: ${productInfo.price ? productInfo.price + ' CFA' : 'Prix sur demande'}
-
-${hasIntroducedProduct ? 
-  '⚠️ TU AS DÉJÀ PRÉSENTÉ CE PRODUIT - Ne le re-présente pas !' : 
-  '⚠️ Si c\'est ton premier message, présente brièvement ce produit'
-}
+- **Analyse beauté**: ${analyzeBeautyProduct(productInfo.name)}
 ` : '🚨 AUCUNE INFORMATION PRODUIT - Demande quel produit l\'intéresse'}
 
 📚 BASE DE CONNAISSANCE:
 ${knowledgeBase}
+
+🚨 RÈGLES ABSOLUES BEAUTÉ:
+- TOUJOURS qualifier avant conseiller (type peau, objectifs, budget)
+- Expliquer les bénéfices avec expertise technique accessible
+- Être bienveillante face aux complexes beauté
+- Valoriser la beauté naturelle de chaque cliente
+- ${hasGreeted ? 'NE PLUS JAMAIS re-saluer' : 'Saluer chaleureusement si premier message'}
+- Maximum 150 mots pour rester efficace
 
 ${orderState ? `
 📋 COLLECTE DE COMMANDE EN COURS:
@@ -275,43 +361,18 @@ PROCHAINE ÉTAPE:
 ${getDetailedStepInstructions(orderState.step, orderState.data)}
 ` : `
 📋 PROCESSUS DE COLLECTE DE COMMANDE:
-⚠️ COMMENCER SEULEMENT si le client manifeste un intérêt d'achat clair (ex: "je veux l'acheter", "je commande", "je le prends", "je le veux", "comment commander", etc.)
+⚠️ COMMENCER SEULEMENT si le client manifeste un intérêt d'achat clair
 
 PROCÉDURE STRICTE (dans cet ordre) :
-1. **QUANTITÉ**: "Parfait ! Combien d'exemplaires souhaitez-vous acheter ?"
-2. **TÉLÉPHONE**: "Pour finaliser votre commande, quel est votre numéro de téléphone ?"
-3. **VÉRIFICATION CLIENT**: Vérifier si le client existe déjà en base avec ce numéro
-    - Si oui, répondre "C'est un plaisir de vous revoir, {prénom du client}" et passer directement à la confirmation de l'adresse de livraison
-    - Si non, continuer la collecte normalement en demande le nom et prénom
-4. **NOM/PRÉNOM**: "Quel est votre nom complet (prénom et nom) ?"
-5. **ADRESSE**: "A quelle adresse doit-on livrer votre commande ?"
-6. **PAIEMENT**: "Par quel moyen souhaitez-vous payer ? (Espèces à la livraison, carte bancaire, mobile money)"
-7. **CONFIRMATION**: Résumer TOUTE la commande de manière cohérente
+1. **QUANTITÉ**: "Parfait ! Combien d'exemplaires souhaitez-vous ?"
+2. **TÉLÉPHONE**: "Pour finaliser, quel est votre numéro ?"
+3. **NOM/PRÉNOM**: "Votre nom complet pour la commande ?"
+4. **ADRESSE**: "Adresse de livraison ?"
+5. **PAIEMENT**: "Mode de paiement préféré ?"
+6. **CONFIRMATION**: Résumer la commande
 `}
 
-🎨 STYLE DE RÉPONSE:
-- **Naturelle et conversationnelle** (comme une vraie vendeuse humaine)
-- Tes réponses doivent TOUJOURS prendre en compte le contexte de la conversation
-- Prend en compte le besoin réel du client dans tes réponses
-- Utilise **gras** pour les infos importantes
-- Émojis avec parcimonie (1-2 max par message)
-- Maximum 150 mots pour rester efficace
-- ${messageCount > 0 ? 'Continue la conversation naturellement' : 'Si premier message, salue et présente-toi brièvement'}
-
-📝 INSTRUCTIONS SPÉCIFIQUES SELON LE CONTEXTE:
-${messageCount === 0 ? 
-  '🆕 PREMIER MESSAGE: Salue chaleureusement + présente-toi brièvement + demande comment tu peux aider' : 
-  '🔄 SUITE CONVERSATION: Réponds directement sans re-saluer ni te re-présenter'
-}
-
-🚨 RÈGLES ABSOLUES:
-- Ne commence JAMAIS la collecte sans intention d'achat claire
-- Confirme TOUJOURS l'intention d'achat avant de commencer la collecte
-- Une seule information à la fois pendant la collecte
-- Reste naturelle même pendant la collecte
-- ${hasGreeted ? 'NE PLUS JAMAIS dire bonjour/salut' : 'Tu peux saluer si premier message'}
-- ${hasIntroducedProduct ? 'NE PLUS JAMAIS te re-présenter ou re-présenter le produit' : 'Présente le produit si pertinent, ou si le client le demande'}
-- Après chaque réponse, pose une question pour encourager l'achat ("Souhaitez-vous le commander ?" ou similaire)`;
+Réponds avec l'expertise d'une vraie conseillère beauté passionnée ! 💫`;
 
   return basePrompt;
 }
@@ -625,7 +686,7 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
     const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, shopName, productInfo, orderState, messages);
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o", // ✅ UPGRADE VERS GPT-4O
       messages: [
         { role: "system", content: systemPrompt },
         ...messages
@@ -1350,15 +1411,15 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
 
       // ✅ SAUVEGARDER RÉPONSE IA
       await supabaseServiceClient
-        .from('messages')
-        .insert({
-          conversation_id: conversation.id,
-          role: 'assistant',
-          content: aiResponse,
-          tokens_used: tokensUsed,
-          response_time_ms: Date.now() - startTime,
-          model_used: 'gpt-4o-mini'
-        });
+      .from('messages')
+      .insert({
+        conversation_id: conversation.id,
+        role: 'assistant',
+        content: aiResponse,
+        tokens_used: tokensUsed,
+        response_time_ms: Date.now() - startTime,
+        model_used: 'gpt-4o' // ✅ UPGRADE VERS GPT-4O
+      });
 
       fastify.log.info(`✅ [CHAT SUCCESS] Réponse intelligente envoyée pour conversation: ${conversation.id} (${Date.now() - startTime}ms) - Shop: ${shopConfig.name}`);
 

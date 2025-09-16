@@ -202,7 +202,7 @@ async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o', // ✅ UPGRADE VERS GPT-4O
       messages: [
         { role: 'system', content: systemPrompt },
         ...messages
@@ -223,57 +223,199 @@ async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0
 function buildSystemPrompt(agent: any, knowledgeBase: any[] = [], productContext: any = null) {
   const agentTitle = agent.title || getDefaultTitle(agent.type);
   
-  let systemPrompt = `Tu es ${agent.name}, ${agentTitle} expert pour un site e-commerce.
+  // ✅ NOUVEAU : Détection automatique domaine beauté
+  const beautyType = detectBeautyType(agent.type, agentTitle);
+  const beautyExpertise = getBeautyExpertise(beautyType);
+  
+  let systemPrompt = `Tu es ${agent.name}, ${agentTitle} experte en beauté pour un site e-commerce spécialisé.
 
-🎯 RÔLE: ${agentTitle} spécialisé dans la conversion et l'accompagnement client
+🎯 EXPERTISE BEAUTÉ SPÉCIALISÉE: ${beautyExpertise.specialization}
+DOMAINE PRINCIPAL: ${beautyType}
 PERSONNALITÉ: ${agent.personality || 'friendly'}
-TYPE: ${agent.type || 'general'}
-MISSION: Aider les visiteurs à trouver le bon produit et les guider vers l'achat.
+MISSION: Conseiller comme une vraie ${agentTitle} en boutique physique
 
-INSTRUCTIONS SPÉCIFIQUES:
-- Sois ${agent.personality === 'professional' ? 'professionnel et expert' : 'amical et accessible'}
-- ${agent.type === 'upsell' ? 'Propose systématiquement des produits complémentaires' : ''}
-- ${agent.type === 'support' ? 'Résous les objections et rassure les clients' : ''}
-- Collecte les informations nécessaires pour la commande
-- Utilise les informations de la base de connaissances ci-dessous
+🌟 COMPÉTENCES BEAUTÉ EXPERTES:
+${beautyExpertise.skills.map(skill => `- ${skill}`).join('\n')}
 
-MESSAGE D'ACCUEIL: "${agent.welcomeMessage || 'Bonjour ! Comment puis-je vous aider ?'}"`;
+💡 APPROCHE CONSEIL BEAUTÉ:
+- Pose des questions qualifiantes (type de peau, âge, routine actuelle, budget)
+- Adapte tes conseils selon le profil beauté de la cliente
+- Explique les bénéfices produits avec expertise technique
+- Rassure sur les ingrédients et méthodes d'application
+- Propose des routines complètes et personnalisées
+- Suggère des produits complémentaires pertinents
 
-  // ✅ AJOUTER LE CONTEXTE PRODUIT
+🎨 TECHNIQUES DE VENTE BEAUTÉ:
+- Écoute active des besoins beauté
+- Questions ouvertes sur les habitudes et préférences
+- Démonstration des bénéfices avec exemples concrets
+- Gestion des objections spécifiques beauté (allergies, sensibilité, efficacité)
+- Création d'urgence douce (stocks limités, offres temporaires)
+- Upsell naturel vers gammes complètes
+
+MESSAGE D'ACCUEIL: "${agent.welcomeMessage || getDefaultBeautyWelcome(beautyType)}"`;
+
+  // ✅ CONTEXTE PRODUIT BEAUTÉ ENRICHI
   if (productContext?.name) {
-    systemPrompt += `\n\nPRODUIT ACTUEL:
+    const productAnalysis = analyzeBeautyProduct(productContext.name);
+    systemPrompt += `\n\n💄 PRODUIT BEAUTÉ ANALYSÉ:
 - Nom: ${productContext.name}
-- Prix: ${productContext.price ? `${productContext.price}€` : 'Non spécifié'}
-- URL: ${productContext.url || 'Non spécifiée'}`;
+- Catégorie détectée: ${productAnalysis.category}
+- Type de peau/cheveux recommandé: ${productAnalysis.skinType}
+- Bénéfices clés: ${productAnalysis.benefits.join(', ')}
+- Prix: ${productContext.price ? `${productContext.price}€` : 'Sur demande'}
+- Conseils d'application: ${productAnalysis.applicationTips}`;
   }
 
-  // ✅ AJOUTER LA BASE DE CONNAISSANCES
+  // ✅ BASE DE CONNAISSANCES BEAUTÉ
   if (knowledgeBase && knowledgeBase.length > 0) {
-    systemPrompt += `\n\nBASE DE CONNAISSANCES:
+    systemPrompt += `\n\n📚 EXPERTISE DOCUMENTÉE:
 ${knowledgeBase.map(kb => `
 DOCUMENT: ${kb.title}
-TYPE: ${kb.contentType}
-CONTENU: ${kb.content ? kb.content.substring(0, 1000) : 'Contenu non disponible'}
----`).join('\n')}
-
-Utilise ces informations pour répondre aux questions sur les produits, l'entreprise, les politiques, etc.`;
+CONTENU: ${kb.content ? kb.content.substring(0, 800) : 'Contenu non disponible'}
+---`).join('\n')}`;
   }
 
-  // ✅ AJOUTER LES INSTRUCTIONS PERSONNALISÉES
+  // ✅ INSTRUCTIONS SPÉCIALISÉES BEAUTÉ
   const agentConfig = agent.config as AgentConfig;
   if (agentConfig?.specificInstructions && agentConfig.specificInstructions.length > 0) {
-    systemPrompt += `\n\nINSTRUCTIONS PERSONNALISÉES:
+    systemPrompt += `\n\n🎯 INSTRUCTIONS PERSONNALISÉES:
 ${agentConfig.specificInstructions.map((inst: string) => `- ${inst}`).join('\n')}`;
   }
 
-  systemPrompt += `\n\nRÈGLES IMPORTANTES:
-- Reste dans ton rôle de ${agentTitle}
-- Ne révèle jamais que tu es une IA
-- Pousse naturellement vers l'achat
-- Sois précis et utile
-- Si tu ne sais pas, dis-le honnêtement`;
+  systemPrompt += `\n\n🚨 RÈGLES ABSOLUES BEAUTÉ:
+- TOUJOURS qualifier le type de peau/cheveux avant conseiller
+- Mentionner les ingrédients clés et leurs bénéfices
+- Proposer des tests/échantillons si disponibles
+- Adapter le vocabulaire au niveau d'expertise de la cliente
+- Créer de la confiance par ton expertise technique
+- Éviter le jargon trop technique sans explication
+- Être bienveillante face aux complexes beauté
+- Valoriser la beauté naturelle de chaque cliente
+
+🎭 PERSONA BEAUTÉ:
+Tu incarnes une ${agentTitle} passionnée, bienveillante et experte. Tu adores aider les femmes à se sentir belles et confiantes. Tu connais parfaitement les dernières tendances, les ingrédients innovants et les techniques d'application. Tu es comme cette vendeuse en boutique que toutes les clientes adorent consulter.`;
 
   return systemPrompt;
+}
+
+// ✅ NOUVELLES FONCTIONS SUPPORT BEAUTÉ
+
+function detectBeautyType(agentType: string, agentTitle: string): string {
+  const title = agentTitle.toLowerCase();
+  
+  if (title.includes('esthéticienne') || title.includes('soin')) return 'skincare';
+  if (title.includes('maquillage') || title.includes('makeup')) return 'makeup';
+  if (title.includes('parfum') || title.includes('fragrance')) return 'fragrance';
+  if (title.includes('cheveux') || title.includes('coiffure') || title.includes('capillaire')) return 'haircare';
+  if (title.includes('ongles') || title.includes('manucure')) return 'nails';
+  
+  return 'multi'; // Multi-beauté
+}
+
+function getBeautyExpertise(beautyType: string) {
+  const expertiseMap = {
+    skincare: {
+      specialization: "Soins du visage et du corps",
+      skills: [
+        "Analyse professionnelle des types de peau",
+        "Connaissance approfondie des ingrédients actifs",
+        "Création de routines personnalisées",
+        "Expertise anti-âge, hydratation, acné",
+        "Conseils protection solaire et prévention"
+      ]
+    },
+    makeup: {
+      specialization: "Maquillage et colorimétrie",
+      skills: [
+        "Analyse du teint et sous-tons",
+        "Techniques d'application professionnelles",
+        "Colorimétrie et harmonies chromatiques",
+        "Maquillage selon morphologie du visage",
+        "Tendances et looks adaptés aux occasions"
+      ]
+    },
+    fragrance: {
+      specialization: "Parfumerie et olfaction",
+      skills: [
+        "Connaissance des familles olfactives",
+        "Analyse des préférences et personnalité",
+        "Accords parfaits selon saisons et occasions",
+        "Techniques de layering et tenue",
+        "Histoire et composition des fragrances"
+      ]
+    },
+    haircare: {
+      specialization: "Soins capillaires et coiffure",
+      skills: [
+        "Diagnostic des types et états de cheveux",
+        "Routines adaptées aux problématiques capillaires",
+        "Techniques de coiffage et mise en forme",
+        "Conseils couleur et traitements",
+        "Protection et réparation des cheveux abîmés"
+      ]
+    },
+    multi: {
+      specialization: "Beauté globale et bien-être",
+      skills: [
+        "Vision holistique de la beauté",
+        "Coordination des routines visage/corps/cheveux",
+        "Conseils lifestyle et confiance en soi",
+        "Adaptation aux budgets et contraintes",
+        "Suivi personnalisé et évolution des besoins"
+      ]
+    }
+  };
+  
+  return expertiseMap[beautyType as keyof typeof expertiseMap] || expertiseMap.multi;
+}
+
+function analyzeBeautyProduct(productName: string) {
+  const name = productName.toLowerCase();
+  
+  let category = 'beauté';
+  let skinType = 'tous types';
+  let benefits: string[] = [];
+  let applicationTips = '';
+  
+  // Analyse catégorie
+  if (name.includes('sérum') || name.includes('serum')) {
+    category = 'sérum visage';
+    benefits = ['concentration élevée d\'actifs', 'pénétration optimale', 'résultats ciblés'];
+    applicationTips = 'Appliquer quelques gouttes sur peau propre, avant la crème';
+  } else if (name.includes('crème') || name.includes('cream')) {
+    category = 'soin hydratant';
+    benefits = ['hydratation longue durée', 'confort cutané', 'protection'];
+    applicationTips = 'Masser délicatement en mouvements circulaires jusqu\'à absorption';
+  } else if (name.includes('rouge') || name.includes('lipstick')) {
+    category = 'maquillage lèvres';
+    benefits = ['couleur intense', 'tenue longue durée', 'confort'];
+    applicationTips = 'Appliquer en partant du centre vers les commissures';
+  } else if (name.includes('fond de teint') || name.includes('foundation')) {
+    category = 'teint';
+    benefits = ['couvrance modulable', 'fini naturel', 'longue tenue'];
+    applicationTips = 'Étaler du centre du visage vers l\'extérieur en estompant';
+  }
+  
+  // Analyse type de peau
+  if (name.includes('sensitive') || name.includes('sensible')) skinType = 'peaux sensibles';
+  if (name.includes('oily') || name.includes('grasse')) skinType = 'peaux grasses';
+  if (name.includes('dry') || name.includes('sèche')) skinType = 'peaux sèches';
+  if (name.includes('mature') || name.includes('anti-âge')) skinType = 'peaux matures';
+  
+  return { category, skinType, benefits, applicationTips };
+}
+
+function getDefaultBeautyWelcome(beautyType: string): string {
+  const welcomes = {
+    skincare: "Bonjour ! Je suis votre esthéticienne IA. Quel est votre type de peau et quels sont vos objectifs beauté ?",
+    makeup: "Salut ! Experte maquillage à votre service. Quel look souhaitez-vous créer aujourd'hui ?",
+    fragrance: "Bonjour ! Conseillère parfums ici. Quelle fragrance vous ferait rêver ?",
+    haircare: "Hello ! Spécialiste capillaire à votre écoute. Parlez-moi de vos cheveux !",
+    multi: "Bonjour ! Conseillère beauté globale ici. Comment puis-je vous aider à révéler votre beauté ?"
+  };
+  
+  return welcomes[beautyType as keyof typeof welcomes] || welcomes.multi;
 }
 
 // ✅ HELPER: Titre par défaut selon le type

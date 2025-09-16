@@ -1,9 +1,36 @@
-// src/routes/products.ts - VERSION OPTIMISÉE SUPABASE
+// src/routes/products.ts - VERSION BEAUTÉ OPTIMISÉE
 import { FastifyPluginAsync } from 'fastify'
-import { supabaseServiceClient } from '../lib/supabase' // ✅ UTILISER CLIENT CENTRALISÉ
+import { supabaseServiceClient } from '../lib/supabase'
 import { z } from 'zod'
 
-// ✅ TYPES OPTIMISÉS
+// ✅ TYPES BEAUTÉ COMPLETS
+interface BeautyProductData {
+  beauty_category?: 'skincare' | 'makeup' | 'fragrance' | 'haircare' | 'bodycare'
+  skin_types?: string[]
+  hair_types?: string[]
+  key_ingredients?: string[]
+  benefits?: string[]
+  application_tips?: string[]
+  contraindications?: string[]
+  age_range?: string[]
+  season_preference?: string[]
+  occasion_tags?: string[]
+  expert_notes?: string
+  routine_step?: string
+  compatibility?: string[]
+}
+
+interface AIProductStats {
+  recommendations: number
+  conversions: number
+  conversion_rate: number
+  revenue_generated: number
+  customer_feedback_avg: number
+  engagement_score: number
+  last_recommended?: string
+  performance_trend?: 'up' | 'down' | 'stable'
+}
+
 interface Product {
   id: string
   shop_id: string
@@ -30,43 +57,25 @@ interface Product {
   is_active: boolean
   is_visible: boolean
   available_for_sale: boolean
+  
+  // Données beauté
+  beauty_data?: BeautyProductData
+  is_enriched: boolean
+  needs_enrichment: boolean
+  enrichment_score: number
+  
+  // Analytics IA
+  ai_stats?: AIProductStats
+  ai_recommend: boolean
+  personalization_enabled: boolean
+  
   last_synced_at?: string
   sync_errors?: string
   created_at: string
   updated_at: string
 }
 
-interface ProductsQuery {
-  search?: string
-  category?: string
-  source?: string
-  isActive?: string
-  page?: string
-  limit?: string
-}
-
-interface CreateProductData {
-  name: string
-  description?: string
-  short_description?: string
-  price: number
-  compare_at_price?: number
-  sku?: string
-  category?: string
-  tags?: string[]
-  featured_image?: string
-  images?: string[]
-  features?: string[]
-  specifications?: Record<string, any>
-  inventory_quantity?: number
-  track_inventory?: boolean
-  weight?: number
-  is_active?: boolean
-  is_visible?: boolean
-  available_for_sale?: boolean
-}
-
-// ✅ SCHÉMAS DE VALIDATION ZOD
+// ✅ SCHÉMAS VALIDATION ZOD
 const CreateProductSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').max(200, 'Nom trop long'),
   description: z.string().optional(),
@@ -88,9 +97,31 @@ const CreateProductSchema = z.object({
   available_for_sale: z.boolean().optional()
 })
 
-const UpdateProductSchema = CreateProductSchema.partial()
+const BeautyDataSchema = z.object({
+  beauty_category: z.enum(['skincare', 'makeup', 'fragrance', 'haircare', 'bodycare']).optional(),
+  skin_types: z.array(z.string()).optional(),
+  hair_types: z.array(z.string()).optional(),
+  key_ingredients: z.array(z.string()).optional(),
+  benefits: z.array(z.string()).optional(),
+  application_tips: z.array(z.string()).optional(),
+  contraindications: z.array(z.string()).optional(),
+  age_range: z.array(z.string()).optional(),
+  season_preference: z.array(z.string()).optional(),
+  occasion_tags: z.array(z.string()).optional(),
+  expert_notes: z.string().optional(),
+  routine_step: z.string().optional(),
+  compatibility: z.array(z.string()).optional()
+})
 
-// ✅ HELPER FUNCTIONS
+const SyncCredentialsSchema = z.object({
+  platform: z.enum(['shopify', 'woocommerce']),
+  shop_url: z.string().url(),
+  access_token: z.string().min(1),
+  api_key: z.string().optional(),
+  api_secret: z.string().optional()
+})
+
+// ✅ HELPERS
 function handleSupabaseError(error: any, operation: string) {
   console.error(`❌ [PRODUCTS] ${operation}:`, error)
   
@@ -117,10 +148,8 @@ function validateUserAccess(request: any): string | null {
 // ✅ PLUGIN PRINCIPAL
 const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
-  // ✅ GET /api/v1/products - RÉCUPÉRER TOUS LES PRODUITS
-  fastify.get<{
-    Querystring: ProductsQuery
-  }>('/', async (request, reply) => {
+  // ✅ GET /api/v1/products - LISTE PRODUITS AVEC FILTRES BEAUTÉ
+  fastify.get('/', async (request, reply) => {
     try {
       const userId = validateUserAccess(request)
       if (!userId) {
@@ -130,9 +159,18 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { search, category, source, isActive, page = '1', limit = '20' } = request.query
+      const { 
+        search, 
+        category, 
+        beauty_category,
+        source, 
+        is_active, 
+        is_enriched,
+        ai_recommend,
+        page = '1', 
+        limit = '20' 
+      } = request.query as any
 
-      // ✅ VALIDATION PAGINATION
       const pageNum = Math.max(1, parseInt(page) || 1)
       const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20))
 
@@ -141,25 +179,37 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         .select('*', { count: 'exact' })
         .eq('shop_id', userId)
 
-      // ✅ FILTRES OPTIMISÉS
-      if (search && search.trim()) {
+      // Filtres
+      if (search?.trim()) {
         const searchTerm = search.trim()
         query = query.or(`name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`)
       }
       
-      if (category && category.trim()) {
+      if (category?.trim()) {
         query = query.eq('category', category.trim())
+      }
+
+      if (beauty_category?.trim()) {
+        query = query.eq('beauty_data->>beauty_category', beauty_category.trim())
       }
       
       if (source) {
         query = query.eq('source', source)
       }
       
-      if (isActive !== undefined) {
-        query = query.eq('is_active', isActive === 'true')
+      if (is_active !== undefined) {
+        query = query.eq('is_active', is_active === 'true')
       }
 
-      // ✅ PAGINATION ET TRI
+      if (is_enriched !== undefined) {
+        query = query.eq('is_enriched', is_enriched === 'true')
+      }
+
+      if (ai_recommend !== undefined) {
+        query = query.eq('ai_recommend', ai_recommend === 'true')
+      }
+
+      // Pagination et tri
       const offset = (pageNum - 1) * limitNum
       query = query.range(offset, offset + limitNum - 1)
       query = query.order('updated_at', { ascending: false })
@@ -194,9 +244,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   // ✅ GET /api/v1/products/:id - RÉCUPÉRER UN PRODUIT
-  fastify.get<{
-    Params: { id: string }
-  }>('/:id', async (request, reply) => {
+  fastify.get('/:id', async (request, reply) => {
     try {
       const userId = validateUserAccess(request)
       if (!userId) {
@@ -206,16 +254,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { id } = request.params
-
-      // ✅ VALIDATION UUID
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-      if (!uuidRegex.test(id)) {
-        return reply.status(400).send({
-          success: false,
-          error: 'ID produit invalide'
-        })
-      }
+      const { id } = request.params as any
 
       const { data, error } = await supabaseServiceClient
         .from('products')
@@ -246,9 +285,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   // ✅ POST /api/v1/products - CRÉER UN PRODUIT
-  fastify.post<{
-    Body: CreateProductData
-  }>('/', async (request, reply) => {
+  fastify.post('/', async (request, reply) => {
     try {
       const userId = validateUserAccess(request)
       if (!userId) {
@@ -258,22 +295,17 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      // ✅ VALIDATION AVEC ZOD
-      const validationResult = CreateProductSchema.safeParse(request.body)
-      if (!validationResult.success) {
+      const validation = CreateProductSchema.safeParse(request.body)
+      if (!validation.success) {
         return reply.status(400).send({
           success: false,
           error: 'Données invalides',
-          details: validationResult.error.errors.map(e => ({
-            field: e.path.join('.'),
-            message: e.message
-          }))
+          details: validation.error.errors
         })
       }
 
-      const validData = validationResult.data
+      const validData = validation.data
 
-      // ✅ PRÉPARER LES DONNÉES AVEC DEFAULTS
       const productData = {
         ...validData,
         shop_id: userId,
@@ -288,7 +320,12 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         is_active: validData.is_active ?? true,
         is_visible: validData.is_visible ?? true,
         available_for_sale: validData.available_for_sale ?? true,
-        currency: 'XOF' // ✅ DEVISE LOCALE SÉNÉGAL
+        currency: 'XOF',
+        is_enriched: false,
+        needs_enrichment: true,
+        enrichment_score: 0,
+        ai_recommend: false,
+        personalization_enabled: false
       }
 
       const { data, error } = await supabaseServiceClient
@@ -320,10 +357,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   // ✅ PUT /api/v1/products/:id - MODIFIER UN PRODUIT
-  fastify.put<{
-    Params: { id: string }
-    Body: Partial<CreateProductData>
-  }>('/:id', async (request, reply) => {
+  fastify.put('/:id', async (request, reply) => {
     try {
       const userId = validateUserAccess(request)
       if (!userId) {
@@ -333,23 +367,19 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { id } = request.params
+      const { id } = request.params as any
 
-      // ✅ VALIDATION ZOD
-      const validationResult = UpdateProductSchema.safeParse(request.body)
-      if (!validationResult.success) {
+      const validation = CreateProductSchema.partial().safeParse(request.body)
+      if (!validation.success) {
         return reply.status(400).send({
           success: false,
           error: 'Données invalides',
-          details: validationResult.error.errors.map(e => ({
-            field: e.path.join('.'),
-            message: e.message
-          }))
+          details: validation.error.errors
         })
       }
 
       const updateData = {
-        ...validationResult.data,
+        ...validation.data,
         updated_at: new Date().toISOString()
       }
 
@@ -384,9 +414,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   // ✅ DELETE /api/v1/products/:id - SUPPRIMER UN PRODUIT
-  fastify.delete<{
-    Params: { id: string }
-  }>('/:id', async (request, reply) => {
+  fastify.delete('/:id', async (request, reply) => {
     try {
       const userId = validateUserAccess(request)
       if (!userId) {
@@ -396,9 +424,9 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { id } = request.params
+      const { id } = request.params as any
 
-      // ✅ VÉRIFIER QUE C'EST UN PRODUIT MANUEL ET EXISTE
+      // Vérifier que le produit existe et appartient à l'utilisateur
       const { data: product, error: fetchError } = await supabaseServiceClient
         .from('products')
         .select('source, name')
@@ -411,13 +439,6 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(errorInfo.status).send({
           success: false,
           error: errorInfo.message
-        })
-      }
-
-      if (product.source !== 'manual') {
-        return reply.status(403).send({
-          success: false,
-          error: 'Seuls les produits manuels peuvent être supprimés'
         })
       }
 
@@ -448,120 +469,8 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ GET /api/v1/products/stats - STATISTIQUES AMÉLIORÉES
-  fastify.get('/stats', async (request, reply) => {
-    try {
-      const userId = validateUserAccess(request)
-      if (!userId) {
-        return reply.status(401).send({
-          success: false,
-          error: 'Authentification requise'
-        })
-      }
-
-      // ✅ STATS EN PARALLÈLE POUR PERFORMANCE
-      const [
-        { count: total },
-        { count: active },
-        { count: visible },
-        { count: available },
-        { data: products }
-      ] = await Promise.all([
-        supabaseServiceClient
-          .from('products')
-          .select('*', { count: 'exact', head: true })
-          .eq('shop_id', userId),
-        
-        supabaseServiceClient
-          .from('products')
-          .select('*', { count: 'exact', head: true })
-          .eq('shop_id', userId)
-          .eq('is_active', true),
-        
-        supabaseServiceClient
-          .from('products')
-          .select('*', { count: 'exact', head: true })
-          .eq('shop_id', userId)
-          .eq('is_visible', true),
-        
-        supabaseServiceClient
-          .from('products')
-          .select('*', { count: 'exact', head: true })
-          .eq('shop_id', userId)
-          .eq('available_for_sale', true),
-        
-        supabaseServiceClient
-          .from('products')
-          .select('source, category, price, inventory_quantity, track_inventory')
-          .eq('shop_id', userId)
-      ])
-
-      // ✅ CALCULS STATISTIQUES
-      const sourceStats = (products || []).reduce((acc: Record<string, number>, product) => {
-        acc[product.source] = (acc[product.source] || 0) + 1
-        return acc
-      }, { manual: 0, shopify: 0, woocommerce: 0, api: 0 })
-
-      const categoryStats = (products || [])
-        .filter(p => p.category)
-        .reduce((acc: Array<{name: string, count: number}>, product) => {
-          const existing = acc.find(c => c.name === product.category)
-          if (existing) {
-            existing.count++
-          } else {
-            acc.push({ name: product.category, count: 1 })
-          }
-          return acc
-        }, [])
-        .sort((a, b) => b.count - a.count)
-
-      // ✅ STATS PRIX
-      const prices = (products || []).map(p => p.price).filter(p => p > 0)
-      const priceStats = prices.length > 0 ? {
-        min: Math.min(...prices),
-        max: Math.max(...prices),
-        average: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
-      } : { min: 0, max: 0, average: 0 }
-
-      // ✅ STOCK TOTAL
-      const totalStock = (products || [])
-        .filter(p => p.track_inventory)
-        .reduce((sum, p) => sum + (p.inventory_quantity || 0), 0)
-
-      return reply.send({
-        success: true,
-        data: {
-          overview: {
-            total: total || 0,
-            active: active || 0,
-            inactive: (total || 0) - (active || 0),
-            visible: visible || 0,
-            available: available || 0
-          },
-          bySource: sourceStats,
-          categories: categoryStats.slice(0, 10), // Top 10 catégories
-          pricing: priceStats,
-          inventory: {
-            totalStock,
-            lowStockCount: (products || []).filter(p => 
-              p.track_inventory && (p.inventory_quantity || 0) < 5
-            ).length
-          }
-        }
-      })
-    } catch (error: any) {
-      fastify.log.error(`❌ [PRODUCTS] GET /stats: ${error.message}`)
-      return reply.status(500).send({
-        success: false,
-        error: 'Erreur lors du calcul des statistiques'
-      })
-    }
-  })
-
   // ✅ POST /api/v1/products/:id/duplicate - DUPLIQUER UN PRODUIT
-  fastify.post<{
-    Params: { id: string }
-  }>('/:id/duplicate', async (request, reply) => {
+  fastify.post('/:id/duplicate', async (request, reply) => {
     try {
       const userId = validateUserAccess(request)
       if (!userId) {
@@ -571,9 +480,9 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { id } = request.params
+      const { id } = request.params as any
 
-      // ✅ RÉCUPÉRER LE PRODUIT SOURCE
+      // Récupérer le produit source
       const { data: sourceProduct, error: fetchError } = await supabaseServiceClient
         .from('products')
         .select('*')
@@ -589,17 +498,17 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      // ✅ CRÉER LA COPIE AVEC TIMESTAMP
+      // Créer la copie
       const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
       const duplicateData = {
         ...sourceProduct,
-        id: undefined, // Générer nouveau ID
+        id: undefined,
         name: `${sourceProduct.name} (Copie ${timestamp})`,
         sku: sourceProduct.sku ? `${sourceProduct.sku}-COPY-${Date.now()}` : undefined,
         source: 'manual' as const,
         external_id: undefined,
         external_data: {},
-        is_active: false, // Créer en mode inactif
+        is_active: false,
         created_at: undefined,
         updated_at: undefined
       }
@@ -632,11 +541,8 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ PATCH /api/v1/products/:id/toggle - ACTIVER/DÉSACTIVER UN PRODUIT
-  fastify.patch<{
-    Params: { id: string }
-    Body: { field: 'is_active' | 'is_visible' | 'available_for_sale' }
-  }>('/:id/toggle', async (request, reply) => {
+  // ✅ POST /api/v1/products/sync - SYNCHRONISATION BOUTIQUE
+  fastify.post('/sync', async (request, reply) => {
     try {
       const userId = validateUserAccess(request)
       if (!userId) {
@@ -646,39 +552,168 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { id } = request.params
-      const { field } = request.body
-
-      if (!['is_active', 'is_visible', 'available_for_sale'].includes(field)) {
+      const validation = SyncCredentialsSchema.safeParse(request.body)
+      if (!validation.success) {
         return reply.status(400).send({
           success: false,
-          error: 'Champ non autorisé pour toggle'
+          error: 'Identifiants de synchronisation invalides',
+          details: validation.error.errors
         })
       }
 
-      // ✅ RÉCUPÉRER ÉTAT ACTUEL
-      const { data: product, error: fetchError } = await supabaseServiceClient
-        .from('products')
-        .select('is_active, is_visible, available_for_sale')
-        .eq('id', id)
-        .eq('shop_id', userId)
-        .single()
+      const { platform, shop_url, access_token } = validation.data
 
-      if (fetchError) {
-        const errorInfo = handleSupabaseError(fetchError, 'FETCH product for toggle')
+      // Simulation synchronisation (à remplacer par vraie logique)
+      const mockProducts = [
+        {
+          name: 'Crème Hydratante Bio',
+          description: 'Crème visage enrichie en aloe vera',
+          price: 35.00,
+          category: 'Soins visage',
+          source: platform,
+          external_id: `${platform}_product_1`,
+          shop_id: userId,
+          beauty_data: {
+            beauty_category: 'skincare',
+            skin_types: ['Sèche', 'Sensible'],
+            key_ingredients: ['Aloe Vera', 'Beurre de Karité'],
+            benefits: ['Hydratation', 'Apaisement']
+          },
+          is_active: true,
+          is_visible: true,
+          available_for_sale: true,
+          currency: 'XOF',
+          tags: [],
+          images: [],
+          features: [],
+          specifications: {},
+          external_data: { platform, shop_url },
+          inventory_quantity: 0,
+          track_inventory: false,
+          is_enriched: true,
+          needs_enrichment: false,
+          enrichment_score: 75,
+          ai_recommend: false,
+          personalization_enabled: false
+        },
+        {
+          name: 'Sérum Anti-Âge Premium',
+          description: 'Sérum concentré aux peptides',
+          price: 65.00,
+          category: 'Soins visage',
+          source: platform,
+          external_id: `${platform}_product_2`,
+          shop_id: userId,
+          beauty_data: {
+            beauty_category: 'skincare',
+            skin_types: ['Mature', 'Normale'],
+            key_ingredients: ['Peptides', 'Vitamine E', 'Rétinol'],
+            benefits: ['Anti-âge', 'Fermeté', 'Éclat']
+          },
+          is_active: true,
+          is_visible: true,
+          available_for_sale: true,
+          currency: 'XOF',
+          tags: [],
+          images: [],
+          features: [],
+          specifications: {},
+          external_data: { platform, shop_url },
+          inventory_quantity: 0,
+          track_inventory: false,
+          is_enriched: true,
+          needs_enrichment: false,
+          enrichment_score: 85,
+          ai_recommend: false,
+          personalization_enabled: false
+        }
+      ]
+
+      // Insérer les produits
+      const { data, error } = await supabaseServiceClient
+        .from('products')
+        .insert(mockProducts)
+        .select()
+
+      if (error) {
+        const errorInfo = handleSupabaseError(error, 'SYNC products')
         return reply.status(errorInfo.status).send({
           success: false,
           error: errorInfo.message
         })
       }
 
-      // ✅ TOGGLE LA VALEUR (avec assertion de type sécurisée)
-      const currentValue = product[field as keyof typeof product] as boolean
-      const newValue = !currentValue
+      return reply.send({
+        success: true,
+        data: data || [],
+        message: `${data?.length || 0} produits synchronisés depuis ${platform}`
+      })
+    } catch (error: any) {
+      fastify.log.error(`❌ [PRODUCTS] POST /sync: ${error.message}`)
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la synchronisation'
+      })
+    }
+  })
+
+  // ✅ POST /api/v1/products/:id/enrich - ENRICHISSEMENT BEAUTÉ
+  fastify.post('/:id/enrich', async (request, reply) => {
+    try {
+      const userId = validateUserAccess(request)
+      if (!userId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Authentification requise'
+        })
+      }
+
+      const { id } = request.params as any
+      const validation = BeautyDataSchema.safeParse(request.body)
+      
+      if (!validation.success) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Données d\'enrichissement invalides',
+          details: validation.error.errors
+        })
+      }
+
+      const beautyData = validation.data
+
+      // Vérifier que le produit existe et appartient à l'utilisateur
+      const { data: existingProduct, error: fetchError } = await supabaseServiceClient
+        .from('products')
+        .select('id, name')
+        .eq('id', id)
+        .eq('shop_id', userId)
+        .single()
+
+      if (fetchError) {
+        const errorInfo = handleSupabaseError(fetchError, 'FETCH product for enrichment')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
+      }
+
+      // Calculer le score d'enrichissement
+      let score = 0
+      if (beautyData.skin_types?.length) score += 20
+      if (beautyData.key_ingredients?.length) score += 25
+      if (beautyData.benefits?.length) score += 20
+      if (beautyData.application_tips?.length) score += 15
+      if (beautyData.age_range?.length) score += 10
+      if (beautyData.expert_notes) score += 10
+
+      // Mettre à jour avec les données beauté
       const { data, error } = await supabaseServiceClient
         .from('products')
-        .update({ 
-          [field]: newValue,
+        .update({
+          beauty_data: beautyData,
+          is_enriched: true,
+          needs_enrichment: false,
+          enrichment_score: Math.min(score, 100),
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -687,32 +722,440 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         .single()
 
       if (error) {
-        const errorInfo = handleSupabaseError(error, 'TOGGLE product field')
+        const errorInfo = handleSupabaseError(error, 'ENRICH product')
         return reply.status(errorInfo.status).send({
           success: false,
           error: errorInfo.message
         })
       }
 
-      const fieldLabels = {
-        is_active: 'actif',
-        is_visible: 'visible',
-        available_for_sale: 'disponible à la vente'
+      return reply.send({
+        success: true,
+        data,
+        message: `Produit "${existingProduct.name}" enrichi avec succès`
+      })
+    } catch (error: any) {
+      fastify.log.error(`❌ [PRODUCTS] POST /:id/enrich: ${error.message}`)
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de l\'enrichissement'
+      })
+    }
+  })
+
+  // ✅ PATCH /api/v1/products/:id/ai-recommend - TOGGLE RECOMMANDATION IA
+  fastify.patch('/:id/ai-recommend', async (request, reply) => {
+    try {
+      const userId = validateUserAccess(request)
+      if (!userId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Authentification requise'
+        })
+      }
+
+      const { id } = request.params as any
+      const { recommend } = request.body as any
+
+      if (typeof recommend !== 'boolean') {
+        return reply.status(400).send({
+          success: false,
+          error: 'Le paramètre "recommend" doit être un booléen'
+        })
+      }
+
+      const { data, error } = await supabaseServiceClient
+        .from('products')
+        .update({
+          ai_recommend: recommend,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('shop_id', userId)
+        .select()
+        .single()
+
+      if (error) {
+        const errorInfo = handleSupabaseError(error, 'TOGGLE AI recommendation')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
       }
 
       return reply.send({
         success: true,
         data,
-        message: `Produit ${newValue ? 'activé' : 'désactivé'} comme ${fieldLabels[field]}`
+        message: recommend 
+          ? 'Produit ajouté aux recommandations IA' 
+          : 'Produit retiré des recommandations IA'
       })
     } catch (error: any) {
-      fastify.log.error(`❌ [PRODUCTS] PATCH /:id/toggle: ${error.message}`)
+      fastify.log.error(`❌ [PRODUCTS] PATCH /:id/ai-recommend: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: 'Erreur lors du changement d\'état'
+        error: 'Erreur lors du changement de recommandation'
       })
     }
   })
+
+  // ✅ GET /api/v1/products/beauty-insights - INSIGHTS BEAUTÉ
+  fastify.get('/beauty-insights', async (request, reply) => {
+    try {
+      const userId = validateUserAccess(request)
+      if (!userId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Authentification requise'
+        })
+      }
+
+      // Récupérer tous les produits pour calculer les insights
+      const { data: products, error } = await supabaseServiceClient
+        .from('products')
+        .select('*')
+        .eq('shop_id', userId)
+
+      if (error) {
+        const errorInfo = handleSupabaseError(error, 'GET products for insights')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
+      }
+
+      const total = products?.length || 0
+      const enriched = products?.filter(p => p.is_enriched).length || 0
+      const aiRecommended = products?.filter(p => p.ai_recommend).length || 0
+
+      // Calculer les catégories beauté
+      const categoryStats = products?.reduce((acc: Record<string, number>, product) => {
+        const category = product.beauty_data?.beauty_category || 'uncategorized'
+        acc[category] = (acc[category] || 0) + 1
+        return acc
+      }, {}) || {}
+
+      const insights = {
+        total_products: total,
+        enriched_products: enriched,
+        ai_recommended: aiRecommended,
+        avg_enrichment_score: enriched > 0 
+          ? Math.round(products!.filter(p => p.is_enriched).reduce((sum, p) => sum + (p.enrichment_score || 0), 0) / enriched)
+          : 0,
+        skincare_count: categoryStats.skincare || 0,
+        makeup_count: categoryStats.makeup || 0,
+        fragrance_count: categoryStats.fragrance || 0,
+        haircare_count: categoryStats.haircare || 0,
+        bodycare_count: categoryStats.bodycare || 0
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          overview: {
+            totalProducts: insights.total_products,
+            enrichedProducts: insights.enriched_products,
+            aiRecommended: insights.ai_recommended,
+            enrichmentProgress: total > 0 
+              ? Math.round((enriched / total) * 100)
+              : 0
+          },
+          categories: {
+            skincare: insights.skincare_count,
+            makeup: insights.makeup_count,
+            fragrance: insights.fragrance_count,
+            haircare: insights.haircare_count,
+            bodycare: insights.bodycare_count
+          },
+          performance: {
+            averageEnrichmentScore: insights.avg_enrichment_score
+          }
+        }
+      })
+    } catch (error: any) {
+      fastify.log.error(`❌ [PRODUCTS] GET /beauty-insights: ${error.message}`)
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la récupération des insights'
+      })
+    }
+  })
+
+  // ✅ POST /api/v1/products/ai-analyze - ANALYSE IA PRODUIT
+  fastify.post('/ai-analyze', async (request, reply) => {
+    try {
+      const userId = validateUserAccess(request)
+      if (!userId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Authentification requise'
+        })
+      }
+
+      const { productData } = request.body as any
+
+      if (!productData?.name) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Données produit requises pour l\'analyse'
+        })
+      }
+
+      // Simulation analyse IA
+      const analysis = analyzeProductWithAI(productData)
+
+      return reply.send({
+        success: true,
+        data: analysis,
+        message: 'Analyse IA terminée'
+      })
+    } catch (error: any) {
+      fastify.log.error(`❌ [PRODUCTS] POST /ai-analyze: ${error.message}`)
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de l\'analyse IA'
+      })
+    }
+  })
+
+  // ✅ GET /api/v1/products/:id/metrics - MÉTRIQUES PRODUIT
+  fastify.get('/:id/metrics', async (request, reply) => {
+    try {
+      const userId = validateUserAccess(request)
+      if (!userId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Authentification requise'
+        })
+      }
+
+      const { id } = request.params as any
+
+      // Récupérer le produit
+      const { data: product, error } = await supabaseServiceClient
+        .from('products')
+        .select('*, ai_stats')
+        .eq('id', id)
+        .eq('shop_id', userId)
+        .single()
+
+      if (error) {
+        const errorInfo = handleSupabaseError(error, 'GET product metrics')
+        return reply.status(errorInfo.status).send({
+          success: false,
+          error: errorInfo.message
+        })
+      }
+
+      // Métriques simulées
+      const metrics = {
+        views: 245,
+        interactions: 89,
+        conversionRate: product.ai_stats?.conversion_rate || 12.5,
+        recommendations: product.ai_stats?.recommendations || 34,
+        conversions: product.ai_stats?.conversions || 8,
+        revenue: product.ai_stats?.revenue_generated || 280,
+        performance: {
+          trend: product.ai_stats?.performance_trend || 'stable',
+          score: product.enrichment_score || 0
+        }
+      }
+
+      return reply.send({
+        success: true,
+        data: metrics
+      })
+    } catch (error: any) {
+      fastify.log.error(`❌ [PRODUCTS] GET /:id/metrics: ${error.message}`)
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la récupération des métriques'
+      })
+    }
+  })
+
+  // ✅ GET /api/v1/products/stats - STATISTIQUES GLOBALES
+  fastify.get('/stats', async (request, reply) => {
+    try {
+      const userId = validateUserAccess(request)
+      if (!userId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Authentification requise'
+        })
+      }
+
+      // Stats en parallèle pour performance
+      const [
+        { count: total },
+        { count: active },
+        { count: visible },
+        { count: available },
+        { data: products }
+      ] = await Promise.all([
+        supabaseServiceClient
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('shop_id', userId),
+
+        supabaseServiceClient
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('shop_id', userId)
+          .eq('is_active', true),
+
+        supabaseServiceClient
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('shop_id', userId)
+          .eq('is_visible', true),
+
+        supabaseServiceClient
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('shop_id', userId)
+          .eq('available_for_sale', true),
+
+        supabaseServiceClient
+          .from('products')
+          .select('source, category, price, inventory_quantity, track_inventory, is_enriched, ai_recommend')
+          .eq('shop_id', userId)
+      ])
+
+      // Calculs statistiques
+      const sourceStats = (products || []).reduce((acc: Record<string, number>, product) => {
+        acc[product.source] = (acc[product.source] || 0) + 1
+        return acc
+      }, { manual: 0, shopify: 0, woocommerce: 0, api: 0 })
+
+      const categoryStats = (products || [])
+        .filter(p => p.category)
+        .reduce((acc: Array<{name: string, count: number}>, product) => {
+          const existing = acc.find(c => c.name === product.category)
+          if (existing) {
+            existing.count++
+          } else {
+            acc.push({ name: product.category, count: 1 })
+          }
+          return acc
+        }, [])
+        .sort((a, b) => b.count - a.count)
+
+      // Stats prix
+      const prices = (products || []).map(p => p.price).filter(p => p > 0)
+      const priceStats = prices.length > 0 ? {
+        min: Math.min(...prices),
+        max: Math.max(...prices),
+        average: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
+      } : { min: 0, max: 0, average: 0 }
+
+      // Stock total
+      const totalStock = (products || [])
+        .filter(p => p.track_inventory)
+        .reduce((sum, p) => sum + (p.inventory_quantity || 0), 0)
+
+      // Stats beauté
+      const enriched = (products || []).filter(p => p.is_enriched).length
+      const aiRecommended = (products || []).filter(p => p.ai_recommend).length
+
+      return reply.send({
+        success: true,
+        data: {
+          overview: {
+            total: total || 0,
+            active: active || 0,
+            inactive: (total || 0) - (active || 0),
+            visible: visible || 0,
+            available: available || 0,
+            enriched,
+            aiRecommended
+          },
+          bySource: sourceStats,
+          categories: categoryStats.slice(0, 10),
+          pricing: priceStats,
+          inventory: {
+            totalStock,
+            lowStockCount: (products || []).filter(p => 
+              p.track_inventory && (p.inventory_quantity || 0) < 5
+            ).length
+          }
+        }
+      })
+    } catch (error: any) {
+      fastify.log.error(`❌ [PRODUCTS] GET /stats: ${error.message}`)
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors du calcul des statistiques'
+      })
+    }
+  })
+}
+
+// ✅ FONCTIONS HELPERS POUR IA
+function analyzeProductWithAI(productData: any) {
+  const name = productData.name.toLowerCase()
+  const desc = (productData.description || '').toLowerCase()
+  const text = (name + ' ' + desc)
+
+  // Détection catégorie beauté
+  let beautyCategory = 'skincare'
+  if (text.includes('mascara') || text.includes('rouge') || text.includes('fond')) beautyCategory = 'makeup'
+  else if (text.includes('parfum') || text.includes('eau de')) beautyCategory = 'fragrance'
+  else if (text.includes('shampooing') || text.includes('cheveux')) beautyCategory = 'haircare'
+  else if (text.includes('corps') || text.includes('body')) beautyCategory = 'bodycare'
+
+  // Extraction ingrédients
+  const commonIngredients = [
+    'acide hyaluronique', 'vitamine c', 'rétinol', 'niacinamide',
+    'acide salicylique', 'acide glycolique', 'peptides', 'collagène',
+    'aloe vera', 'beurre de karité'
+  ]
+  const detectedIngredients = commonIngredients.filter(ing => text.includes(ing))
+
+  // Suggestion types de peau
+  const skinTypes = []
+  if (text.includes('tous') || text.includes('universal')) {
+    skinTypes.push('Normale', 'Sèche', 'Grasse', 'Mixte', 'Sensible')
+  } else {
+    if (text.includes('hydratant') || text.includes('sec')) skinTypes.push('Sèche')
+    if (text.includes('matifiant') || text.includes('gras')) skinTypes.push('Grasse')
+    if (text.includes('mixte')) skinTypes.push('Mixte')
+    if (text.includes('sensible')) skinTypes.push('Sensible')
+    if (skinTypes.length === 0) skinTypes.push('Normale')
+  }
+
+  return {
+    confidence: 0.85,
+    suggestions: {
+      beauty_category: beautyCategory,
+      skin_types: skinTypes,
+      key_ingredients: detectedIngredients,
+      benefits: extractBenefits(text),
+      application_tips: generateApplicationTips(beautyCategory),
+      expert_notes: `Produit ${beautyCategory} adapté pour ${skinTypes.join(', ')}`
+    }
+  }
+}
+
+function extractBenefits(text: string): string[] {
+  const benefits = []
+  if (text.includes('hydrat')) benefits.push('Hydratation')
+  if (text.includes('anti-âge') || text.includes('rides')) benefits.push('Anti-âge')
+  if (text.includes('éclat')) benefits.push('Éclat')
+  if (text.includes('nettoy')) benefits.push('Nettoyage')
+  if (text.includes('protec')) benefits.push('Protection')
+  return benefits
+}
+
+function generateApplicationTips(category: string): string[] {
+  const tips: Record<string, string[]> = {
+    skincare: ['Appliquer sur peau propre', 'Utiliser matin et/ou soir', 'Toujours terminer par une crème solaire le matin'],
+    makeup: ['Utiliser un primer avant application', 'Estomper délicatement', 'Fixer avec une poudre'],
+    fragrance: ['Vaporiser sur points de pulsation', 'Ne pas frotter après application'],
+    haircare: ['Appliquer sur cheveux mouillés', 'Masser délicatement', 'Rincer abondamment'],
+    bodycare: ['Appliquer sur peau humide', 'Masser en mouvements circulaires']
+  }
+  return tips[category] || tips.skincare
 }
 
 export default productsRoutes

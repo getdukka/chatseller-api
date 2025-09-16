@@ -1,10 +1,10 @@
-// src/routes/conversations.ts - VERSION SUPABASE CORRIGÉE ✅
+// src/routes/conversations.ts - VERSION BEAUTÉ COMPLÈTE ✅
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { supabaseServiceClient } from '../lib/supabase'
 
-// ✅ SCHÉMAS DE VALIDATION
+// ✅ SCHÉMAS BEAUTÉ ENRICHIS
 const conversationCreateSchema = z.object({
   shopId: z.string(),
   visitorId: z.string(),
@@ -12,14 +12,26 @@ const conversationCreateSchema = z.object({
   productName: z.string().optional(),
   productPrice: z.number().optional(),
   productUrl: z.string().optional(),
-  agentId: z.string().optional()
+  agentId: z.string().optional(),
+  // ✅ NOUVEAUX CHAMPS BEAUTÉ
+  beautyCategory: z.string().optional(),
+  beautyContext: z.string().optional(),
+  customerBeautyProfile: z.any().optional(),
+  productCategory: z.string().optional()
 });
 
 const conversationUpdateSchema = z.object({
   status: z.string().optional(),
   last_activity: z.string().optional(),
   message_count: z.number().optional(),
-  conversion_completed: z.boolean().optional()
+  conversion_completed: z.boolean().optional(),
+  // ✅ NOUVEAUX CHAMPS BEAUTÉ
+  beauty_context: z.string().optional(),
+  customer_beauty_profile: z.any().optional()
+});
+
+const messageUpdateSchema = z.object({
+  content: z.string().min(1, 'Le contenu ne peut pas être vide')
 });
 
 // ✅ HELPER : Récupérer user shop ID
@@ -31,7 +43,7 @@ function getUserShopId(request: any): string | null {
 async function conversationsRoutes(fastify: FastifyInstance) {
   
   // ==========================================
-  // 📋 GET /api/v1/conversations - LISTE CORRIGÉE
+  // 📋 GET /api/v1/conversations - LISTE BEAUTÉ
   // ==========================================
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -44,43 +56,65 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         })
       }
 
-      fastify.log.info(`📞 Récupération conversations pour shop: ${shopId}`)
+      fastify.log.info(`📞 Récupération conversations beauté pour shop: ${shopId}`)
 
-      // ✅ REQUÊTE CORRIGÉE : shop_id au lieu de shopId
+      // ✅ REQUÊTE AVEC CHAMPS BEAUTÉ
       const { data: conversations, error: conversationsError } = await supabaseServiceClient
         .from('conversations')
-        .select('*')
-        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
-        .order('started_at', { ascending: false })  // ✅ CORRIGÉ : started_at
+        .select(`
+          *,
+          beauty_category,
+          beauty_context,
+          customer_beauty_profile,
+          product_category
+        `)
+        .eq('shop_id', shopId)
+        .order('started_at', { ascending: false })
 
       if (conversationsError) {
         throw new Error(`Supabase conversations error: ${conversationsError.message}`)
       }
 
-      // ✅ RÉCUPÉRER LES MESSAGES SÉPARÉMENT
+      // ✅ RÉCUPÉRER LES MESSAGES AVEC FORMATAGE BEAUTÉ
       const conversationsWithMessages = await Promise.all(
         (conversations || []).map(async (conv) => {
-          // ✅ CORRIGÉ : conversation_id au lieu de conversationId
           const { data: messages, error: messagesError } = await supabaseServiceClient
             .from('messages')
-            .select('id, content, role, created_at, tokens_used, response_time_ms')  // ✅ CORRIGÉ : colonnes snake_case
-            .eq('conversation_id', conv.id)  // ✅ CORRIGÉ : conversation_id
-            .order('created_at', { ascending: false })  // ✅ CORRIGÉ : created_at
+            .select('id, content, role, created_at, tokens_used, response_time_ms')
+            .eq('conversation_id', conv.id)
+            .order('created_at', { ascending: false })
             .limit(1)
 
-          // Ne pas faire échouer si erreur messages
           if (messagesError) {
             fastify.log.warn(`⚠️ Erreur messages pour conversation ${conv.id}: ${messagesError.message}`)
           }
 
+          // ✅ FORMATAGE BEAUTÉ + CAMELCASE POUR FRONTEND
           return {
             ...conv,
-            messages: messages || []
+            messages: messages || [],
+            // Normaliser pour le Frontend
+            startedAt: conv.started_at,
+            lastActivity: conv.last_activity,
+            messageCount: conv.message_count,
+            conversionCompleted: conv.conversion_completed,
+            visitorId: conv.visitor_id,
+            agentId: conv.agent_id,
+            productId: conv.product_id,
+            productName: conv.product_name,
+            productPrice: conv.product_price,
+            productUrl: conv.product_url,
+            visitorIp: conv.visitor_ip,
+            // ✅ CHAMPS BEAUTÉ
+            beautyCategory: conv.beauty_category,
+            beautyContext: conv.beauty_context,
+            customerBeautyProfile: conv.customer_beauty_profile,
+            productCategory: conv.product_category
           }
         })
       )
 
-      fastify.log.info(`✅ Conversations trouvées: ${conversationsWithMessages.length}`)
+      fastify.log.info(`✅ Conversations beauté trouvées: ${conversationsWithMessages.length}`)
 
       return {
         success: true,
@@ -92,7 +126,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
       fastify.log.error({
         error: error.message || 'Erreur inconnue',
         stack: error.stack
-      }, '❌ Erreur récupération conversations')
+      }, '❌ Erreur récupération conversations beauté')
       
       return reply.status(500).send({
         success: false,
@@ -102,7 +136,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
-  // 🔍 GET /api/v1/conversations/:id - DÉTAIL CORRIGÉ
+  // 🔍 GET /api/v1/conversations/:id - DÉTAIL BEAUTÉ
   // ==========================================
   fastify.get<{ Params: { conversationId: string } }>('/:conversationId', async (request, reply) => {
     try {
@@ -116,14 +150,20 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         })
       }
 
-      fastify.log.info(`🔍 Récupération conversation: ${conversationId}`)
+      fastify.log.info(`🔍 Récupération conversation beauté: ${conversationId}`)
 
-      // ✅ REQUÊTE CORRIGÉE : shop_id au lieu de shopId
+      // ✅ RÉCUPÉRATION AVEC CHAMPS BEAUTÉ
       const { data: conversation, error: conversationError } = await supabaseServiceClient
         .from('conversations')
-        .select('*')
+        .select(`
+          *,
+          beauty_category,
+          beauty_context,
+          customer_beauty_profile,
+          product_category
+        `)
         .eq('id', conversationId)
-        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
+        .eq('shop_id', shopId)
         .single()
 
       if (conversationError) {
@@ -136,21 +176,38 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         throw new Error(`Supabase conversation error: ${conversationError.message}`)
       }
 
-      // ✅ REQUÊTE CORRIGÉE : conversation_id et colonnes snake_case
+      // ✅ RÉCUPÉRER TOUS LES MESSAGES
       const { data: messages, error: messagesError } = await supabaseServiceClient
         .from('messages')
-        .select('id, content, role, created_at, tokens_used, response_time_ms, model_used')  // ✅ CORRIGÉ : colonnes snake_case
-        .eq('conversation_id', conversationId)  // ✅ CORRIGÉ : conversation_id
-        .order('created_at', { ascending: true })  // ✅ CORRIGÉ : created_at
+        .select('id, content, role, created_at, tokens_used, response_time_ms, model_used')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
 
       if (messagesError) {
         fastify.log.warn(`⚠️ Erreur messages: ${messagesError.message}`)
       }
 
-      // ✅ ASSEMBLER LA RÉPONSE
+      // ✅ FORMATAGE BEAUTÉ + CAMELCASE
       const conversationWithMessages = {
         ...conversation,
-        messages: messages || []
+        messages: messages || [],
+        // Normaliser pour le Frontend
+        startedAt: conversation.started_at,
+        lastActivity: conversation.last_activity,
+        messageCount: conversation.message_count,
+        conversionCompleted: conversation.conversion_completed,
+        visitorId: conversation.visitor_id,
+        agentId: conversation.agent_id,
+        productId: conversation.product_id,
+        productName: conversation.product_name,
+        productPrice: conversation.product_price,
+        productUrl: conversation.product_url,
+        visitorIp: conversation.visitor_ip,
+        // ✅ CHAMPS BEAUTÉ
+        beautyCategory: conversation.beauty_category,
+        beautyContext: conversation.beauty_context,
+        customerBeautyProfile: conversation.customer_beauty_profile,
+        productCategory: conversation.product_category
       }
 
       return {
@@ -163,7 +220,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         conversationId: request.params.conversationId,
         error: error.message || 'Erreur inconnue',
         stack: error.stack
-      }, '❌ Erreur récupération conversation')
+      }, '❌ Erreur récupération conversation beauté')
       
       return reply.status(500).send({
         success: false,
@@ -173,14 +230,26 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
-  // ➕ POST /api/v1/conversations - CRÉATION
+  // ➕ POST /api/v1/conversations - CRÉATION BEAUTÉ
   // ==========================================
   fastify.post<{ Body: typeof conversationCreateSchema._type }>('/', async (request, reply) => {
     try {
-      const { shopId, visitorId, productId, productName, productPrice, productUrl, agentId } = conversationCreateSchema.parse(request.body)
+      const { 
+        shopId, 
+        visitorId, 
+        productId, 
+        productName, 
+        productPrice, 
+        productUrl, 
+        agentId,
+        beautyCategory,
+        beautyContext,
+        customerBeautyProfile,
+        productCategory 
+      } = conversationCreateSchema.parse(request.body)
+      
       const userShopId = getUserShopId(request)
 
-      // Vérifier que le shop appartient à l'utilisateur
       if (shopId && shopId !== userShopId) {
         return reply.status(403).send({
           success: false,
@@ -188,26 +257,31 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         })
       }
 
-      fastify.log.info(`➕ Création conversation pour shop: ${userShopId}`)
+      fastify.log.info(`➕ Création conversation beauté pour shop: ${userShopId}`)
 
-      // ✅ CRÉATION CORRIGÉE : Toutes les colonnes en snake_case
+      // ✅ CRÉATION AVEC CHAMPS BEAUTÉ
       const { data: newConversation, error } = await supabaseServiceClient
         .from('conversations')
         .insert({
-          shop_id: userShopId,           // ✅ CORRIGÉ : shop_id
-          visitor_id: visitorId,         // ✅ CORRIGÉ : visitor_id
-          agent_id: agentId || null,     // ✅ CORRIGÉ : agent_id
-          product_id: productId || null, // ✅ CORRIGÉ : product_id
-          product_name: productName || null,     // ✅ CORRIGÉ : product_name
-          product_price: productPrice || null,   // ✅ CORRIGÉ : product_price
-          product_url: productUrl || null,       // ✅ CORRIGÉ : product_url
+          shop_id: userShopId,
+          visitor_id: visitorId,
+          agent_id: agentId || null,
+          product_id: productId || null,
+          product_name: productName || null,
+          product_price: productPrice || null,
+          product_url: productUrl || null,
           status: 'active',
-          started_at: new Date().toISOString(),        // ✅ CORRIGÉ : started_at
-          last_activity: new Date().toISOString(),     // ✅ CORRIGÉ : last_activity
-          message_count: 0,                            // ✅ CORRIGÉ : message_count
-          conversion_completed: false,                 // ✅ CORRIGÉ : conversion_completed
-          visitor_ip: request.ip,                      // ✅ CORRIGÉ : visitor_ip
-          visitor_user_agent: request.headers['user-agent'] || null  // ✅ CORRIGÉ : visitor_user_agent
+          started_at: new Date().toISOString(),
+          last_activity: new Date().toISOString(),
+          message_count: 0,
+          conversion_completed: false,
+          visitor_ip: request.ip,
+          visitor_user_agent: request.headers['user-agent'] || null,
+          // ✅ NOUVEAUX CHAMPS BEAUTÉ
+          beauty_category: beautyCategory || null,
+          beauty_context: beautyContext || null,
+          customer_beauty_profile: customerBeautyProfile ? JSON.stringify(customerBeautyProfile) : null,
+          product_category: productCategory || null
         })
         .select()
         .single()
@@ -216,11 +290,30 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         throw new Error(`Supabase error: ${error.message}`)
       }
 
-      fastify.log.info(`✅ Conversation créée: ${newConversation.id}`)
+      fastify.log.info(`✅ Conversation beauté créée: ${newConversation.id}`)
+
+      // ✅ FORMATAGE CAMELCASE POUR FRONTEND
+      const formattedConversation = {
+        ...newConversation,
+        startedAt: newConversation.started_at,
+        lastActivity: newConversation.last_activity,
+        messageCount: newConversation.message_count,
+        conversionCompleted: newConversation.conversion_completed,
+        visitorId: newConversation.visitor_id,
+        agentId: newConversation.agent_id,
+        productId: newConversation.product_id,
+        productName: newConversation.product_name,
+        productPrice: newConversation.product_price,
+        productUrl: newConversation.product_url,
+        beautyCategory: newConversation.beauty_category,
+        beautyContext: newConversation.beauty_context,
+        customerBeautyProfile: newConversation.customer_beauty_profile,
+        productCategory: newConversation.product_category
+      }
 
       return {
         success: true,
-        data: newConversation
+        data: formattedConversation
       }
 
     } catch (error: any) {
@@ -228,7 +321,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         shopId: request.body,
         error: error.message || 'Erreur inconnue',
         stack: error.stack
-      }, '❌ Erreur création conversation')
+      }, '❌ Erreur création conversation beauté')
       
       return reply.status(500).send({
         success: false,
@@ -238,7 +331,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
-  // ✏️ PUT /api/v1/conversations/:id - MISE À JOUR
+  // ✏️ PUT /api/v1/conversations/:id - MISE À JOUR BEAUTÉ
   // ==========================================
   fastify.put<{ Params: { conversationId: string }; Body: typeof conversationUpdateSchema._type }>('/:conversationId', async (request, reply) => {
     try {
@@ -253,14 +346,14 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         })
       }
 
-      fastify.log.info(`✏️ Mise à jour conversation: ${conversationId}`)
+      fastify.log.info(`✏️ Mise à jour conversation beauté: ${conversationId}`)
 
-      // ✅ VÉRIFICATION CORRIGÉE : shop_id au lieu de shopId
+      // ✅ VÉRIFICATION SÉCURISÉE
       const { data: existingConversation, error: checkError } = await supabaseServiceClient
         .from('conversations')
-        .select('id, shop_id')  // ✅ CORRIGÉ : shop_id
+        .select('id, shop_id')
         .eq('id', conversationId)
-        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
+        .eq('shop_id', shopId)
         .single()
 
       if (checkError) {
@@ -273,12 +366,12 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         throw new Error(`Supabase error: ${checkError.message}`)
       }
 
-      // ✅ MISE À JOUR CORRIGÉE : last_activity en snake_case
+      // ✅ MISE À JOUR AVEC CHAMPS BEAUTÉ
       const { data: updatedConversation, error: updateError } = await supabaseServiceClient
         .from('conversations')
         .update({
           ...updateData,
-          last_activity: new Date().toISOString()  // ✅ CORRIGÉ : last_activity
+          last_activity: new Date().toISOString()
         })
         .eq('id', conversationId)
         .select()
@@ -299,7 +392,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         updateData: request.body,
         error: error.message || 'Erreur inconnue',
         stack: error.stack
-      }, '❌ Erreur mise à jour conversation')
+      }, '❌ Erreur mise à jour conversation beauté')
       
       return reply.status(500).send({
         success: false,
@@ -309,65 +402,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
-  // 🗑️ DELETE /api/v1/conversations/:id - SUPPRESSION
-  // ==========================================
-  fastify.delete<{ Params: { conversationId: string } }>('/:conversationId', async (request, reply) => {
-    try {
-      const { conversationId } = request.params
-      const shopId = getUserShopId(request)
-
-      if (!shopId) {
-        return reply.status(401).send({
-          success: false,
-          error: 'Shop ID non trouvé'
-        })
-      }
-
-      fastify.log.info(`🗑️ Suppression conversation: ${conversationId}`)
-
-      // ✅ SUPPRESSION CORRIGÉE : shop_id au lieu de shopId
-      const { data: deletedConversation, error } = await supabaseServiceClient
-        .from('conversations')
-        .delete()
-        .eq('id', conversationId)
-        .eq('shop_id', shopId)  // ✅ CORRIGÉ : shop_id
-        .select()
-        .single()
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return reply.status(404).send({
-            success: false,
-            error: 'Conversation non trouvée'
-          })
-        }
-        throw new Error(`Supabase error: ${error.message}`)
-      }
-
-      fastify.log.info(`✅ Conversation supprimée: ${conversationId}`)
-
-      return {
-        success: true,
-        message: 'Conversation supprimée avec succès',
-        data: { id: conversationId }
-      }
-
-    } catch (error: any) {
-      fastify.log.error({
-        conversationId: request.params.conversationId,
-        error: error.message || 'Erreur inconnue',
-        stack: error.stack
-      }, '❌ Erreur suppression conversation')
-      
-      return reply.status(500).send({
-        success: false,
-        error: 'Erreur lors de la suppression de la conversation'
-      })
-    }
-  })
-
-  // ==========================================
-  // 📨 GET /api/v1/conversations/:id/messages - RÉCUPÉRER LES MESSAGES
+  // 📨 GET /api/v1/conversations/:id/messages - MESSAGES BEAUTÉ
   // ==========================================
   fastify.get<{ Params: { conversationId: string } }>('/:conversationId/messages', async (request, reply) => {
     try {
@@ -381,9 +416,9 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         })
       }
 
-      fastify.log.info(`📨 Récupération messages conversation: ${conversationId}`)
+      fastify.log.info(`📨 Récupération messages beauté conversation: ${conversationId}`)
 
-      // ✅ VÉRIFICATION QUE LA CONVERSATION APPARTIENT AU SHOP
+      // ✅ VÉRIFICATION SÉCURISÉE
       const { data: conversation, error: conversationError } = await supabaseServiceClient
         .from('conversations')
         .select('id, shop_id')
@@ -422,7 +457,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         conversationId: request.params.conversationId,
         error: error.message || 'Erreur inconnue',
         stack: error.stack
-      }, '❌ Erreur récupération messages')
+      }, '❌ Erreur récupération messages beauté')
       
       return reply.status(500).send({
         success: false,
@@ -432,7 +467,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
-  // 💬 POST /api/v1/conversations/:id/messages - ENVOYER UN MESSAGE
+  // 💬 POST /api/v1/conversations/:id/messages - NOUVEAU MESSAGE BEAUTÉ
   // ==========================================
   fastify.post<{ 
     Params: { conversationId: string }, 
@@ -457,9 +492,9 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         })
       }
 
-      fastify.log.info(`💬 Envoi message dans conversation: ${conversationId}`)
+      fastify.log.info(`💬 Envoi message beauté dans conversation: ${conversationId}`)
 
-      // ✅ VÉRIFICATION QUE LA CONVERSATION APPARTIENT AU SHOP
+      // ✅ VÉRIFICATION SÉCURISÉE
       const { data: conversation, error: conversationError } = await supabaseServiceClient
         .from('conversations')
         .select('id, shop_id')
@@ -495,7 +530,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         throw new Error(`Supabase message error: ${messageError.message}`)
       }
 
-      // ✅ METTRE À JOUR LA CONVERSATION (last_activity, message_count)
+      // ✅ METTRE À JOUR COMPTEUR MESSAGES
       const { data: currentConversation, error: fetchError } = await supabaseServiceClient
         .from('conversations')
         .select('message_count')
@@ -506,7 +541,6 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         fastify.log.warn(`⚠️ Erreur récupération message_count: ${fetchError.message}`)
       }
 
-      // Puis mettre à jour avec le nouveau count
       const newMessageCount = (currentConversation?.message_count || 0) + 1
 
       const { error: updateError } = await supabaseServiceClient
@@ -532,7 +566,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         body: request.body,
         error: error.message || 'Erreur inconnue',
         stack: error.stack
-      }, '❌ Erreur envoi message')
+      }, '❌ Erreur envoi message beauté')
       
       return reply.status(500).send({
         success: false,
@@ -542,7 +576,92 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
-  // 👋 POST /api/v1/conversations/:id/takeover - PRISE EN CHARGE
+  // ✏️ PUT /api/v1/conversations/:conversationId/messages/:messageId - NOUVELLE ROUTE !
+  // ==========================================
+  fastify.put<{ 
+    Params: { conversationId: string, messageId: string }, 
+    Body: typeof messageUpdateSchema._type 
+  }>('/:conversationId/messages/:messageId', async (request, reply) => {
+    try {
+      const { conversationId, messageId } = request.params
+      const { content } = messageUpdateSchema.parse(request.body)
+      const shopId = getUserShopId(request)
+
+      if (!shopId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Shop ID non trouvé'
+        })
+      }
+
+      fastify.log.info(`✏️ Modification message beauté: ${messageId} dans conversation: ${conversationId}`)
+
+      // ✅ VÉRIFIER QUE LA CONVERSATION APPARTIENT AU SHOP
+      const { data: conversation, error: conversationError } = await supabaseServiceClient
+        .from('conversations')
+        .select('id, shop_id')
+        .eq('id', conversationId)
+        .eq('shop_id', shopId)
+        .single()
+
+      if (conversationError) {
+        if (conversationError.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Conversation non trouvée'
+          })
+        }
+        throw new Error(`Supabase error: ${conversationError.message}`)
+      }
+
+      // ✅ METTRE À JOUR LE MESSAGE
+      const { data: updatedMessage, error: updateError } = await supabaseServiceClient
+        .from('messages')
+        .update({
+          content,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', messageId)
+        .eq('conversation_id', conversationId)
+        .select()
+        .single()
+
+      if (updateError) {
+        if (updateError.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Message non trouvé'
+          })
+        }
+        throw new Error(`Supabase error: ${updateError.message}`)
+      }
+
+      fastify.log.info(`✅ Message beauté modifié: ${messageId}`)
+
+      return {
+        success: true,
+        data: updatedMessage,
+        message: 'Message modifié avec succès'
+      }
+
+    } catch (error: any) {
+      fastify.log.error({
+        conversationId: request.params.conversationId,
+        messageId: request.params.messageId,
+        body: request.body,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur modification message beauté')
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la modification du message'
+      })
+    }
+  })
+
+  // ==========================================
+  // 👋 POST /api/v1/conversations/:id/takeover - PRISE EN CHARGE BEAUTÉ
   // ==========================================
   fastify.post<{ Params: { conversationId: string } }>('/:conversationId/takeover', async (request, reply) => {
     try {
@@ -556,15 +675,15 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         })
       }
 
-      fastify.log.info(`👋 Prise en charge conversation: ${conversationId}`)
+      fastify.log.info(`👋 Prise en charge consultation beauté: ${conversationId}`)
 
-      // ✅ VÉRIFICATION ET MISE À JOUR DE LA CONVERSATION
+      // ✅ MISE À JOUR STATUT
       const { data: updatedConversation, error: updateError } = await supabaseServiceClient
         .from('conversations')
         .update({
           status: 'taken_over',
           taken_over_at: new Date().toISOString(),
-          taken_over_by: shopId, // L'utilisateur qui prend en charge
+          taken_over_by: shopId,
           last_activity: new Date().toISOString()
         })
         .eq('id', conversationId)
@@ -582,27 +701,26 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         throw new Error(`Supabase error: ${updateError.message}`)
       }
 
-      // ✅ OPTIONNEL : AJOUTER UN MESSAGE SYSTÈME POUR INDIQUER LA PRISE EN CHARGE
+      // ✅ MESSAGE SYSTÈME BEAUTÉ
       try {
         await supabaseServiceClient
           .from('messages')
           .insert({
             conversation_id: conversationId,
-            content: 'Un agent humain a rejoint la conversation.',
+            content: '🌸 Une conseillère beauté humaine a rejoint la consultation.',
             role: 'system',
             created_at: new Date().toISOString(),
             tokens_used: 0,
             response_time_ms: 0
           })
       } catch (systemMessageError) {
-        fastify.log.warn(`⚠️ Erreur ajout message système: ${systemMessageError}`)
-        // Ne pas faire échouer la prise en charge pour ça
+        fastify.log.warn(`⚠️ Erreur ajout message système beauté: ${systemMessageError}`)
       }
 
       return {
         success: true,
         data: updatedConversation,
-        message: 'Conversation prise en charge avec succès'
+        message: 'Consultation beauté prise en charge avec succès'
       }
 
     } catch (error: any) {
@@ -610,7 +728,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         conversationId: request.params.conversationId,
         error: error.message || 'Erreur inconnue',
         stack: error.stack
-      }, '❌ Erreur prise en charge conversation')
+      }, '❌ Erreur prise en charge consultation beauté')
       
       return reply.status(500).send({
         success: false,
@@ -620,7 +738,64 @@ async function conversationsRoutes(fastify: FastifyInstance) {
   })
 
   // ==========================================
-  // 📊 GET /api/v1/conversations/stats - STATISTIQUES
+  // 🗑️ DELETE - INCHANGÉ
+  // ==========================================
+  fastify.delete<{ Params: { conversationId: string } }>('/:conversationId', async (request, reply) => {
+    try {
+      const { conversationId } = request.params
+      const shopId = getUserShopId(request)
+
+      if (!shopId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Shop ID non trouvé'
+        })
+      }
+
+      fastify.log.info(`🗑️ Suppression conversation beauté: ${conversationId}`)
+
+      const { data: deletedConversation, error } = await supabaseServiceClient
+        .from('conversations')
+        .delete()
+        .eq('id', conversationId)
+        .eq('shop_id', shopId)
+        .select()
+        .single()
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return reply.status(404).send({
+            success: false,
+            error: 'Conversation non trouvée'
+          })
+        }
+        throw new Error(`Supabase error: ${error.message}`)
+      }
+
+      fastify.log.info(`✅ Conversation beauté supprimée: ${conversationId}`)
+
+      return {
+        success: true,
+        message: 'Conversation supprimée avec succès',
+        data: { id: conversationId }
+      }
+
+    } catch (error: any) {
+      fastify.log.error({
+        conversationId: request.params.conversationId,
+        error: error.message || 'Erreur inconnue',
+        stack: error.stack
+      }, '❌ Erreur suppression conversation beauté')
+      
+      return reply.status(500).send({
+        success: false,
+        error: 'Erreur lors de la suppression de la conversation'
+      })
+    }
+  })
+
+  // ==========================================
+  // 📊 GET /api/v1/conversations/stats - STATS BEAUTÉ
   // ==========================================
   fastify.get('/stats', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -633,9 +808,8 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         })
       }
 
-      fastify.log.info(`📊 Récupération stats conversations pour shop: ${shopId}`)
+      fastify.log.info(`📊 Récupération stats conversations beauté pour shop: ${shopId}`)
 
-      // ✅ REQUÊTES CORRIGÉES : shop_id au lieu de shopId, conversion_completed au lieu de conversionCompleted
       const [
         { count: totalConversations },
         { count: activeConversations },
@@ -644,22 +818,21 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shop_id', shopId),  // ✅ CORRIGÉ : shop_id
+          .eq('shop_id', shopId),
         
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shop_id', shopId)   // ✅ CORRIGÉ : shop_id
+          .eq('shop_id', shopId)
           .eq('status', 'active'),
         
         supabaseServiceClient
           .from('conversations')
           .select('*', { count: 'exact', head: true })
-          .eq('shop_id', shopId)               // ✅ CORRIGÉ : shop_id
-          .eq('conversion_completed', true)    // ✅ CORRIGÉ : conversion_completed
+          .eq('shop_id', shopId)
+          .eq('conversion_completed', true)
       ])
 
-      // ✅ CALCUL TAUX CONVERSION
       const conversionRate = totalConversations && totalConversations > 0 
         ? ((completedConversions || 0) / totalConversations * 100).toFixed(2)
         : '0.00'
@@ -671,7 +844,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         conversionRate: `${conversionRate}%`
       }
 
-      fastify.log.info(stats, '✅ Stats conversations calculées')
+      fastify.log.info(stats, '✅ Stats conversations beauté calculées')
 
       return {
         success: true,
@@ -682,7 +855,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
       fastify.log.error({
         error: error.message || 'Erreur inconnue',
         stack: error.stack
-      }, '❌ Erreur récupération stats conversations')
+      }, '❌ Erreur récupération stats conversations beauté')
       
       return reply.status(500).send({
         success: false,
