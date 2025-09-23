@@ -1,4 +1,4 @@
-// src/routes/public.ts - VERSION CORRIGÉE COMPLÈTE
+// src/routes/public.ts
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';

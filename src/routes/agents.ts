@@ -1,4 +1,4 @@
-// src/routes/agents.ts - VERSION CORRIGÉE AVEC NOUVEAU SYSTÈME DE COÛT
+// src/routes/agents.ts 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';

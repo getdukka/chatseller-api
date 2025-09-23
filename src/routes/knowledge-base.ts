@@ -1,4 +1,4 @@
-// src/routes/knowledge-base.ts - VERSION BEAUTÉ CORRIGÉE
+// src/routes/knowledge-base.ts
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient } from '../lib/supabase';

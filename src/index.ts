@@ -1,10 +1,10 @@
-// src/index.ts - FICHIER PRINCIPAL API AVEC ROUTES AGENTS
+// src/index.ts 
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 
 // ✅ IMPORTER TOUTES LES ROUTES
 import billingRoutes from './routes/billing'
-import agentsRoutes from './routes/agents'  // 🆕 IMPORT AGENTS
+import agentsRoutes from './routes/agents' 
 
 // ✅ FONCTION PRINCIPALE ASYNC
 const start = async () => {

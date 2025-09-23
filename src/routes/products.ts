@@ -1,4 +1,4 @@
-// src/routes/products.ts - VERSION BEAUTÉ OPTIMISÉE
+// src/routes/products.ts
 import { FastifyPluginAsync } from 'fastify'
 import { supabaseServiceClient } from '../lib/supabase'
 import { z } from 'zod'

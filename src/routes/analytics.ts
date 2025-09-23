@@ -1,4 +1,4 @@
-// src/routes/analytics.ts - VERSION COMPLÈTE MISE À JOUR ✅
+// src/routes/analytics.ts
 import { FastifyPluginAsync } from 'fastify'
 import { supabaseServiceClient } from '../lib/supabase'
 

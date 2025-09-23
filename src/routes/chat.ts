@@ -1,4 +1,4 @@
-// src/routes/chat.ts - VERSION COMPLÈTE CORRIGÉE ✅ AVEC TITRE PARTOUT
+// src/routes/chat.ts 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';

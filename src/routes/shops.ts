@@ -1,4 +1,4 @@
-// src/routes/shops.ts - VERSION SUPABASE CORRIGÉE ✅
+// src/routes/shops.ts
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';

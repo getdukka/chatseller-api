@@ -1,4 +1,4 @@
-// src/routes/conversations.ts - VERSION BEAUTÉ COMPLÈTE ✅
+// src/routes/conversations.ts
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'

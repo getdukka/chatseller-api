@@ -1,4 +1,4 @@
-// src/routes/orders.ts - VERSION CORRIGÉE COMPATIBLE ANALYTICS ✅
+// src/routes/orders.ts 
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';

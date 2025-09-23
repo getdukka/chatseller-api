@@ -1,4 +1,4 @@
-// src/routes/quotas.ts - VERSION TYPESCRIPT CORRIGÉE
+// src/routes/quotas.ts 
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 // ✅ IMPORT CORRIGÉ - Utiliser les clients configurés
