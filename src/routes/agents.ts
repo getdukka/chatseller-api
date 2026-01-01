@@ -4,20 +4,24 @@ import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
 
 // ✅ NOUVEAUX TYPES BEAUTÉ HARMONISÉS
-type BeautyAgentType = 'skincare_expert' | 'makeup_expert' | 'fragrance_expert' | 'haircare_expert' | 'bodycare_expert' | 'beauty_expert';
+type BeautyAgentType = 'skincare_expert' | 'makeup_expert' | 'fragrance_expert' | 'haircare_expert' | 'bodycare_expert' | 'beauty_expert' | 'natural_expert' | 'multi_expert';
 type ClassicAgentType = 'general' | 'product_specialist' | 'support' | 'upsell';
 type AgentType = BeautyAgentType | ClassicAgentType;
-type AgentPersonality = 'professional' | 'friendly' | 'expert' | 'casual';
+type AgentPersonality = 'professional' | 'friendly' | 'expert' | 'casual' | 'luxury' | 'trendy';
 type ProductRange = 'premium' | 'accessible' | 'organic' | 'vegan' | 'anti_aging' | 'sensitive' | 'custom';
 
 // ✅ NOUVEAU SYSTÈME : Plus de limites fixes, agents illimités avec coût additionnel
 const AGENT_COST_SYSTEM = {
+  free: {
+    includedAgents: 1, // Premier agent inclus dans essai gratuit
+    additionalAgentCost: 0 // Pas de coût pendant l'essai
+  },
   starter: {
     includedAgents: 1, // Premier agent inclus
     additionalAgentCost: 10 // 10€ par agent supplémentaire
   },
   growth: {
-    includedAgents: 1, // Premier agent inclus  
+    includedAgents: 1, // Premier agent inclus
     additionalAgentCost: 10 // 10€ par agent supplémentaire
   },
   performance: {
@@ -30,8 +34,8 @@ const AGENT_COST_SYSTEM = {
 const createAgentSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').max(255, 'Nom trop long'),
   title: z.string().optional().default(''),
-  type: z.enum(['skincare_expert', 'makeup_expert', 'fragrance_expert', 'haircare_expert', 'bodycare_expert', 'beauty_expert', 'general', 'product_specialist', 'support', 'upsell']),
-  personality: z.enum(['professional', 'friendly', 'expert', 'casual']),
+  type: z.enum(['skincare_expert', 'makeup_expert', 'fragrance_expert', 'haircare_expert', 'bodycare_expert', 'beauty_expert', 'natural_expert', 'multi_expert', 'general', 'product_specialist', 'support', 'upsell']),
+  personality: z.enum(['professional', 'friendly', 'expert', 'casual', 'luxury', 'trendy']),
   description: z.string().optional().nullable(),
   welcomeMessage: z.string().optional().nullable(),
   fallbackMessage: z.string().optional().nullable(),
@@ -63,9 +67,11 @@ function getDefaultTitle(type: string, customTitle?: string): string {
     'skincare_expert': 'Esthéticienne spécialisée',
     'makeup_expert': 'Experte makeup et couleurs',
     'fragrance_expert': 'Conseillère parfums',
-    'haircare_expert': 'Coiffeur spécialisé',
+    'haircare_expert': 'Coiffeuse spécialisée',
     'bodycare_expert': 'Experte soins corps',
-    'beauty_expert': 'Conseillère beauté'
+    'beauty_expert': 'Conseillère beauté',
+    'natural_expert': 'Experte cosmétiques naturels',
+    'multi_expert': 'Conseillère beauté multi-spécialités'
   };
   
   const classicTitles = {
@@ -291,6 +297,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       }
 
       // Récupérer agents avec mapping complet beauté
+      // ✅ CORRECTION: Utiliser LEFT JOIN (sans !inner) pour récupérer tous les agents
       const { data: agents, error: agentsError } = await supabaseServiceClient
         .from('agents')
         .select(`
@@ -298,8 +305,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           welcome_message, fallback_message, avatar, is_active, config,
           product_range, custom_product_range,
           created_at, updated_at,
-          agent_knowledge_base!inner(
-            knowledge_base!inner(
+          agent_knowledge_base(
+            knowledge_base(
               id, title, content_type, is_active
             )
           )
@@ -560,14 +567,15 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       }
 
       // Récupérer agent avec tous les champs beauté
+      // ✅ CORRECTION: Utiliser LEFT JOIN (sans !inner) pour récupérer l'agent même sans documents
       const { data: agent, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description,
           welcome_message, fallback_message, avatar, is_active, config,
           product_range, custom_product_range,
-          agent_knowledge_base!inner(
-            knowledge_base!inner(
+          agent_knowledge_base(
+            knowledge_base(
               id, title, content_type, is_active, tags
             )
           )

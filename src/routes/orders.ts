@@ -622,18 +622,21 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     } 
   }>('/list', async (request, reply) => {
     try {
-      const { 
-        page = 1, 
-        limit = 20, 
-        status, 
+      const {
+        page = 1,
+        limit = 20,
+        status,
         attribution_method,
         date_from,
         date_to
       } = request.query;
-      
+
       const shopId = getUserShopId(request);
 
+      fastify.log.info(`📦 [Orders] Récupération commandes pour shop: ${shopId}`);
+
       if (!shopId) {
+        fastify.log.warn('⚠️ [Orders] Shop ID manquant dans la requête');
         return reply.status(400).send({
           success: false,
           error: 'Shop ID requis'
@@ -653,7 +656,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
             created_at,
             completed_at
           )
-        `)
+        `, { count: 'exact' })
         .eq('shop_id', shopId)
         .order('created_at', { ascending: false });
 
@@ -682,12 +685,15 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       const { data: orders, error, count } = await query;
 
       if (error) {
-        fastify.log.error(`❌ Erreur récupération commandes: ${error.message}`);
+        fastify.log.error(`❌ [Orders] Erreur Supabase: ${error.message} - Details: ${error.details || 'N/A'} - Code: ${error.code || 'N/A'}`);
         return reply.status(500).send({
           success: false,
-          error: 'Erreur lors de la récupération des commandes'
+          error: 'Erreur lors de la récupération des commandes',
+          details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
       }
+
+      fastify.log.info(`✅ [Orders] ${orders?.length || 0} commandes récupérées (total: ${count || 0})`);
 
       // ✅ ENRICHIR AVEC MÉTRIQUES ANALYTICS
       const enrichedOrders = (orders || []).map(order => ({
