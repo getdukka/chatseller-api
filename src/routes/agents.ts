@@ -338,7 +338,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
             id: agent.id,
             name: agent.name,
             title: agent.title || getDefaultTitle(agent.type),
-            type: agent.type,
+            type: agent.type, // L'ENUM supporte directement les types beauté
             personality: agent.personality,
             description: agent.description,
             // ✅ CORRECTION : Mapping camelCase cohérent
@@ -348,9 +348,9 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
             isActive: agent.is_active,
             config: agent.config,
             // ✅ NOUVEAUX CHAMPS BEAUTÉ MAPPÉS
-            productRange: agent.product_range || 'premium',
-            customProductRange: agent.custom_product_range || '',
-            shopName: agent.name || '', 
+            productRange: agent.product_range || agent.config?.productRange || 'premium',
+            customProductRange: agent.custom_product_range || agent.config?.customProductRange || '',
+            shopName: agent.config?.shopName || agent.name || '', 
             stats: {
               conversations: conversations || 0,
               conversions: conversions || 0
@@ -440,44 +440,68 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       // ✅ Générer titre automatique beauté
       const finalTitle = getDefaultTitle(body.type, body.title);
 
-      // ✅ Créer agent avec tous les nouveaux champs beauté
-      const agentData = {
+      console.log(`🔍 [agents.ts] Type demandé: ${body.type}, Personnalité: ${body.personality}`);
+
+      // ✅ Créer agent - L'ENUM agent_type supporte tous les types beauté
+      const agentData: Record<string, any> = {
         shop_id: shop.id,
         name: body.name,
         title: finalTitle,
-        type: body.type as AgentType,
+        type: body.type, // L'ENUM agent_type supporte les types beauté
         personality: body.personality as AgentPersonality,
-        description: body.description,
+        description: body.description || null,
         welcome_message: body.welcomeMessage || "Bonjour ! Je suis votre conseillère beauté. Comment puis-je vous aider ?",
         fallback_message: body.fallbackMessage || "Je transmets votre question à notre équipe beauté, un expert vous recontactera bientôt.",
         avatar: body.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(body.name)}&background=E91E63&color=fff`,
-        is_active: body.isActive,
+        is_active: body.isActive !== undefined ? body.isActive : true,
+        product_range: body.productRange || 'premium',
+        custom_product_range: body.customProductRange || '',
         config: {
           ...body.config,
-          collectBeautyProfile: true, // Par défaut pour beauté
+          // ✅ Stocker aussi dans config pour référence facile
+          beautyType: body.type,
+          productRange: body.productRange || 'premium',
+          customProductRange: body.customProductRange || '',
+          shopName: body.shopName || '',
+          productType: body.productType || 'multi',
+          collectBeautyProfile: true,
           upsellEnabled: true,
           aiProvider: 'openai',
           temperature: 0.7,
           maxTokens: 1000
-        },
-        // ✅ NOUVEAUX CHAMPS BEAUTÉ
-        product_range: body.productRange || 'premium',
-        custom_product_range: body.customProductRange || ''
+        }
       };
 
       console.log('💾 [agents.ts] Données agent beauté à créer:', JSON.stringify(agentData, null, 2));
 
+      // ✅ Insertion de l'agent dans la base de données
       const { data: newAgent, error: createError } = await supabaseServiceClient
         .from('agents')
         .insert(agentData)
         .select()
         .single();
 
-      // ✅ CORRECTION: Gestion d'erreur TypeScript
       if (createError) {
-        console.error('❌ Erreur création agent:', createError);
+        console.error('❌ [agents.ts] Erreur création agent:', createError);
+
+        // Message d'erreur détaillé pour le debugging
+        const errorDetails = {
+          message: createError.message,
+          code: createError.code,
+          details: createError.details,
+          hint: createError.hint,
+          agentData: agentData
+        };
+        console.error('❌ [agents.ts] Détails erreur:', JSON.stringify(errorDetails, null, 2));
+
         throw new Error(createError.message || 'Erreur lors de la création de l\'agent');
       }
+
+      if (!newAgent) {
+        throw new Error('Agent créé mais données non retournées');
+      }
+
+      console.log('✅ [agents.ts] Agent créé avec succès:', newAgent.id);
 
       // ✅ NOUVEAU : Mettre à jour usage quotas agents
       const { count: currentAgentCount } = await supabaseServiceClient
@@ -503,7 +527,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           id: newAgent.id,
           name: newAgent.name,
           title: finalTitle,
-          type: newAgent.type,
+          // ✅ Renvoyer le type original (beauté) depuis config, pas le type DB
+          type: newAgent.type, // L'ENUM supporte directement les types beauté
           personality: newAgent.personality,
           description: newAgent.description,
           welcomeMessage: newAgent.welcome_message,
@@ -511,8 +536,9 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           avatar: newAgent.avatar,
           isActive: newAgent.is_active,
           config: newAgent.config,
-          productRange: newAgent.product_range,
-          customProductRange: newAgent.custom_product_range,
+          // ✅ Récupérer productRange depuis la colonne OU depuis config (fallback)
+          productRange: newAgent.product_range || newAgent.config?.productRange || 'premium',
+          customProductRange: newAgent.custom_product_range || newAgent.config?.customProductRange || '',
           stats: { conversations: 0, conversions: 0 },
           knowledgeBase: [],
           createdAt: newAgent.created_at,
@@ -620,15 +646,15 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
             id: agent.id,
             name: agent.name,
             title: agent.title || getDefaultTitle(agent.type),
-            type: agent.type,
+            type: agent.type, // L'ENUM supporte directement les types beauté
             personality: agent.personality,
             description: agent.description,
             welcomeMessage: agent.welcome_message,
             fallbackMessage: agent.fallback_message,
             avatar: agent.avatar,
             isActive: agent.is_active,
-            productRange: agent.product_range || 'premium',
-            customProductRange: agent.custom_product_range || '',
+            productRange: agent.product_range || agent.config?.productRange || 'premium',
+            customProductRange: agent.custom_product_range || agent.config?.customProductRange || '',
             // ✅ UTILISER shop.name au lieu d'un champ redondant
             shopName: shop.name, // Récupéré depuis la table shops
             config: {

@@ -70,6 +70,18 @@ const updateShopSchema = z.object({
   subscription_plan: z.enum(['starter', 'growth', 'performance']).optional(),
   onboarding_completed: z.boolean().optional(),
   onboarding_completed_at: z.string().datetime().nullable().optional(),
+
+  // ✅ NOUVEAUX CHAMPS BEAUTÉ POUR L'ONBOARDING
+  beauty_category: z.string().optional(),
+  specialized_target: z.union([z.array(z.string()), z.record(z.any())]).optional(),
+  target_age_range: z.string().optional(),
+  price_range: z.string().optional(),
+  expertise_level: z.string().optional(),
+  communication_tone: z.string().optional(),
+  primary_goal: z.string().optional(),
+  acquisition_source: z.string().optional(),
+  newsletter_subscribed: z.boolean().optional(),
+
   widget_config: z.object({
     primaryColor: z.string().optional(),
     buttonText: z.string().optional(),
@@ -637,6 +649,17 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       if (body.onboarding_completed_at !== undefined) {
         updateData.onboarding_completed_at = body.onboarding_completed_at ? body.onboarding_completed_at : null;
       }
+
+      // ✅ NOUVEAUX CHAMPS BEAUTÉ POUR L'ONBOARDING
+      if (body.beauty_category !== undefined) updateData.beauty_category = body.beauty_category;
+      if (body.specialized_target !== undefined) updateData.specialized_target = body.specialized_target;
+      if (body.target_age_range !== undefined) updateData.target_age_range = body.target_age_range;
+      if (body.price_range !== undefined) updateData.price_range = body.price_range;
+      if (body.expertise_level !== undefined) updateData.expertise_level = body.expertise_level;
+      if (body.communication_tone !== undefined) updateData.communication_tone = body.communication_tone;
+      if (body.primary_goal !== undefined) updateData.primary_goal = body.primary_goal;
+
+      fastify.log.info(`📝 Données beauté: category=${body.beauty_category}, tone=${body.communication_tone}, goal=${body.primary_goal}`);
 
       // ✅ FUSION INTELLIGENTE DES CONFIGURATIONS WIDGET
       if (body.widget_config) {
