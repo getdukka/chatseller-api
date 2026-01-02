@@ -447,6 +447,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       const agentId = randomUUID();
 
       // ✅ Créer agent - L'ENUM agent_type supporte tous les types beauté
+      const now = new Date().toISOString();
       const agentData: Record<string, any> = {
         id: agentId, // ✅ IMPORTANT: Générer l'UUID côté serveur
         shop_id: shop.id,
@@ -461,6 +462,8 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         is_active: body.isActive !== undefined ? body.isActive : true,
         product_range: body.productRange || 'premium',
         custom_product_range: body.customProductRange || '',
+        created_at: now, // ✅ IMPORTANT: Fournir les timestamps
+        updated_at: now, // ✅ IMPORTANT: La table n'a pas de DEFAULT
         config: {
           ...body.config,
           // ✅ Stocker aussi dans config pour référence facile
@@ -1044,10 +1047,16 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // ✅ Générer un UUID pour l'agent dupliqué
+      const { randomUUID } = await import('crypto');
+      const duplicatedAgentId = randomUUID();
+      const now = new Date().toISOString();
+
       // Créer agent dupliqué
       const { data: duplicatedAgent, error: createError } = await supabaseServiceClient
         .from('agents')
         .insert({
+          id: duplicatedAgentId, // ✅ IMPORTANT: Générer l'UUID côté serveur
           shop_id: shop.id,
           name: `${originalAgent.name} (Copie)`,
           title: originalAgent.title || getDefaultTitle(originalAgent.type),
@@ -1061,7 +1070,10 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
           config: originalAgent.config || {},
           // ✅ NOUVEAUX CHAMPS BEAUTÉ
           product_range: originalAgent.product_range || 'premium',
-          custom_product_range: originalAgent.custom_product_range || ''
+          custom_product_range: originalAgent.custom_product_range || '',
+          // ✅ TIMESTAMPS OBLIGATOIRES
+          created_at: now,
+          updated_at: now
         })
         .select()
         .single();
