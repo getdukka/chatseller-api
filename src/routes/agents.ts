@@ -442,8 +442,13 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
 
       console.log(`🔍 [agents.ts] Type demandé: ${body.type}, Personnalité: ${body.personality}`);
 
+      // ✅ Générer un UUID pour l'agent (la table n'a pas de DEFAULT sur la colonne id)
+      const { randomUUID } = await import('crypto');
+      const agentId = randomUUID();
+
       // ✅ Créer agent - L'ENUM agent_type supporte tous les types beauté
       const agentData: Record<string, any> = {
+        id: agentId, // ✅ IMPORTANT: Générer l'UUID côté serveur
         shop_id: shop.id,
         name: body.name,
         title: finalTitle,
