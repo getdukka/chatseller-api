@@ -478,13 +478,14 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ RÉCUPÉRER L'AGENT AVEC SA BASE DE CONNAISSANCES (SUPABASE)
+      // ✅ CORRECTION: Utiliser LEFT JOIN (sans !inner) pour récupérer l'agent même sans documents
       const { data: agent, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description,
           welcome_message, fallback_message, avatar, config,
-          agent_knowledge_base!inner(
-            knowledge_base!inner(
+          agent_knowledge_base(
+            knowledge_base(
               id, title, content, content_type, is_active
             )
           )
@@ -494,9 +495,11 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         .single();
 
       if (agentError || !agent) {
-        return reply.status(404).send({ 
-          success: false, 
-          error: 'Agent non trouvé' 
+        console.error('❌ Erreur récupération agent pour test:', agentError);
+        return reply.status(404).send({
+          success: false,
+          error: 'Agent non trouvé',
+          details: process.env.NODE_ENV === 'development' ? agentError?.message : undefined
         });
       }
 
@@ -517,8 +520,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
-      const knowledgeBase = agent.agent_knowledge_base
-        .filter((akb: any) => akb.knowledge_base.is_active)
+      const knowledgeBase = (agent.agent_knowledge_base || [])
+        .filter((akb: any) => akb.knowledge_base?.is_active)
         .map((akb: any) => akb.knowledge_base);
 
       // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC TITRE
@@ -727,8 +730,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
-      const knowledgeBase = agent.agent_knowledge_base
-        .filter((akb: any) => akb.knowledge_base.is_active)
+      const knowledgeBase = (agent.agent_knowledge_base || [])
+        .filter((akb: any) => akb.knowledge_base?.is_active)
         .map((akb: any) => akb.knowledge_base);
 
       // ✅ CONSTRUIRE L'HISTORIQUE DE LA CONVERSATION
