@@ -685,6 +685,8 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
     // ✅ NOUVEAU : Construire prompt avec shopName dynamique
     const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, shopName, productInfo, orderState, messages);
 
+    console.log('🤖 [OPENAI] Appel OpenAI avec model: gpt-4o, messages:', messages.length);
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o", // ✅ UPGRADE VERS GPT-4O
       messages: [
@@ -697,10 +699,12 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
       frequency_penalty: 0.5
     });
 
+    console.log('✅ [OPENAI] Réponse reçue, choices:', completion.choices?.length);
+
     let response = completion.choices[0]?.message?.content || "Je n'ai pas pu générer de réponse.";
     response = formatAIResponse(response);
 
-    console.log('🤖 [OPENAI] Réponse générée:', response.substring(0, 100) + '...');
+    console.log('🤖 [OPENAI] Réponse générée:', response.substring(0, 150) + '...');
 
     // ✅ GESTION DE LA COLLECTE DE COMMANDES
     let newOrderState: OrderCollectionState | undefined;
@@ -772,24 +776,40 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
     };
 
   } catch (error: any) {
-    console.error('❌ [OPENAI] Erreur:', error);
-    
-    if (error.code === 'insufficient_quota') {
+    console.error('❌ [OPENAI] Erreur complète:', {
+      message: error.message,
+      code: error.code,
+      type: error.type,
+      status: error.status,
+      response: error.response?.data
+    });
+
+    if (error.code === 'insufficient_quota' || error.status === 429) {
+      console.error('💰 [OPENAI] Quota dépassé ou rate limit atteint');
       return {
         success: false,
-        error: 'Quota OpenAI dépassé',
+        error: 'Quota OpenAI dépassé ou rate limit',
         fallbackMessage: "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt."
       };
     }
-    
+
+    if (error.code === 'invalid_api_key' || error.status === 401) {
+      console.error('🔑 [OPENAI] Clé API invalide ou expirée');
+      return {
+        success: false,
+        error: 'Clé API OpenAI invalide',
+        fallbackMessage: "Je rencontre un problème de configuration temporaire."
+      };
+    }
+
     let fallbackMessage = "Je rencontre un problème technique temporaire.";
-    
+
     if (productInfo?.name) {
       fallbackMessage = `Je vois que vous vous intéressez à "${productInfo.name}". Un de nos conseillers va vous recontacter rapidement pour vous aider !`;
     } else {
       fallbackMessage = "Je transmets votre question à notre équipe, un conseiller vous recontactera bientôt.";
     }
-    
+
     return {
       success: false,
       error: error.message || 'Erreur IA',
@@ -1340,15 +1360,26 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
 
       // ✅ APPELER IA AVEC NOM DYNAMIQUE ET customProductType
       const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, shopConfig.name, productInfo, orderState);
-      
-      let aiResponse: string = aiResult.fallbackMessage || agent.fallback_message || "Je transmets votre question à notre équipe.";
+
+      console.log('🤖 [IA RESULT]:', {
+        success: aiResult.success,
+        hasMessage: !!aiResult.message,
+        hasFallback: !!aiResult.fallbackMessage,
+        error: aiResult.error,
+        messagePreview: aiResult.message?.substring(0, 100)
+      });
+
+      let aiResponse: string;
       let tokensUsed: number = 0;
 
       if (aiResult.success && aiResult.message) {
         aiResponse = aiResult.message;
         tokensUsed = aiResult.tokensUsed || 0;
-      } else if (aiResult.error) {
-        fastify.log.error(`❌ [IA ERROR]: ${aiResult.error}`);
+        fastify.log.info(`✅ [IA SUCCESS] Réponse générée avec succès (${tokensUsed} tokens)`);
+      } else {
+        // ✅ CORRECTION : Utiliser le fallback seulement en cas d'échec
+        aiResponse = aiResult.fallbackMessage || agent.fallback_message || "Je transmets votre question à notre équipe.";
+        fastify.log.error(`❌ [IA ERROR]: ${aiResult.error || 'Erreur inconnue'} - Utilisation fallback`);
       }
 
       // ✅ SAUVEGARDER ÉTAT COLLECTE AVEC SUPABASE
