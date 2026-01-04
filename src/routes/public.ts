@@ -1359,7 +1359,10 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       messageHistory.push({ role: 'user', content: message });
 
       // ✅ APPELER IA AVEC NOM DYNAMIQUE ET customProductType
-      const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, shopConfig.name, productInfo, orderState);
+      const shopName = shopConfig.name || 'notre boutique'
+      console.log('🏪 [SHOP NAME] Nom boutique utilisé:', shopName)
+
+      const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, shopName, productInfo, orderState);
 
       console.log('🤖 [IA RESULT]:', {
         success: aiResult.success,
