@@ -1084,11 +1084,11 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         .order('updated_at', { ascending: false })
         .limit(1);
 
-      // Log pour debug
+      // Log pour debug - v2
       if (agentError) {
         fastify.log.error(`❌ [PUBLIC CONFIG] Erreur requête agents:`, agentError);
       }
-      fastify.log.info(`🔍 [PUBLIC CONFIG] Agents trouvés: ${agents?.length || 0}`);
+      fastify.log.info(`🔍 [PUBLIC CONFIG v2] Agents trouvés: ${agents?.length || 0}, shopId: ${shopId}`);
 
       const agent = agents && agents.length > 0 ? agents[0] : null;
 
