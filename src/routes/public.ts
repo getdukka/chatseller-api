@@ -982,11 +982,65 @@ export default async function publicRoutes(fastify: FastifyInstance) {
   // ✅ ROUTE DEBUG POUR VÉRIFIER FONCTIONNEMENT
   fastify.get('/debug/:shopId', async (request, reply) => {
     const { shopId } = request.params as any;
+
+    // Récupérer les infos de debug
+    let shopInfo = null;
+    let agentsInfo: any[] = [];
+    let shopError = null;
+    let agentError = null;
+
+    try {
+      // Vérifier le shop
+      const { data: shop, error: sErr } = await supabaseServiceClient
+        .from('shops')
+        .select('id, name, is_active, widget_config, agent_config')
+        .eq('id', shopId)
+        .single();
+
+      shopInfo = shop;
+      shopError = sErr?.message;
+
+      // Vérifier les agents (sans filtre is_active pour debug)
+      const { data: agents, error: aErr } = await supabaseServiceClient
+        .from('agents')
+        .select('id, name, title, shop_id, is_active, welcome_message, config')
+        .eq('shop_id', shopId);
+
+      agentsInfo = agents || [];
+      agentError = aErr?.message;
+
+    } catch (e: any) {
+      console.error('Debug error:', e);
+    }
+
     return {
       success: true,
       message: 'Route publique debug',
       shopId: shopId,
       timestamp: new Date().toISOString(),
+      debug: {
+        shop: shopInfo ? {
+          id: shopInfo.id,
+          name: shopInfo.name,
+          isActive: shopInfo.is_active,
+          hasWidgetConfig: !!shopInfo.widget_config,
+          widgetConfig: shopInfo.widget_config
+        } : null,
+        shopError,
+        agents: agentsInfo.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          title: a.title,
+          shopId: a.shop_id,
+          isActive: a.is_active,
+          hasWelcomeMessage: !!a.welcome_message,
+          hasConfig: !!a.config,
+          configWidget: a.config?.widget
+        })),
+        agentCount: agentsInfo.length,
+        activeAgentCount: agentsInfo.filter((a: any) => a.is_active).length,
+        agentError
+      },
       routes: {
         config: `/api/v1/public/shops/${shopId}/config`,
         chat: '/api/v1/public/chat'
