@@ -1086,7 +1086,7 @@ export default async function publicRoutes(fastify: FastifyInstance) {
 
       // Log pour debug - v2
       if (agentError) {
-        fastify.log.error(`❌ [PUBLIC CONFIG] Erreur requête agents:`, agentError);
+        fastify.log.error(`❌ [PUBLIC CONFIG] Erreur requête agents: ${agentError.message}`);
       }
       fastify.log.info(`🔍 [PUBLIC CONFIG v2] Agents trouvés: ${agents?.length || 0}, shopId: ${shopId}`);
 
