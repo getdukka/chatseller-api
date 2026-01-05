@@ -1016,15 +1016,15 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return getFallbackShopConfig(shopId);
       }
 
-      // ✅ CORRECTION : Inclure customProductType dans la requête agent
+      // ✅ CORRECTION : Jointure OPTIONNELLE pour agents sans base de connaissances
       const { data: agents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
-          id, name, title, type, personality, description, 
+          id, name, title, type, personality, description,
           welcome_message, fallback_message, avatar, config,
           product_type, custom_product_type,
-          agent_knowledge_base!inner(
-            knowledge_base!inner(
+          agent_knowledge_base(
+            knowledge_base(
               id, title, content, content_type, tags
             )
           )
@@ -1056,7 +1056,9 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         };
       }
 
-      const knowledgeContent = agent.agent_knowledge_base
+      // ✅ Gérer le cas où il n'y a pas de documents de base de connaissances
+      const knowledgeContent = (agent.agent_knowledge_base || [])
+        .filter((akb: any) => akb.knowledge_base)
         .map((akb: any) => `## ${akb.knowledge_base.title}\n${akb.knowledge_base.content}`)
         .join('\n\n---\n\n');
 
@@ -1094,14 +1096,16 @@ export default async function publicRoutes(fastify: FastifyInstance) {
             customProductType: agent.custom_product_type
           },
           knowledgeBase: {
-            content: knowledgeContent,
-            documentsCount: agent.agent_knowledge_base.length,
-            documents: agent.agent_knowledge_base.map((akb: any) => ({
-              id: akb.knowledge_base.id,
-              title: akb.knowledge_base.title,
-              contentType: akb.knowledge_base.content_type,
-              tags: akb.knowledge_base.tags
-            }))
+            content: knowledgeContent || '',
+            documentsCount: (agent.agent_knowledge_base || []).filter((akb: any) => akb.knowledge_base).length,
+            documents: (agent.agent_knowledge_base || [])
+              .filter((akb: any) => akb.knowledge_base)
+              .map((akb: any) => ({
+                id: akb.knowledge_base.id,
+                title: akb.knowledge_base.title,
+                contentType: akb.knowledge_base.content_type,
+                tags: akb.knowledge_base.tags
+              }))
           }
         }
       };
