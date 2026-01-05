@@ -1070,27 +1070,22 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return getFallbackShopConfig(shopId);
       }
 
-      // ✅ CORRECTION MAJEURE : Requête simple SANS jointure problématique
-      // La jointure imbriquée agent_knowledge_base -> knowledge_base causait des échecs silencieux
-      const { data: agents, error: agentError } = await supabaseServiceClient
+      // ✅ CORRECTION MAJEURE v3 : Requête identique à /debug qui fonctionne
+      const { data: allAgents, error: agentError } = await supabaseServiceClient
         .from('agents')
-        .select(`
-          id, name, title, type, personality, description,
-          welcome_message, fallback_message, avatar, config,
-          product_type, custom_product_type
-        `)
-        .eq('shop_id', shopId)
-        .eq('is_active', true)
-        .order('updated_at', { ascending: false })
-        .limit(1);
+        .select('id, name, title, type, personality, description, welcome_message, fallback_message, avatar, config, product_type, custom_product_type, shop_id, is_active')
+        .eq('shop_id', shopId);
 
-      // Log pour debug - v2
+      // Log pour debug - v3
       if (agentError) {
         fastify.log.error(`❌ [PUBLIC CONFIG] Erreur requête agents: ${agentError.message}`);
       }
-      fastify.log.info(`🔍 [PUBLIC CONFIG v2] Agents trouvés: ${agents?.length || 0}, shopId: ${shopId}`);
 
-      const agent = agents && agents.length > 0 ? agents[0] : null;
+      // Filtrer les agents actifs côté serveur
+      const activeAgents = (allAgents || []).filter((a: any) => a.is_active === true);
+      fastify.log.info(`🔍 [PUBLIC CONFIG v3] Total agents: ${allAgents?.length || 0}, Actifs: ${activeAgents.length}, shopId: ${shopId}`);
+
+      const agent = activeAgents.length > 0 ? activeAgents[0] : null;
 
       // ✅ Si agent trouvé, récupérer sa base de connaissances séparément
       let knowledgeBaseData: any[] = [];
