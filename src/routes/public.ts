@@ -977,10 +977,10 @@ Souhaitez-vous le commander ? 😊`;
 
 export default async function publicRoutes(fastify: FastifyInstance) {
 
-  // ✅ CORRECTION CRITIQUE : AJOUTER LE PRÉFIXE /public/ POUR TOUTES LES ROUTES
-  
+  // ✅ ROUTES PUBLIQUES (préfixe /api/v1/public défini dans server.ts)
+
   // ✅ ROUTE DEBUG POUR VÉRIFIER FONCTIONNEMENT
-  fastify.get('/public/debug/:shopId', async (request, reply) => {
+  fastify.get('/debug/:shopId', async (request, reply) => {
     const { shopId } = request.params as any;
     return {
       success: true,
@@ -993,9 +993,9 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       }
     }
   })
-  
-  // ✅ ROUTE CORRIGÉE : Configuration publique AVEC NOM DYNAMIQUE ET customProductType
-  fastify.get<{ Params: ShopParamsType }>('/public/shops/:shopId/config', async (request, reply) => {
+
+  // ✅ ROUTE : Configuration publique AVEC NOM DYNAMIQUE ET customProductType
+  fastify.get<{ Params: ShopParamsType }>('/shops/:shopId/config', async (request, reply) => {
     try {
       const { shopId } = request.params;
       fastify.log.info(`🔍 [PUBLIC CONFIG] Récupération config pour shop: ${shopId}`);
@@ -1107,8 +1107,8 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // ✅ ROUTE CORRIGÉE : Chat public AVEC MESSAGE D'ACCUEIL PERSONNALISÉ PRIORITAIRE
-  fastify.post<{ Body: ChatRequestBody }>('/public/chat', async (request, reply) => {
+  // ✅ ROUTE : Chat public AVEC MESSAGE D'ACCUEIL PERSONNALISÉ PRIORITAIRE
+  fastify.post<{ Body: ChatRequestBody }>('/chat', async (request, reply) => {
     const startTime = Date.now();
     
     try {
