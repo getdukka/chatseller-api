@@ -1060,13 +1060,23 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         .map((akb: any) => `## ${akb.knowledge_base.title}\n${akb.knowledge_base.content}`)
         .join('\n\n---\n\n');
 
+      // ✅ FUSION : Priorité à la config widget de l'agent (Dashboard) sur celle du shop
+      const agentWidgetConfig = (agent.config as any)?.widget || {};
+      const shopWidgetConfig = shop.widget_config || {};
+      const mergedWidgetConfig = {
+        ...shopWidgetConfig,
+        ...agentWidgetConfig
+      };
+
+      fastify.log.info(`🎨 [PUBLIC CONFIG] Widget config fusionnée - shop: ${JSON.stringify(shopWidgetConfig)}, agent: ${JSON.stringify(agentWidgetConfig)}, merged: ${JSON.stringify(mergedWidgetConfig)}`);
+
       const response = {
         success: true,
         data: {
           shop: {
             id: shop.id,
             name: shop.name,
-            widgetConfig: shop.widget_config,
+            widgetConfig: mergedWidgetConfig,
             agentConfig: shop.agent_config
           },
           agent: {
