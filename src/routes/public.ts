@@ -1048,24 +1048,6 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // ✅ ROUTE TEST : Diagnostic requête agents
-  fastify.get('/test-agents/:shopId', async (request, reply) => {
-    const { shopId } = request.params as any;
-
-    const { data: agents, error } = await supabaseServiceClient
-      .from('agents')
-      .select('id, name, title, shop_id, is_active')
-      .eq('shop_id', shopId);
-
-    return {
-      shopId,
-      agentsFound: agents?.length || 0,
-      agents: agents || [],
-      error: error?.message || null,
-      activeAgents: (agents || []).filter((a: any) => a.is_active === true)
-    };
-  });
-
   // ✅ ROUTE : Configuration publique AVEC NOM DYNAMIQUE ET customProductType
   fastify.get<{ Params: ShopParamsType }>('/shops/:shopId/config', async (request, reply) => {
     try {
@@ -1088,15 +1070,12 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return getFallbackShopConfig(shopId);
       }
 
-      // ✅ CORRECTION MAJEURE v4 : Requête ULTRA simple
+      // ✅ CORRECTION MAJEURE : Requête simple sans jointures imbriquées
+      // Note: .select('*') fonctionne là où .select('colonnes spécifiques') échouait silencieusement
       const { data: allAgents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select('*')
         .eq('shop_id', shopId);
-
-      // Log détaillé pour debug - v4
-      fastify.log.info(`🔍 [PUBLIC CONFIG v4] shopId recherché: ${shopId}`);
-      fastify.log.info(`🔍 [PUBLIC CONFIG v4] Réponse brute agents: ${JSON.stringify(allAgents)}`);
 
       if (agentError) {
         fastify.log.error(`❌ [PUBLIC CONFIG] Erreur requête agents: ${agentError.message}`);
@@ -1104,10 +1083,9 @@ export default async function publicRoutes(fastify: FastifyInstance) {
 
       // Filtrer les agents actifs côté serveur
       const activeAgents = (allAgents || []).filter((a: any) => a.is_active === true);
-      fastify.log.info(`🔍 [PUBLIC CONFIG v4] Total agents: ${allAgents?.length || 0}, Actifs: ${activeAgents.length}`);
-
       const agent = activeAgents.length > 0 ? activeAgents[0] : null;
-      fastify.log.info(`🔍 [PUBLIC CONFIG v4] Agent sélectionné: ${agent ? agent.name : 'NULL'}`);
+
+      fastify.log.info(`🔍 [PUBLIC CONFIG] Shop: ${shopId}, Agent trouvé: ${agent ? agent.name : 'aucun'}`);
 
       // ✅ Si agent trouvé, récupérer sa base de connaissances séparément
       let knowledgeBaseData: any[] = [];
