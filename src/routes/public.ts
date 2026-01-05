@@ -1048,6 +1048,24 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // ✅ ROUTE TEST : Diagnostic requête agents
+  fastify.get('/test-agents/:shopId', async (request, reply) => {
+    const { shopId } = request.params as any;
+
+    const { data: agents, error } = await supabaseServiceClient
+      .from('agents')
+      .select('id, name, title, shop_id, is_active')
+      .eq('shop_id', shopId);
+
+    return {
+      shopId,
+      agentsFound: agents?.length || 0,
+      agents: agents || [],
+      error: error?.message || null,
+      activeAgents: (agents || []).filter((a: any) => a.is_active === true)
+    };
+  });
+
   // ✅ ROUTE : Configuration publique AVEC NOM DYNAMIQUE ET customProductType
   fastify.get<{ Params: ShopParamsType }>('/shops/:shopId/config', async (request, reply) => {
     try {
