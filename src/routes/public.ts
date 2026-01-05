@@ -1070,27 +1070,46 @@ export default async function publicRoutes(fastify: FastifyInstance) {
         return getFallbackShopConfig(shopId);
       }
 
-      // ✅ CORRECTION : Jointure OPTIONNELLE pour agents sans base de connaissances
+      // ✅ CORRECTION MAJEURE : Requête simple SANS jointure problématique
+      // La jointure imbriquée agent_knowledge_base -> knowledge_base causait des échecs silencieux
       const { data: agents, error: agentError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description,
           welcome_message, fallback_message, avatar, config,
-          product_type, custom_product_type,
-          agent_knowledge_base(
-            knowledge_base(
-              id, title, content, content_type, tags
-            )
-          )
+          product_type, custom_product_type
         `)
         .eq('shop_id', shopId)
         .eq('is_active', true)
         .order('updated_at', { ascending: false })
         .limit(1);
 
+      // Log pour debug
+      if (agentError) {
+        fastify.log.error(`❌ [PUBLIC CONFIG] Erreur requête agents:`, agentError);
+      }
+      fastify.log.info(`🔍 [PUBLIC CONFIG] Agents trouvés: ${agents?.length || 0}`);
+
       const agent = agents && agents.length > 0 ? agents[0] : null;
 
+      // ✅ Si agent trouvé, récupérer sa base de connaissances séparément
+      let knowledgeBaseData: any[] = [];
+      if (agent) {
+        const { data: kbRelations } = await supabaseServiceClient
+          .from('agent_knowledge_base')
+          .select(`
+            knowledge_base(
+              id, title, content, content_type, tags
+            )
+          `)
+          .eq('agent_id', agent.id);
+
+        knowledgeBaseData = kbRelations || [];
+        fastify.log.info(`📚 [PUBLIC CONFIG] Documents knowledge base: ${knowledgeBaseData.length}`);
+      }
+
       if (!agent) {
+        fastify.log.warn(`⚠️ [PUBLIC CONFIG] Aucun agent actif trouvé pour shop: ${shopId}`);
         return {
           success: true,
           data: {
@@ -1111,7 +1130,8 @@ export default async function publicRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ Gérer le cas où il n'y a pas de documents de base de connaissances
-      const knowledgeContent = (agent.agent_knowledge_base || [])
+      // Utiliser knowledgeBaseData récupéré séparément
+      const knowledgeContent = knowledgeBaseData
         .filter((akb: any) => akb.knowledge_base)
         .map((akb: any) => `## ${akb.knowledge_base.title}\n${akb.knowledge_base.content}`)
         .join('\n\n---\n\n');
@@ -1151,8 +1171,8 @@ export default async function publicRoutes(fastify: FastifyInstance) {
           },
           knowledgeBase: {
             content: knowledgeContent || '',
-            documentsCount: (agent.agent_knowledge_base || []).filter((akb: any) => akb.knowledge_base).length,
-            documents: (agent.agent_knowledge_base || [])
+            documentsCount: knowledgeBaseData.filter((akb: any) => akb.knowledge_base).length,
+            documents: knowledgeBaseData
               .filter((akb: any) => akb.knowledge_base)
               .map((akb: any) => ({
                 id: akb.knowledge_base.id,
