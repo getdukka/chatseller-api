@@ -1259,19 +1259,15 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
         });
       }
 
-      // ✅ CORRECTION MAJEURE : Récupérer agent avec customProductType et welcomeMessage
-      const { data: agents, error: agentError } = await supabaseServiceClient
+      // ✅ CORRECTION MAJEURE : Requête simple sans colonnes spécifiques (même fix que /config)
+      const { data: allAgents, error: agentError } = await supabaseServiceClient
         .from('agents')
-        .select(`
-          id, name, title, type, personality, description,
-          welcome_message, fallback_message, avatar, config,
-          product_type, custom_product_type
-        `)
-        .eq('shop_id', shopId)
-        .eq('is_active', true)
-        .limit(1);
+        .select('*')
+        .eq('shop_id', shopId);
 
-      const agent = agents && agents.length > 0 ? agents[0] : null;
+      // Filtrer les agents actifs côté serveur
+      const activeAgents = (allAgents || []).filter((a: any) => a.is_active === true);
+      const agent = activeAgents.length > 0 ? activeAgents[0] : null;
 
       if (!agent) {
         return reply.status(404).send({ 
