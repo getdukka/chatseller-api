@@ -373,8 +373,12 @@ function formatProducts(products: any[]): string {
 
 /**
  * 🎯 CONSTRUIT LE SYSTEM PROMPT EXPERT BEAUTÉ
+ * @param agent - Configuration de l'agent
+ * @param relevantContext - Contexte pertinent extrait du RAG
+ * @param shopName - Nom de la boutique
+ * @param isFirstMessage - True si c'est le premier message de la conversation
  */
-export function buildBeautyExpertPrompt(agent: any, relevantContext: string, shopName?: string): string {
+export function buildBeautyExpertPrompt(agent: any, relevantContext: string, shopName?: string, isFirstMessage: boolean = true): string {
   const agentName = agent.name || 'Conseillère Beauté';
   const agentTitle = agent.title || 'Experte Beauté';
   const brandName = shopName || 'notre marque';
@@ -421,8 +425,12 @@ Tu maîtrises particulièrement :
 
 💡 TON PROTOCOLE DE RÉPONSE
 
-**PHASE 1 : ACCUEIL CHALEUREUX**
+${isFirstMessage ? `**PHASE 1 : ACCUEIL CHALEUREUX**
 Message d'accueil : "${welcomeMessage}"
+Note : C'est le PREMIER message de cette conversation. Accueille chaleureusement la cliente.` : `**PHASE 1 : CONTINUATION NATURELLE**
+⚠️ IMPORTANT : Ceci est une conversation EN COURS. Tu as DÉJÀ accueilli la cliente.
+NE RÉPÈTE PAS de salutations type "Bonjour", "Salut", etc.
+Continue la conversation NATURELLEMENT en répondant directement à sa question ou remarque.`}
 
 **PHASE 2 : DIAGNOSTIC BEAUTÉ (2-3 questions MAX)**
 Pose des questions qualifiantes pour comprendre :

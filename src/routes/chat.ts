@@ -227,15 +227,19 @@ function buildSystemPrompt(
   productContext: any = null,
   userMessage: string = '',
   shopName?: string,
-  productCatalog: any[] = []
+  productCatalog: any[] = [],
+  conversationHistory: any[] = []
 ) {
   const agentTitle = agent.title || getDefaultTitle(agent.type);
 
   // 🎯 NOUVEAU SYSTÈME RAG : Recherche contextuelle intelligente
   const relevantContext = getRelevantContext(userMessage, productCatalog);
 
-  // 🎯 UTILISER LE SYSTEM PROMPT EXPERT BEAUTÉ
-  return buildBeautyExpertPrompt(agent, relevantContext, shopName);
+  // 🎯 Déterminer si c'est le premier message
+  const isFirstMessage = conversationHistory.length === 0;
+
+  // 🎯 UTILISER LE SYSTEM PROMPT EXPERT BEAUTÉ avec contexte conversationnel
+  return buildBeautyExpertPrompt(agent, relevantContext, shopName, isFirstMessage);
 
   // ⚠️ CODE ANCIEN CONSERVÉ COMME FALLBACK (AU CAS OÙ)
   /*
@@ -548,7 +552,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         null, // productContext
         body.message, // userMessage pour RAG
         shop.name, // shopName
-        [] // productCatalog (vide pour test, à enrichir plus tard)
+        [], // productCatalog (vide pour test, à enrichir plus tard)
+        [] // conversationHistory vide pour test (toujours premier message)
       );
 
       // ✅ PRÉPARER LES MESSAGES
@@ -777,7 +782,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         body.productContext,
         body.message, // userMessage pour RAG
         shop.name, // shopName
-        [] // productCatalog (à enrichir avec données shop plus tard)
+        [], // productCatalog (à enrichir avec données shop plus tard)
+        conversationHistory // ✅ Historique pour détecter premier message
       );
 
       // ✅ GÉNÉRER LA RÉPONSE IA

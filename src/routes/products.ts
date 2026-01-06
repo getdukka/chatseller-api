@@ -684,10 +684,10 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         }
       ]
 
-      // Insérer les produits
+      // Insérer les produits (utilise scrapés ou mock si vide)
       const { data, error } = await supabaseServiceClient
         .from('products')
-        .insert(mockProducts)
+        .insert(productsToInsert.length > 0 ? productsToInsert : mockProducts)
         .select()
 
       if (error) {
