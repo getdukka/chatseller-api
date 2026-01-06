@@ -1,0 +1,286 @@
+{
+  "ingredients": {
+    "acide_hyaluronique": {
+      "nom": "Acide Hyaluronique",
+      "fonction": "Hydratation intense, repulpe la peau",
+      "types_peau": ["tous types"],
+      "contre_indications": "Aucune connue",
+      "usage": "Matin et soir sur peau humide",
+      "concentration_ideale": "0.1-2%"
+    },
+    "niacinamide": {
+      "nom": "Niacinamide (Vitamine B3)",
+      "fonction": "Éclaircit les taches, régule le sébum, renforce la barrière cutanée",
+      "types_peau": ["grasse", "mixte", "à imperfections"],
+      "contre_indications": "Éviter avec vitamine C pure à haute concentration (instabilité possible)",
+      "usage": "Matin et/ou soir",
+      "concentration_ideale": "2-10%"
+    },
+    "retinol": {
+      "nom": "Rétinol (Vitamine A)",
+      "fonction": "Anti-âge, stimule le renouvellement cellulaire, réduit imperfections",
+      "types_peau": ["tous types sauf très sensible"],
+      "contre_indications": "Grossesse, allaitement. Rend photosensible : SPF obligatoire le lendemain",
+      "usage": "Soir uniquement, introduction progressive (2x/semaine puis augmenter)",
+      "concentration_ideale": "0.1-1%"
+    },
+    "vitamine_c": {
+      "nom": "Vitamine C (Acide L-Ascorbique)",
+      "fonction": "Antioxydant, éclaircit, stimule collagène, éclat",
+      "types_peau": ["tous types"],
+      "contre_indications": "Peut être irritante à forte concentration (>20%)",
+      "usage": "Matin de préférence, avec SPF obligatoire",
+      "concentration_ideale": "10-20%"
+    },
+    "acide_glycolique": {
+      "nom": "Acide Glycolique (AHA)",
+      "fonction": "Exfoliation chimique, éclat, texture, anti-âge",
+      "types_peau": ["normale", "grasse", "mixte"],
+      "contre_indications": "Peau sensible. Photosensibilisant : SPF obligatoire",
+      "usage": "Soir, 2-3x/semaine maximum",
+      "concentration_ideale": "5-10%"
+    },
+    "acide_salicylique": {
+      "nom": "Acide Salicylique (BHA)",
+      "fonction": "Exfoliation en profondeur, désobstrue pores, anti-acné",
+      "types_peau": ["grasse", "acnéique", "mixte"],
+      "contre_indications": "Allergie aspirine, grossesse (doses élevées)",
+      "usage": "Soir, 2-3x/semaine",
+      "concentration_ideale": "0.5-2%"
+    },
+    "beurre_karite": {
+      "nom": "Beurre de Karité",
+      "fonction": "Hydratation intense, réparation, protection légère UV",
+      "types_peau": ["sèche", "normale", "sensible"],
+      "contre_indications": "Peut être trop riche pour peau grasse du visage",
+      "usage": "Corps quotidien, visage si peau sèche",
+      "concentration_ideale": "5-100%"
+    },
+    "huile_jojoba": {
+      "nom": "Huile de Jojoba",
+      "fonction": "Hydratation, régulation sébum, non comédogène",
+      "types_peau": ["tous types"],
+      "contre_indications": "Aucune connue",
+      "usage": "Matin et/ou soir, 2-3 gouttes",
+      "concentration_ideale": "100% (pure)"
+    },
+    "aloe_vera": {
+      "nom": "Aloe Vera",
+      "fonction": "Hydratation, apaisement, cicatrisation, anti-inflammatoire",
+      "types_peau": ["tous types, particulièrement sensible et irritée"],
+      "contre_indications": "Aucune connue",
+      "usage": "Matin et soir, peut se superposer",
+      "concentration_ideale": "10-100%"
+    },
+    "centella_asiatica": {
+      "nom": "Centella Asiatica (Cica)",
+      "fonction": "Apaisement, réparation barrière cutanée, anti-inflammatoire, cicatrisant",
+      "types_peau": ["sensible", "irritée", "acnéique"],
+      "contre_indications": "Aucune connue",
+      "usage": "Matin et soir",
+      "concentration_ideale": "1-10%"
+    },
+    "acide_tranexamique": {
+      "nom": "Acide Tranexamique",
+      "fonction": "Éclaircit hyperpigmentation, mélasma, taches post-acné",
+      "types_peau": ["tous types avec hyperpigmentation"],
+      "contre_indications": "Aucune connue en usage topique",
+      "usage": "Matin et/ou soir avec SPF",
+      "concentration_ideale": "2-5%"
+    },
+    "alpha_arbutine": {
+      "nom": "Alpha Arbutine",
+      "fonction": "Éclaircit taches brunes, inhibe production mélanine",
+      "types_peau": ["tous types avec hyperpigmentation"],
+      "contre_indications": "Aucune connue",
+      "usage": "Matin et soir avec SPF",
+      "concentration_ideale": "1-2%"
+    }
+  },
+  "problematiques": {
+    "hyperpigmentation": {
+      "description": "Taches brunes, teint irrégulier, marques post-acné",
+      "causes": ["Exposition soleil sans protection", "Acné et inflammation", "Hormones (grossesse, pilule)", "Vieillissement"],
+      "ingredients_recommandes": ["Vitamine C", "Niacinamide", "Alpha Arbutine", "Acide Tranexamique", "Acide Kojique", "Réglisse"],
+      "routine": "Nettoyage doux + Sérum éclaircissant (vitamine C matin, niacinamide soir) + Hydratation + SPF 50+ OBLIGATOIRE",
+      "timeline_resultats": "4-8 semaines minimum avec régularité",
+      "conseils_specifiques": "SPF est NON NÉGOCIABLE. Patience requise. Éviter manipulation des boutons."
+    },
+    "acne": {
+      "description": "Boutons, points noirs, inflammation, peau à imperfections",
+      "causes": ["Hormones", "Stress", "Alimentation", "Produits comédogènes", "Hygiène inadaptée"],
+      "ingredients_recommandes": ["Acide Salicylique (BHA)", "Niacinamide", "Peroxyde de Benzoyle", "Zinc", "Acide Azélaïque"],
+      "routine": "Nettoyage doux 2x/jour + BHA 2-3x/semaine + Hydratation légère non comédogène + SPF fluide",
+      "timeline_resultats": "2-4 semaines pour amélioration visible",
+      "conseils_specifiques": "Ne pas sur-nettoyer (effet rebond sébum). Hydrater même peau grasse. Éviter toucher le visage."
+    },
+    "secheresse": {
+      "description": "Peau qui tiraille, desquame, inconfortable",
+      "causes": ["Manque d'hydratation", "Climat sec/froid", "Nettoyants trop agressifs", "Vieillissement", "Déshydratation"],
+      "ingredients_recommandes": ["Acide Hyaluronique", "Glycérine", "Céramides", "Beurre de Karité", "Squalane", "Huiles végétales"],
+      "routine": "Nettoyage crème/huile + Sérum hydratant (acide hyaluronique sur peau humide) + Crème riche + Huile si besoin (PM)",
+      "timeline_resultats": "Amélioration immédiate, résultats durables en 1-2 semaines",
+      "conseils_specifiques": "Appliquer produits sur peau légèrement humide. Boire beaucoup d'eau. Humidificateur recommandé."
+    },
+    "vergetures": {
+      "description": "Stries cutanées blanches ou rouges (abdomen, cuisses, seins)",
+      "causes": ["Grossesse", "Prise/perte de poids rapide", "Croissance adolescence", "Musculation intensive"],
+      "ingredients_recommandes": ["Rétinol", "Vitamine E", "Centella Asiatica", "Beurre de Cacao", "Huile d'Amande douce", "Acide Hyaluronique"],
+      "routine": "Exfoliation douce 2x/semaine + Sérum (rétinol ou centella) + Hydratation intense (beurre) 2x/jour",
+      "timeline_resultats": "3-6 mois minimum. Vergetures rouges répondent mieux que blanches",
+      "conseils_specifiques": "Prévention > traitement. Masser régulièrement. Patience critique."
+    },
+    "melasma": {
+      "description": "Taches brunes symétriques (front, joues, lèvre supérieure)",
+      "causes": ["Grossesse (masque de grossesse)", "Hormones (pilule)", "Soleil", "Prédisposition génétique"],
+      "ingredients_recommandes": ["Acide Tranexamique", "Vitamine C", "Niacinamide", "Alpha Arbutine", "Acide Azélaïque", "Hydroquinone (sur prescription)"],
+      "routine": "Protection solaire STRICTE (SPF 50+ réapplication) + Sérums éclaircissants matin et soir + Éviter chaleur excessive",
+      "timeline_resultats": "3-6 mois minimum. Peut récidiver sans protection solaire",
+      "conseils_specifiques": "SPF + chapeau indispensables. Éviter cire chaude, sauna. Consulter dermatologue si persistant."
+    },
+    "peau_sensible": {
+      "description": "Rougeurs, réactivité, picotements, irritations fréquentes",
+      "causes": ["Barrière cutanée fragilisée", "Génétique", "Produits agressifs", "Environnement"],
+      "ingredients_recommandes": ["Centella Asiatica", "Aloe Vera", "Niacinamide", "Avoine Colloïdale", "Bisabolol", "Céramides"],
+      "routine": "Nettoyage ultra-doux + Sérum apaisant + Crème réparatrice barrière + SPF minéral",
+      "timeline_resultats": "1-2 semaines pour réduction sensibilité",
+      "conseils_specifiques": "Patch test obligatoire. Introduire 1 produit à la fois. Éviter parfums, alcool, huiles essentielles."
+    }
+  },
+  "types_cheveux": {
+    "4A": {
+      "description": "Boucles en S serrées, texture douce et définie",
+      "porosite_commune": "moyenne",
+      "besoins": ["Hydratation régulière", "Définition des boucles", "Protection contre la casse"],
+      "produits_cles": ["Leave-in conditioner", "Gel définition", "Huile légère (jojoba, argan)"],
+      "frequence_lavage": "1x par semaine",
+      "techniques": ["LOC method (Liquid, Oil, Cream)", "Protective styles", "Satin pillowcase"]
+    },
+    "4B": {
+      "description": "Boucles en Z, texture cotonneuse, shrinkage important",
+      "porosite_commune": "haute",
+      "besoins": ["Hydratation intense", "Étirement des boucles", "Scellage de l'hydratation"],
+      "produits_cles": ["Leave-in riche", "Beurre (karité, cacao)", "Huile épaisse"],
+      "frequence_lavage": "1x par semaine à tous les 10 jours",
+      "techniques": ["LCO method (Liquid, Cream, Oil)", "Twists/Braids", "Deep conditioning hebdomadaire"]
+    },
+    "4C": {
+      "description": "Très crépus, frisures en Z très serrées, shrinkage extrême (75%)",
+      "porosite_commune": "variable (souvent haute)",
+      "besoins": ["Hydratation maximum", "Scellage intense", "Protection contre casse"],
+      "produits_cles": ["Leave-in très riche", "Beurre épais", "Huile pénétrante (ricin, coco)"],
+      "frequence_lavage": "1x par semaine ou moins (focus hydratation entre lavages)",
+      "techniques": ["Pre-poo avec huile", "LCO/LOC method", "Protective styles longues", "Manipulation minimale"]
+    },
+    "3C": {
+      "description": "Boucles serrées en spirales, volume naturel",
+      "porosite_commune": "moyenne à haute",
+      "besoins": ["Définition", "Hydratation", "Contrôle frisottis"],
+      "produits_cles": ["Gel", "Leave-in", "Mousse coiffante"],
+      "frequence_lavage": "1-2x par semaine",
+      "techniques": ["Rake and shake", "Shingling", "Diffusion cheveux"]
+    }
+  },
+  "routines_specifiques": {
+    "peau_grasse": {
+      "matin": [
+        "Nettoyant gel ou moussant doux",
+        "Tonique astringent (optionnel)",
+        "Sérum niacinamide ou vitamine C",
+        "Crème hydratante légère/gel-crème",
+        "SPF fluide matifiant (obligatoire)"
+      ],
+      "soir": [
+        "Démaquillant à l'eau micellaire",
+        "Nettoyant gel/moussant",
+        "BHA 2-3x/semaine (acide salicylique)",
+        "Sérum (niacinamide ou rétinol)",
+        "Crème légère ou gel hydratant"
+      ],
+      "conseils": "Ne pas sur-nettoyer. Toujours hydrater même si peau grasse. SPF non négociable."
+    },
+    "peau_seche": {
+      "matin": [
+        "Nettoyant crème ou huile",
+        "Sérum hydratant (acide hyaluronique sur peau humide)",
+        "Crème riche",
+        "SPF (formule hydratante)"
+      ],
+      "soir": [
+        "Huile démaquillante ou baume",
+        "Nettoyant crème doux",
+        "Sérum hydratant/réparateur",
+        "Crème de nuit riche",
+        "Huile faciale (si besoin extrême)"
+      ],
+      "conseils": "Appliquer sur peau humide. Éviter eau trop chaude. Humidificateur recommandé."
+    },
+    "anti_taches": {
+      "matin": [
+        "Nettoyage doux",
+        "Vitamine C (sérum 10-20%)",
+        "Hydratation",
+        "SPF 50+ OBLIGATOIRE (réappliquer toutes les 2h)"
+      ],
+      "soir": [
+        "Nettoyage double (huile puis gel)",
+        "AHA 2-3x/semaine OU rétinol (alterner)",
+        "Sérum éclaircissant (niacinamide, alpha arbutine)",
+        "Crème de nuit hydratante"
+      ],
+      "conseils": "SPF est CRITIQUE. Patience requise (minimum 4-8 semaines). Éviter soleil direct."
+    },
+    "anti_age": {
+      "matin": [
+        "Nettoyage doux",
+        "Vitamine C (antioxydant)",
+        "Sérum peptides",
+        "Crème hydratante riche",
+        "SPF 50+ OBLIGATOIRE"
+      ],
+      "soir": [
+        "Nettoyage double",
+        "Rétinol (introduction progressive)",
+        "Sérum hydratant",
+        "Crème de nuit riche",
+        "Huile/Beurre si peau très sèche"
+      ],
+      "conseils": "Rétinol introduire progressivement. SPF non négociable. Hydrater intensément."
+    }
+  },
+  "types_peau": {
+    "grasse": {
+      "caracteristiques": ["Production excessive sébum", "Pores dilatés", "Brillance", "Tendance acné"],
+      "objectifs": ["Réguler sébum", "Affiner pores", "Matifier", "Prévenir acné"],
+      "ingredients_amis": ["Niacinamide", "Acide Salicylique", "Argile", "Zinc"],
+      "ingredients_ennemis": ["Huiles comédogènes", "Crèmes trop riches", "Alcool desséchant (effet rebond)"]
+    },
+    "seche": {
+      "caracteristiques": ["Tiraillements", "Desquamation", "Inconfort", "Ridules déshydratation"],
+      "objectifs": ["Hydrater", "Réparer barrière", "Apaiser", "Nourrir"],
+      "ingredients_amis": ["Acide Hyaluronique", "Céramides", "Beurres végétaux", "Huiles riches"],
+      "ingredients_ennemis": ["Alcool", "Sulfates agressifs", "AHA/BHA trop forts", "Parfums"]
+    },
+    "mixte": {
+      "caracteristiques": ["Zone T grasse (front, nez, menton)", "Joues normales à sèches"],
+      "objectifs": ["Équilibrer", "Hydrater zones sèches", "Matifier zone T"],
+      "ingredients_amis": ["Niacinamide", "Acide Hyaluronique", "Gel-crèmes"],
+      "ingredients_ennemis": ["Produits trop riches partout", "Sur-nettoyage"]
+    },
+    "sensible": {
+      "caracteristiques": ["Réactivité", "Rougeurs", "Picotements", "Irritations faciles"],
+      "objectifs": ["Apaiser", "Renforcer barrière", "Réduire réactivité"],
+      "ingredients_amis": ["Centella", "Aloe Vera", "Avoine Colloïdale", "Niacinamide doux"],
+      "ingredients_ennemis": ["Parfums", "Huiles essentielles", "Alcool", "Actifs trop forts"]
+    }
+  },
+  "glossaire_beaute": {
+    "comedogene": "Se dit d'un ingrédient qui favorise l'apparition de comédons (points noirs/blancs). À éviter si peau grasse/acnéique.",
+    "humectant": "Ingrédient qui attire l'eau (ex: acide hyaluronique, glycérine). Idéal pour hydrater.",
+    "occlusif": "Ingrédient qui forme un film protecteur empêchant l'évaporation de l'eau (ex: vaseline, beurre de karité).",
+    "emollient": "Ingrédient qui adoucit et lisse la peau (ex: huiles végétales, céramides).",
+    "photosensibilisant": "Rend la peau plus sensible au soleil. SPF obligatoire (ex: rétinol, AHA).",
+    "purging": "Période d'adaptation où les imperfections remontent à la surface (rétinol, AHA). Normal 2-4 semaines.",
+    "patch_test": "Test d'allergie : appliquer produit dans pli du coude 24-48h avant usage complet."
+  }
+}

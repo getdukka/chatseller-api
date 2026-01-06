@@ -1,8 +1,9 @@
-// src/routes/chat.ts 
+// src/routes/chat.ts
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
 import OpenAI from 'openai';
+import { getRelevantContext, buildBeautyExpertPrompt } from '../services/beauty-rag';
 
 // ✅ INTERFACE POUR LA CONFIG AGENT
 interface AgentConfig {
@@ -219,10 +220,25 @@ async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0
   }
 }
 
-// ✅ HELPER: Construire le prompt système avec base de connaissances ET TITRE
-function buildSystemPrompt(agent: any, knowledgeBase: any[] = [], productContext: any = null) {
+// ✅ HELPER: Construire le prompt système avec RAG BEAUTÉ EXPERT
+function buildSystemPrompt(
+  agent: any,
+  knowledgeBase: any[] = [],
+  productContext: any = null,
+  userMessage: string = '',
+  shopName?: string,
+  productCatalog: any[] = []
+) {
   const agentTitle = agent.title || getDefaultTitle(agent.type);
-  
+
+  // 🎯 NOUVEAU SYSTÈME RAG : Recherche contextuelle intelligente
+  const relevantContext = getRelevantContext(userMessage, productCatalog);
+
+  // 🎯 UTILISER LE SYSTEM PROMPT EXPERT BEAUTÉ
+  return buildBeautyExpertPrompt(agent, relevantContext, shopName);
+
+  // ⚠️ CODE ANCIEN CONSERVÉ COMME FALLBACK (AU CAS OÙ)
+  /*
   // ✅ NOUVEAU : Détection automatique domaine beauté
   const beautyType = detectBeautyType(agent.type, agentTitle);
   const beautyExpertise = getBeautyExpertise(beautyType);
@@ -297,9 +313,10 @@ ${agentConfig.specificInstructions.map((inst: string) => `- ${inst}`).join('\n')
 Tu incarnes une ${agentTitle} passionnée, bienveillante et experte. Tu adores aider les femmes à se sentir belles et confiantes. Tu connais parfaitement les dernières tendances, les ingrédients innovants et les techniques d'application. Tu es comme cette vendeuse en boutique que toutes les clientes adorent consulter.`;
 
   return systemPrompt;
+  */
 }
 
-// ✅ NOUVELLES FONCTIONS SUPPORT BEAUTÉ
+// ✅ NOUVELLES FONCTIONS SUPPORT BEAUTÉ (conservées pour compatibilité)
 
 function detectBeautyType(agentType: string, agentTitle: string): string {
   const title = agentTitle.toLowerCase();
@@ -524,8 +541,15 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         .filter((akb: any) => akb.knowledge_base?.is_active)
         .map((akb: any) => akb.knowledge_base);
 
-      // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC TITRE
-      const systemPrompt = buildSystemPrompt(agent, knowledgeBase);
+      // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC RAG BEAUTÉ
+      const systemPrompt = buildSystemPrompt(
+        agent,
+        knowledgeBase,
+        null, // productContext
+        body.message, // userMessage pour RAG
+        shop.name, // shopName
+        [] // productCatalog (vide pour test, à enrichir plus tard)
+      );
 
       // ✅ PRÉPARER LES MESSAGES
       const messages = [
@@ -746,8 +770,15 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         content: body.message
       });
 
-      // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC TITRE
-      const systemPrompt = buildSystemPrompt(agent, knowledgeBase, body.productContext);
+      // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC RAG BEAUTÉ
+      const systemPrompt = buildSystemPrompt(
+        agent,
+        knowledgeBase,
+        body.productContext,
+        body.message, // userMessage pour RAG
+        shop.name, // shopName
+        [] // productCatalog (à enrichir avec données shop plus tard)
+      );
 
       // ✅ GÉNÉRER LA RÉPONSE IA
       const agentConfig = agent.config as AgentConfig;

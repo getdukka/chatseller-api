@@ -1,0 +1,515 @@
+{
+  "african_ingredients": {
+    "bissap": {
+      "noms_communs": "Bissap, Hibiscus, Fleur d'hibiscus",
+      "nom_scientifique": "Hibiscus sabdariffa",
+      "origine": "Afrique de l'Ouest et Centrale",
+      "noms_locaux": ["Bissap (Wolof)", "Dabileni (Bambara)", "Zobo (Hausa)", "Karkadé (Arabe)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Antioxydant puissant (anthocyanes)",
+          "Éclaircit le teint naturellement",
+          "Raffermit et tonifie la peau",
+          "Anti-âge naturel",
+          "Exfoliant doux (acides naturels)"
+        ],
+        "cheveux": [
+          "Stimule la croissance capillaire",
+          "Renforce les follicules pileux",
+          "Apporte brillance naturelle",
+          "Prévient la chute des cheveux",
+          "Conditionne et adoucit"
+        ]
+      },
+      "actifs_principaux": ["Anthocyanes", "Vitamine C", "Acides organiques", "Polyphénols"],
+      "usage_traditionnel": "Infusion pour rinçage capillaire, masque visage éclaircissant",
+      "contre_indications": "Aucune connue, très doux",
+      "types_peau_recommandes": ["tous types", "ternes", "matures"],
+      "formes_utilisation": ["Infusion", "Poudre", "Extrait", "Macérât"]
+    },
+    "pomme_de_terre": {
+      "noms_communs": "Pomme de terre",
+      "nom_scientifique": "Solanum tuberosum",
+      "origine": "Cultivée en Afrique",
+      "noms_locaux": ["Patata", "Pomteer"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Éclaircit les taches brunes (enzyme catécholase)",
+          "Anti-inflammatoire puissant",
+          "Réduit les cernes",
+          "Apaise les coups de soleil",
+          "Hydrate et raffermit"
+        ],
+        "cheveux": []
+      },
+      "actifs_principaux": ["Catécholase", "Vitamine C", "Amidon", "Potassium"],
+      "usage_traditionnel": "Jus frais sur les taches, rondelles sur les cernes",
+      "contre_indications": "Éviter sur plaies ouvertes",
+      "types_peau_recommandes": ["hyperpigmentée", "sensible", "irritée"],
+      "formes_utilisation": ["Jus frais", "Purée", "Rondelles"]
+    },
+    "riz": {
+      "noms_communs": "Riz, Eau de riz",
+      "nom_scientifique": "Oryza sativa",
+      "origine": "Cultivé en Afrique",
+      "noms_locaux": ["Ceeb (Wolof)", "Maal (Bambara)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Éclaircit le teint progressivement",
+          "Resserre les pores",
+          "Effet tenseur immédiat",
+          "Adoucit et lisse la peau",
+          "Contrôle l'excès de sébum"
+        ],
+        "cheveux": [
+          "Renforce la fibre capillaire (inositol)",
+          "Favorise la pousse",
+          "Apporte brillance intense",
+          "Répare les cheveux abîmés",
+          "Démêle naturellement"
+        ]
+      },
+      "actifs_principaux": ["Inositol", "Acides aminés", "Vitamines B", "Minéraux"],
+      "usage_traditionnel": "Eau de rinçage du riz fermentée pour cheveux et visage",
+      "contre_indications": "Aucune connue",
+      "types_peau_recommandes": ["grasse", "mixte", "ternes"],
+      "formes_utilisation": ["Eau de riz fermentée", "Poudre", "Masque"]
+    },
+    "karite": {
+      "noms_communs": "Beurre de karité, Or des femmes",
+      "nom_scientifique": "Vitellaria paradoxa",
+      "origine": "Afrique de l'Ouest (Sahel)",
+      "noms_locaux": ["Karité", "Shea (Anglais)", "Taama (Bambara)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Hydratation intense et durable",
+          "Réparation de la barrière cutanée",
+          "Protection UV légère (SPF 3-4)",
+          "Anti-inflammatoire",
+          "Cicatrisant naturel",
+          "Prévient les vergetures"
+        ],
+        "cheveux": [
+          "Nutrition profonde",
+          "Scelle l'hydratation",
+          "Protège de la chaleur",
+          "Adoucit et assouplit",
+          "Favorise la pousse"
+        ]
+      },
+      "actifs_principaux": ["Acides gras insaturés", "Vitamine E", "Vitamine A", "Karitène"],
+      "usage_traditionnel": "Soin quotidien peau et cheveux, protection solaire naturelle",
+      "contre_indications": "Peut être comédogène pour peaux très grasses",
+      "types_peau_recommandes": ["sèche", "normale", "sensible", "mature"],
+      "formes_utilisation": ["Brut", "Raffiné", "Intégré dans formulations"]
+    },
+    "baobab": {
+      "noms_communs": "Baobab, Arbre de vie",
+      "nom_scientifique": "Adansonia digitata",
+      "origine": "Afrique subsaharienne",
+      "noms_locaux": ["Gui (Wolof)", "Sira (Bambara)", "Kuka (Hausa)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Antioxydant exceptionnel (vitamine C 6x orange)",
+          "Anti-âge puissant",
+          "Raffermit et tonifie",
+          "Hydrate intensément",
+          "Régénère les tissus"
+        ],
+        "cheveux": [
+          "Renforce les cheveux fragiles",
+          "Apporte élasticité",
+          "Protège des agressions",
+          "Hydrate sans alourdir"
+        ]
+      },
+      "actifs_principaux": ["Vitamine C (280-300mg/100g)", "Oméga 3, 6, 9", "Acides aminés"],
+      "usage_traditionnel": "Poudre dans masques anti-âge, huile pour cheveux",
+      "contre_indications": "Aucune connue",
+      "types_peau_recommandes": ["mature", "déshydratée", "fatiguée"],
+      "formes_utilisation": ["Poudre de pulpe", "Huile de graines"]
+    },
+    "moringa": {
+      "noms_communs": "Moringa, Arbre miracle",
+      "nom_scientifique": "Moringa oleifera",
+      "origine": "Afrique tropicale",
+      "noms_locaux": ["Nébéday (Wolof)", "Guiliguandja (Bambara)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "46 antioxydants différents",
+          "Purifie en profondeur",
+          "Anti-âge exceptionnel",
+          "Éclaircit les taches",
+          "Antibactérien naturel"
+        ],
+        "cheveux": [
+          "Stimule croissance capillaire",
+          "Nourrit le cuir chevelu",
+          "Apporte brillance",
+          "Renforce les racines"
+        ]
+      },
+      "actifs_principaux": ["Zéatine (anti-âge)", "Vitamines A, C, E", "Acides aminés", "Oméga"],
+      "usage_traditionnel": "Poudre purifiante, huile nourrissante",
+      "contre_indications": "Aucune connue",
+      "types_peau_recommandes": ["grasse", "acnéique", "terne", "mature"],
+      "formes_utilisation": ["Poudre de feuilles", "Huile de graines"]
+    },
+    "ricin_noir": {
+      "noms_communs": "Ricin noir jamaïcain, Huile de ricin",
+      "nom_scientifique": "Ricinus communis",
+      "origine": "Afrique (variété noire traditionnelle)",
+      "noms_locaux": ["Mboti", "Kobi"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Hydrate intensément",
+          "Antibactérien",
+          "Cicatrisant",
+          "Renforce les cils et sourcils"
+        ],
+        "cheveux": [
+          "Stimule FORTEMENT la croissance",
+          "Épaissit les cheveux",
+          "Scelle l'hydratation",
+          "Répare les pointes",
+          "Favorise densité capillaire"
+        ]
+      },
+      "actifs_principaux": ["Acide ricinoléique (90%)", "Oméga 6 et 9", "Vitamine E"],
+      "usage_traditionnel": "Huile pure sur cheveux et cils, traitement anti-chute",
+      "contre_indications": "Très épais, difficile à rincer",
+      "types_peau_recommandes": ["sèche", "normale"],
+      "formes_utilisation": ["Huile pure", "Mélange d'huiles"]
+    },
+    "neem": {
+      "noms_communs": "Neem, Margousier",
+      "nom_scientifique": "Azadirachta indica",
+      "origine": "Cultivé en Afrique",
+      "noms_locaux": ["Neem", "Kinkeliba (confusion parfois)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Antibactérien puissant",
+          "Anti-acné exceptionnel",
+          "Purifiant profond",
+          "Anti-inflammatoire",
+          "Traite eczéma et psoriasis"
+        ],
+        "cheveux": [
+          "Traite les pellicules",
+          "Assainit le cuir chevelu",
+          "Stimule la pousse",
+          "Renforce les racines"
+        ]
+      },
+      "actifs_principaux": ["Azadirachtine", "Nimbine", "Acides gras"],
+      "usage_traditionnel": "Huile purifiante, poudre anti-acné",
+      "contre_indications": "Odeur forte, éviter si enceinte",
+      "types_peau_recommandes": ["acnéique", "grasse", "à problèmes"],
+      "formes_utilisation": ["Huile", "Poudre", "Extrait"]
+    },
+    "argan": {
+      "noms_communs": "Argan, Or liquide du Maroc",
+      "nom_scientifique": "Argania spinosa",
+      "origine": "Afrique du Nord (Maroc)",
+      "noms_locaux": ["Argan"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Hydratation sans effet gras",
+          "Anti-âge riche en vitamine E",
+          "Cicatrisant",
+          "Protège du vieillissement",
+          "Non comédogène"
+        ],
+        "cheveux": [
+          "Répare les cheveux secs",
+          "Apporte brillance exceptionnelle",
+          "Protège de la chaleur",
+          "Lisse les frisottis",
+          "Nourrit sans alourdir"
+        ]
+      },
+      "actifs_principaux": ["Vitamine E", "Oméga 6 et 9", "Squalène", "Stérols"],
+      "usage_traditionnel": "Huile multi-usage beauté",
+      "contre_indications": "Aucune connue",
+      "types_peau_recommandes": ["tous types", "mature", "sèche"],
+      "formes_utilisation": ["Huile pure cosmétique"]
+    },
+    "aloe_vera": {
+      "noms_communs": "Aloe vera, Aloès",
+      "nom_scientifique": "Aloe barbadensis miller",
+      "origine": "Cultivé massivement en Afrique",
+      "noms_locaux": ["Aloe", "Lalwé"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Hydratation intense non grasse",
+          "Apaisant immédiat",
+          "Cicatrisant exceptionnel",
+          "Anti-inflammatoire",
+          "Régénérant cellulaire"
+        ],
+        "cheveux": [
+          "Hydrate le cuir chevelu",
+          "Stimule la pousse",
+          "Traite les pellicules",
+          "Apaise les démangeaisons"
+        ]
+      },
+      "actifs_principaux": ["Polysaccharides", "Vitamines A, C, E", "Enzymes", "Acides aminés"],
+      "usage_traditionnel": "Gel frais direct de la plante",
+      "contre_indications": "Aucune connue",
+      "types_peau_recommandes": ["tous types", "sensible", "irritée", "grasse"],
+      "formes_utilisation": ["Gel pur", "Jus", "Extrait"]
+    },
+    "huile_coco": {
+      "noms_communs": "Huile de coco, Coprah",
+      "nom_scientifique": "Cocos nucifera",
+      "origine": "Cultivé en Afrique tropicale",
+      "noms_locaux": ["Coco", "Kokonat"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Hydratation profonde",
+          "Antibactérien naturel",
+          "Adoucit et lisse",
+          "Protection légère UV"
+        ],
+        "cheveux": [
+          "PÉNÈTRE dans la fibre (rare)",
+          "Scelle l'hydratation",
+          "Prévient la casse",
+          "Apporte douceur",
+          "Traite les cheveux secs"
+        ]
+      },
+      "actifs_principaux": ["Acide laurique", "Acide caprique", "Vitamine E"],
+      "usage_traditionnel": "Bain d'huile capillaire, hydratant corps",
+      "contre_indications": "Peut être comédogène pour certaines peaux",
+      "types_peau_recommandes": ["sèche", "normale"],
+      "formes_utilisation": ["Huile vierge", "Fractionnée"]
+    },
+    "beurre_cacao": {
+      "noms_communs": "Beurre de cacao",
+      "nom_scientifique": "Theobroma cacao",
+      "origine": "Afrique de l'Ouest (1er producteur mondial)",
+      "noms_locaux": ["Cacao", "Kakaw"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Prévient les vergetures (grossesse)",
+          "Hydratation intense durable",
+          "Raffermit la peau",
+          "Antioxydant",
+          "Cicatrisant"
+        ],
+        "cheveux": [
+          "Scelle l'hydratation extrême",
+          "Protège des agressions",
+          "Apporte brillance"
+        ]
+      },
+      "actifs_principaux": ["Acides gras saturés", "Polyphénols", "Vitamine E"],
+      "usage_traditionnel": "Anti-vergetures, soin corps hiver",
+      "contre_indications": "Très occlusif, peut être trop riche",
+      "types_peau_recommandes": ["très sèche", "normale"],
+      "formes_utilisation": ["Brut", "Désodorisé"]
+    },
+    "tamarin": {
+      "noms_communs": "Tamarin",
+      "nom_scientifique": "Tamarindus indica",
+      "origine": "Afrique tropicale",
+      "noms_locaux": ["Dakhaar (Wolof)", "Ntomi (Bambara)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Exfoliant naturel (AHA)",
+          "Éclaircit le teint progressivement",
+          "Resserre les pores",
+          "Unifie le teint",
+          "Antioxydant"
+        ],
+        "cheveux": []
+      },
+      "actifs_principaux": ["Acides alpha-hydroxy (AHA)", "Vitamine C", "Acide tartrique"],
+      "usage_traditionnel": "Masque exfoliant visage, gommage doux",
+      "contre_indications": "Éviter sur peau irritée",
+      "types_peau_recommandes": ["terne", "épaisse", "hyperpigmentée"],
+      "formes_utilisation": ["Pulpe", "Extrait", "Poudre"]
+    },
+    "fenugrec": {
+      "noms_communs": "Fenugrec, Trigonelle",
+      "nom_scientifique": "Trigonella foenum-graecum",
+      "origine": "Cultivé en Afrique du Nord et Sahel",
+      "noms_locaux": ["Helba (Arabe)", "Abeish"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Anti-inflammatoire",
+          "Adoucit la peau",
+          "Repulpe (phytoestrogènes)"
+        ],
+        "cheveux": [
+          "Stimule FORTEMENT la pousse",
+          "Renforce les racines",
+          "Réduit la chute",
+          "Apporte volume",
+          "Conditionne les cheveux"
+        ]
+      },
+      "actifs_principaux": ["Protéines", "Lécithine", "Vitamines B", "Fer"],
+      "usage_traditionnel": "Pâte de graines moulues en masque capillaire",
+      "contre_indications": "Odeur forte, éviter si enceinte",
+      "types_peau_recommandes": ["tous types"],
+      "formes_utilisation": ["Poudre de graines", "Huile macérée"]
+    },
+    "henne": {
+      "noms_communs": "Henné, Lawsonia",
+      "nom_scientifique": "Lawsonia inermis",
+      "origine": "Afrique du Nord et Sahel",
+      "noms_locaux": ["Henna", "Lalle (Wolof)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Antibactérien",
+          "Rafraîchissant",
+          "Colorant naturel (tatouages)"
+        ],
+        "cheveux": [
+          "Renforce la fibre capillaire",
+          "Gainÿe et épaissit",
+          "Conditionne profondément",
+          "Apporte brillance",
+          "Traite les pellicules",
+          "⚠️ COLORE (cuivré à rouge)"
+        ]
+      },
+      "actifs_principaux": ["Lawsone (colorant)", "Tanins", "Polyphénols"],
+      "usage_traditionnel": "Soin capillaire gainant, colorant naturel",
+      "contre_indications": "COLORE les cheveux (permanent), patch test requis",
+      "types_peau_recommandes": ["tous types"],
+      "formes_utilisation": ["Poudre neutre (sans lawsone)", "Poudre colorante"]
+    },
+    "papaye": {
+      "noms_communs": "Papaye",
+      "nom_scientifique": "Carica papaya",
+      "origine": "Cultivée en Afrique tropicale",
+      "noms_locaux": ["Papaye", "Pawpaw"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Exfoliant enzymatique (papaïne)",
+          "Éclaircit les taches brunes",
+          "Affine le grain de peau",
+          "Éclat immédiat",
+          "Purifiant doux"
+        ],
+        "cheveux": []
+      },
+      "actifs_principaux": ["Papaïne (enzyme)", "Vitamine C", "Bêta-carotène", "AHA"],
+      "usage_traditionnel": "Masque visage éclaircissant, gommage enzymatique",
+      "contre_indications": "Peut irriter peaux sensibles",
+      "types_peau_recommandes": ["terne", "hyperpigmentée", "grasse"],
+      "formes_utilisation": ["Pulpe fraîche", "Extrait", "Poudre"]
+    },
+    "avocat": {
+      "noms_communs": "Avocat",
+      "nom_scientifique": "Persea americana",
+      "origine": "Cultivé en Afrique",
+      "noms_locaux": ["Avocat", "Pear (Afrique anglophone)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Nutrition intense",
+          "Régénérant cellulaire",
+          "Anti-âge",
+          "Apaise et répare",
+          "Hydrate profondément"
+        ],
+        "cheveux": [
+          "Nutrition profonde extrême",
+          "Répare cheveux abîmés",
+          "Apporte douceur",
+          "Fortifie la fibre",
+          "Scelle l'hydratation"
+        ]
+      },
+      "actifs_principaux": ["Oméga 3, 6, 9", "Vitamine E", "Lécithine", "Phytostérols"],
+      "usage_traditionnel": "Masque nourrissant visage et cheveux",
+      "contre_indications": "Peut être trop riche pour peaux grasses",
+      "types_peau_recommandes": ["sèche", "mature", "sensible"],
+      "formes_utilisation": ["Pulpe fraîche", "Huile"]
+    },
+    "miel": {
+      "noms_communs": "Miel",
+      "nom_scientifique": "Mel (produit par abeilles)",
+      "origine": "Production africaine traditionnelle",
+      "noms_locaux": ["Miel", "Asali (Swahili)", "Fooh (Wolof)"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Antibactérien naturel puissant",
+          "Cicatrisant exceptionnel",
+          "Hydratant humectant",
+          "Anti-inflammatoire",
+          "Antioxydant",
+          "Adoucit la peau"
+        ],
+        "cheveux": [
+          "Hydrate et scelle",
+          "Apporte brillance",
+          "Fortifie les cheveux",
+          "Apaise le cuir chevelu"
+        ]
+      },
+      "actifs_principaux": ["Enzymes", "Antioxydants", "Minéraux", "Vitamines B"],
+      "usage_traditionnel": "Masque visage purifiant, soin cicatrisant",
+      "contre_indications": "Collant, éviter sur plaies ouvertes infectées",
+      "types_peau_recommandes": ["tous types", "acnéique", "irritée"],
+      "formes_utilisation": ["Brut", "Mélangé en masques"]
+    },
+    "charbon_actif": {
+      "noms_communs": "Charbon actif, Charbon végétal",
+      "nom_scientifique": "Carbon activatus",
+      "origine": "Produit en Afrique (bois, coques de coco)",
+      "noms_locaux": ["Charbon"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Purifie en profondeur",
+          "Détoxifie la peau",
+          "Absorbe l'excès de sébum",
+          "Resserre les pores",
+          "Matifie",
+          "Anti-points noirs"
+        ],
+        "cheveux": [
+          "Nettoie le cuir chevelu",
+          "Élimine les résidus produits",
+          "Purifie les racines"
+        ]
+      },
+      "actifs_principaux": ["Carbone activé", "Minéraux"],
+      "usage_traditionnel": "Masque purifiante visage, shampoing détox",
+      "contre_indications": "Peut assécher si trop fréquent",
+      "types_peau_recommandes": ["grasse", "mixte", "acnéique"],
+      "formes_utilisation": ["Poudre"]
+    },
+    "argile_africaine": {
+      "noms_communs": "Argile africaine (Rhassoul, Verte, Blanche)",
+      "nom_scientifique": "Divers types d'argiles",
+      "origine": "Maroc (Rhassoul), Afrique subsaharienne",
+      "noms_locaux": ["Ghassoul", "Rassoul"],
+      "proprietes_cosmetiques": {
+        "peau": [
+          "Purifie profondément",
+          "Absorbe l'excès de sébum",
+          "Resserre les pores",
+          "Reminéralise la peau",
+          "Exfolie doucement",
+          "Matifie"
+        ],
+        "cheveux": [
+          "Nettoie sans décaper",
+          "Apporte volume",
+          "Régule sébum cuir chevelu",
+          "Démêle naturellement"
+        ]
+      },
+      "actifs_principaux": ["Silice", "Magnésium", "Calcium", "Fer", "Sodium"],
+      "usage_traditionnel": "Masque visage purifiant, shampoing naturel",
+      "contre_indications": "Peut assécher si trop fréquent",
+      "types_peau_recommandes": ["grasse", "mixte", "acnéique"],
+      "formes_utilisation": ["Poudre"]
+    }
+  }
+}
