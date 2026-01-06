@@ -479,7 +479,131 @@ Comment puis-je vous aider ? 😊`;
 }
 
 export default async function chatRoutes(fastify: FastifyInstance) {
-  
+
+  // ✅ ROUTE: INITIALISER UNE CONVERSATION (POST /api/v1/chat/init)
+  fastify.post('/init', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      fastify.log.info('🎬 Initialisation nouvelle conversation');
+
+      const initSchema = z.object({
+        shopId: z.string().uuid(),
+        agentId: z.string().uuid().optional(),
+        productContext: z.object({
+          id: z.string().optional(),
+          name: z.string().optional(),
+          url: z.string().optional(),
+          price: z.number().optional()
+        }).optional()
+      });
+
+      const body = initSchema.parse(request.body);
+
+      // ✅ RÉCUPÉRER LE SHOP
+      const { data: shop, error: shopError } = await supabaseServiceClient
+        .from('shops')
+        .select('*')
+        .eq('id', body.shopId)
+        .single();
+
+      if (shopError || !shop || !shop.is_active) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Shop non trouvé ou inactif'
+        });
+      }
+
+      // ✅ RÉCUPÉRER L'AGENT ACTIF
+      const { data: agents } = await supabaseServiceClient
+        .from('agents')
+        .select('*')
+        .eq('shop_id', shop.id)
+        .eq('is_active', true);
+
+      let agent = null;
+      if (body.agentId) {
+        agent = agents?.find(a => a.id === body.agentId);
+      } else {
+        agent = agents?.[0];
+      }
+
+      if (!agent) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Aucun agent actif trouvé'
+        });
+      }
+
+      // ✅ CRÉER LA CONVERSATION
+      const { data: conversation, error: convError } = await supabaseServiceClient
+        .from('conversations')
+        .insert({
+          shop_id: shop.id,
+          agent_id: agent.id,
+          status: 'active',
+          visitor_ip: request.ip,
+          visitor_user_agent: request.headers['user-agent'] || '',
+          product_id: body.productContext?.id || null,
+          product_name: body.productContext?.name || null,
+          product_url: body.productContext?.url || null,
+          product_price: body.productContext?.price || null
+        })
+        .select()
+        .single();
+
+      if (convError) {
+        console.error('❌ Erreur création conversation:', convError);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur création conversation'
+        });
+      }
+
+      // ✅ ENVOYER LE MESSAGE DE BIENVENUE
+      const welcomeMessage = agent.welcome_message ||
+        `Bonjour ! Je suis ${agent.name}, votre ${agent.title || 'conseillère'}. Comment puis-je vous aider aujourd'hui ?`;
+
+      const { data: welcomeMsg, error: msgError } = await supabaseServiceClient
+        .from('messages')
+        .insert({
+          conversation_id: conversation.id,
+          role: 'assistant',
+          content: welcomeMessage,
+          content_type: 'text'
+        })
+        .select()
+        .single();
+
+      if (msgError) {
+        console.error('❌ Erreur message bienvenue:', msgError);
+        return reply.status(500).send({
+          success: false,
+          error: 'Erreur envoi message bienvenue'
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          conversationId: conversation.id,
+          welcomeMessage: welcomeMsg.content,
+          agent: {
+            id: agent.id,
+            name: agent.name,
+            title: agent.title,
+            avatar: agent.avatar
+          }
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ Erreur init conversation:', error);
+      return reply.status(400).send({
+        success: false,
+        error: error.message || 'Erreur initialisation conversation'
+      });
+    }
+  });
+
   // ✅ ROUTE: TEST IA POUR LE PLAYGROUND (POST /api/v1/chat/test)
   fastify.post('/test', async (request: FastifyRequest, reply: FastifyReply) => {
     const startTime = Date.now();
@@ -734,13 +858,32 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         if (convError) {
           fastify.log.error('❌ Erreur création conversation');
           console.error('Détails erreur conversation:', convError);
-          return reply.status(500).send({ 
-            success: false, 
-            error: 'Erreur création conversation' 
+          return reply.status(500).send({
+            success: false,
+            error: 'Erreur création conversation'
           });
         }
 
         conversation = newConv;
+
+        // ✅ ENVOYER AUTOMATIQUEMENT LE MESSAGE DE BIENVENUE DE L'IA
+        const welcomeMessage = agent.welcome_message ||
+          `Bonjour ! Je suis ${agent.name}, votre ${agent.title || 'conseillère'}. Comment puis-je vous aider aujourd'hui ?`;
+
+        const { error: welcomeError } = await supabaseServiceClient
+          .from('messages')
+          .insert({
+            conversation_id: conversation.id,
+            role: 'assistant',
+            content: welcomeMessage,
+            content_type: 'text'
+          });
+
+        if (welcomeError) {
+          console.warn('⚠️ Erreur envoi message bienvenue:', welcomeError);
+        } else {
+          console.log('✅ Message de bienvenue automatique envoyé');
+        }
       }
 
       // ✅ SAUVEGARDER LE MESSAGE UTILISATEUR
