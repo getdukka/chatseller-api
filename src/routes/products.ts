@@ -117,7 +117,7 @@ const BeautyDataSchema = z.object({
 const SyncCredentialsSchema = z.object({
   platform: z.enum(['shopify', 'woocommerce']),
   shop_url: z.string().url(),
-  access_token: z.string().min(1),
+  access_token: z.string().optional(), // ✅ Optionnel pour scraping public Shopify
   api_key: z.string().optional(),
   api_secret: z.string().optional()
 })
@@ -564,16 +564,20 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const { platform, shop_url, access_token, api_key } = validation.data
 
-      fastify.log.info(`🛒 [SYNC] Début synchronisation ${platform} depuis ${shop_url}`)
+      // ✅ Traiter les chaînes vides comme undefined (le formulaire envoie "" au lieu de undefined)
+      const cleanAccessToken = access_token && access_token.trim() !== '' ? access_token : undefined
+      const cleanApiKey = api_key && api_key.trim() !== '' ? api_key : undefined
+
+      fastify.log.info(`🛒 [SYNC] Début synchronisation ${platform} depuis ${shop_url} (token: ${!!cleanAccessToken})`)
 
       // 🎯 SCRAPING DES PRODUITS
       let scrapedProducts;
       try {
         scrapedProducts = await scrapeProducts(platform, {
           shop_url,
-          access_token,
-          consumer_key: api_key,
-          consumer_secret: access_token // Pour WooCommerce
+          access_token: cleanAccessToken,
+          consumer_key: cleanApiKey,
+          consumer_secret: cleanAccessToken // Pour WooCommerce
         });
 
         fastify.log.info(`✅ [SYNC] ${scrapedProducts.length} produits scrapés depuis ${platform}`)
