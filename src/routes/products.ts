@@ -542,7 +542,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // ✅ POST /api/v1/products/sync - SYNCHRONISATION BOUTIQUE
+  // ✅ POST /api/v1/products/sync - SYNCHRONISATION BOUTIQUE (AMÉLIORÉ)
   fastify.post('/sync', async (request, reply) => {
     try {
       const userId = validateUserAccess(request)
@@ -566,7 +566,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
       fastify.log.info(`🛒 [SYNC] Début synchronisation ${platform} depuis ${shop_url}`)
 
-      // 🎯 VRAI SCRAPING DES PRODUITS
+      // 🎯 SCRAPING DES PRODUITS
       let scrapedProducts;
       try {
         scrapedProducts = await scrapeProducts(platform, {
@@ -582,12 +582,31 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(400).send({
           success: false,
           error: `Impossible de se connecter à ${platform}`,
-          details: scrapeError.message
+          details: scrapeError.message,
+          help: platform === 'shopify'
+            ? 'Vérifiez que votre URL Shopify est correcte et que votre access token a les permissions "read_products"'
+            : 'Vérifiez vos clés API WooCommerce et que votre site est accessible'
         });
       }
 
+      // ✅ AUCUN PRODUIT = MESSAGE CLAIR (pas de mock)
+      if (!scrapedProducts || scrapedProducts.length === 0) {
+        fastify.log.warn(`⚠️ [SYNC] Aucun produit trouvé sur ${shop_url}`)
+        return reply.send({
+          success: true,
+          data: [],
+          summary: {
+            total_found: 0,
+            inserted: 0,
+            updated: 0,
+            errors: 0
+          },
+          message: `Aucun produit trouvé sur ${shop_url}. Vérifiez que votre boutique contient des produits publiés.`
+        })
+      }
+
       // 🔄 Convertir en format Supabase products
-      const productsToInsert = scrapedProducts.map(product => ({
+      const productsToUpsert = scrapedProducts.map(product => ({
         name: product.name,
         description: product.description,
         price: product.price,
@@ -596,6 +615,8 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         source: platform,
         external_id: product.external_id,
         shop_id: userId,
+        url: product.url || null,
+        image_url: product.images?.[0] || null, // ✅ Image principale pour les cartes produit
         is_active: true,
         is_visible: true,
         available_for_sale: true,
@@ -611,103 +632,85 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         },
         inventory_quantity: product.inventory_quantity || 0,
         track_inventory: false,
-        is_enriched: false, // À enrichir après
+        is_enriched: false,
         needs_enrichment: true,
         enrichment_score: 0,
-        ai_recommend: false,
-        personalization_enabled: false
+        ai_recommend: true, // ✅ Activer recommandation IA par défaut
+        personalization_enabled: false,
+        last_synced_at: new Date().toISOString()
       }));
 
-      // Alternative mockée si aucun produit scrapé (pour tests)
-      const mockProducts = productsToInsert.length > 0 ? productsToInsert : [
-        {
-          name: 'Crème Hydratante Bio',
-          description: 'Crème visage enrichie en aloe vera',
-          price: 35.00,
-          category: 'Soins visage',
-          source: platform,
-          external_id: `${platform}_product_1`,
-          shop_id: userId,
-          beauty_data: {
-            beauty_category: 'skincare',
-            skin_types: ['Sèche', 'Sensible'],
-            key_ingredients: ['Aloe Vera', 'Beurre de Karité'],
-            benefits: ['Hydratation', 'Apaisement']
-          },
-          is_active: true,
-          is_visible: true,
-          available_for_sale: true,
-          currency: 'XOF',
-          tags: [],
-          images: [],
-          features: [],
-          specifications: {},
-          external_data: { platform, shop_url },
-          inventory_quantity: 0,
-          track_inventory: false,
-          is_enriched: true,
-          needs_enrichment: false,
-          enrichment_score: 75,
-          ai_recommend: false,
-          personalization_enabled: false
-        },
-        {
-          name: 'Sérum Anti-Âge Premium',
-          description: 'Sérum concentré aux peptides',
-          price: 65.00,
-          category: 'Soins visage',
-          source: platform,
-          external_id: `${platform}_product_2`,
-          shop_id: userId,
-          beauty_data: {
-            beauty_category: 'skincare',
-            skin_types: ['Mature', 'Normale'],
-            key_ingredients: ['Peptides', 'Vitamine E', 'Rétinol'],
-            benefits: ['Anti-âge', 'Fermeté', 'Éclat']
-          },
-          is_active: true,
-          is_visible: true,
-          available_for_sale: true,
-          currency: 'XOF',
-          tags: [],
-          images: [],
-          features: [],
-          specifications: {},
-          external_data: { platform, shop_url },
-          inventory_quantity: 0,
-          track_inventory: false,
-          is_enriched: true,
-          needs_enrichment: false,
-          enrichment_score: 85,
-          ai_recommend: false,
-          personalization_enabled: false
+      // ✅ UPSERT : Met à jour si existe, insère si nouveau (évite doublons)
+      let inserted = 0;
+      let updated = 0;
+      let errors = 0;
+      const insertedProducts: any[] = [];
+
+      for (const product of productsToUpsert) {
+        // Vérifier si le produit existe déjà (même external_id + shop_id)
+        const { data: existing } = await supabaseServiceClient
+          .from('products')
+          .select('id')
+          .eq('shop_id', userId)
+          .eq('external_id', product.external_id)
+          .single();
+
+        if (existing) {
+          // ✅ UPDATE : Produit existant
+          const { data: updatedProduct, error: updateError } = await supabaseServiceClient
+            .from('products')
+            .update({
+              ...product,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existing.id)
+            .select()
+            .single();
+
+          if (updateError) {
+            errors++;
+            fastify.log.error(`❌ [SYNC] Erreur update ${product.name}: ${updateError.message}`);
+          } else {
+            updated++;
+            insertedProducts.push(updatedProduct);
+          }
+        } else {
+          // ✅ INSERT : Nouveau produit
+          const { data: newProduct, error: insertError } = await supabaseServiceClient
+            .from('products')
+            .insert(product)
+            .select()
+            .single();
+
+          if (insertError) {
+            errors++;
+            fastify.log.error(`❌ [SYNC] Erreur insert ${product.name}: ${insertError.message}`);
+          } else {
+            inserted++;
+            insertedProducts.push(newProduct);
+          }
         }
-      ]
-
-      // Insérer les produits (utilise scrapés ou mock si vide)
-      const { data, error } = await supabaseServiceClient
-        .from('products')
-        .insert(productsToInsert.length > 0 ? productsToInsert : mockProducts)
-        .select()
-
-      if (error) {
-        const errorInfo = handleSupabaseError(error, 'SYNC products')
-        return reply.status(errorInfo.status).send({
-          success: false,
-          error: errorInfo.message
-        })
       }
+
+      fastify.log.info(`✅ [SYNC] Terminé: ${inserted} insérés, ${updated} mis à jour, ${errors} erreurs`)
 
       return reply.send({
         success: true,
-        data: data || [],
-        message: `${data?.length || 0} produits synchronisés depuis ${platform}`
+        data: insertedProducts,
+        summary: {
+          total_found: scrapedProducts.length,
+          inserted,
+          updated,
+          errors
+        },
+        message: `Synchronisation terminée : ${inserted} nouveaux produits, ${updated} mis à jour`
       })
     } catch (error: any) {
       fastify.log.error(`❌ [PRODUCTS] POST /sync: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: 'Erreur lors de la synchronisation'
+        error: 'Erreur lors de la synchronisation',
+        details: error.message
       })
     }
   })
