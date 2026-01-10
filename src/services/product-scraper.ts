@@ -63,6 +63,14 @@ export async function scrapeShopifyPublic(shopUrl: string): Promise<ScrapedProdu
       console.log(`✅ [SHOPIFY PUBLIC] ${shopifyProducts.length} produits récupérés sur page ${page}`);
 
       for (const product of shopifyProducts) {
+        // ✅ Gestion des tags (peut être string ou array selon l'API)
+        let tags: string[] = [];
+        if (Array.isArray(product.tags)) {
+          tags = product.tags.map((t: string) => t.trim()).filter(Boolean);
+        } else if (typeof product.tags === 'string') {
+          tags = product.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+        }
+
         const scrapedProduct: ScrapedProduct = {
           external_id: `shopify_${product.id}`,
           name: product.title || 'Produit sans nom',
@@ -72,7 +80,7 @@ export async function scrapeShopifyPublic(shopUrl: string): Promise<ScrapedProdu
           images: (product.images || []).map((img: any) => img.src),
           url: `https://${cleanShopUrl}/products/${product.handle}`,
           category: product.product_type || undefined,
-          tags: (product.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean),
+          tags,
           variants: product.variants || [],
           inventory_quantity: product.variants?.[0]?.inventory_quantity || 0,
           source: 'shopify'
@@ -134,6 +142,14 @@ export async function scrapeShopifyProducts(
       console.log(`✅ [SHOPIFY ADMIN] ${shopifyProducts.length} produits récupérés sur page ${pageCount}`);
 
       for (const product of shopifyProducts) {
+        // ✅ Gestion des tags (peut être string ou array selon l'API)
+        let tags: string[] = [];
+        if (Array.isArray(product.tags)) {
+          tags = product.tags.map((t: string) => t.trim()).filter(Boolean);
+        } else if (typeof product.tags === 'string') {
+          tags = product.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+        }
+
         const scrapedProduct: ScrapedProduct = {
           external_id: `shopify_${product.id}`,
           name: product.title || 'Produit sans nom',
@@ -143,7 +159,7 @@ export async function scrapeShopifyProducts(
           images: (product.images || []).map((img: any) => img.src),
           url: `https://${cleanShopUrl}/products/${product.handle}`,
           category: product.product_type || undefined,
-          tags: (product.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean),
+          tags,
           variants: product.variants || [],
           inventory_quantity: product.variants?.[0]?.inventory_quantity || 0,
           source: 'shopify'
