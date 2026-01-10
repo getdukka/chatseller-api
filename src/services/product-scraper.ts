@@ -19,8 +19,83 @@ interface ScrapedProduct {
 }
 
 /**
- * 🛒 SHOPIFY SCRAPER
- * Récupère tous les produits d'une boutique Shopify
+ * 🛒 SHOPIFY SCRAPER - API PUBLIQUE (SANS TOKEN)
+ * Récupère les produits via /products.json (endpoint public)
+ * Fonctionne si la boutique n'a pas désactivé cet endpoint
+ */
+export async function scrapeShopifyPublic(shopUrl: string): Promise<ScrapedProduct[]> {
+  const products: ScrapedProduct[] = [];
+
+  try {
+    console.log(`🛒 [SHOPIFY PUBLIC] Tentative via /products.json: ${shopUrl}`);
+
+    // Nettoyer l'URL
+    const cleanShopUrl = shopUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore && page <= 20) { // Max 20 pages (500 produits avec limit=250)
+      const apiUrl = `https://${cleanShopUrl}/products.json?limit=250&page=${page}`;
+      console.log(`📄 [SHOPIFY PUBLIC] Page ${page}: ${apiUrl}`);
+
+      const response = await fetch(apiUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'ChatSeller/1.0'
+        }
+      });
+
+      if (!response.ok) {
+        if (page === 1) {
+          throw new Error(`Endpoint /products.json non accessible (${response.status}). Utilisez un Access Token.`);
+        }
+        break;
+      }
+
+      const data = await response.json() as { products: any[] };
+      const shopifyProducts = data.products || [];
+
+      if (shopifyProducts.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      console.log(`✅ [SHOPIFY PUBLIC] ${shopifyProducts.length} produits récupérés sur page ${page}`);
+
+      for (const product of shopifyProducts) {
+        const scrapedProduct: ScrapedProduct = {
+          external_id: `shopify_${product.id}`,
+          name: product.title || 'Produit sans nom',
+          description: stripHtml(product.body_html || ''),
+          price: parseFloat(product.variants?.[0]?.price || '0'),
+          currency: 'XOF',
+          images: (product.images || []).map((img: any) => img.src),
+          url: `https://${cleanShopUrl}/products/${product.handle}`,
+          category: product.product_type || undefined,
+          tags: (product.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean),
+          variants: product.variants || [],
+          inventory_quantity: product.variants?.[0]?.inventory_quantity || 0,
+          source: 'shopify'
+        };
+
+        products.push(scrapedProduct);
+      }
+
+      page++;
+    }
+
+    console.log(`✅ [SHOPIFY PUBLIC] Terminé: ${products.length} produits total`);
+    return products;
+
+  } catch (error: any) {
+    console.error(`❌ [SHOPIFY PUBLIC] Erreur:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * 🛒 SHOPIFY SCRAPER - API ADMIN (AVEC TOKEN)
+ * Récupère tous les produits d'une boutique Shopify via Admin API
  */
 export async function scrapeShopifyProducts(
   shopUrl: string,
@@ -29,7 +104,7 @@ export async function scrapeShopifyProducts(
   const products: ScrapedProduct[] = [];
 
   try {
-    console.log(`🛒 [SHOPIFY SCRAPER] Début scraping: ${shopUrl}`);
+    console.log(`🛒 [SHOPIFY ADMIN] Début scraping: ${shopUrl}`);
 
     // Nettoyer l'URL
     const cleanShopUrl = shopUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -40,7 +115,7 @@ export async function scrapeShopifyProducts(
 
     while (nextPageUrl && pageCount < 50) { // Max 50 pages (5000 produits)
       pageCount++;
-      console.log(`📄 [SHOPIFY] Page ${pageCount}...`);
+      console.log(`📄 [SHOPIFY ADMIN] Page ${pageCount}...`);
 
       const response = await fetch(nextPageUrl, {
         headers: {
@@ -56,7 +131,7 @@ export async function scrapeShopifyProducts(
       const data = await response.json() as { products: any[] };
       const shopifyProducts = data.products || [];
 
-      console.log(`✅ [SHOPIFY] ${shopifyProducts.length} produits récupérés sur page ${pageCount}`);
+      console.log(`✅ [SHOPIFY ADMIN] ${shopifyProducts.length} produits récupérés sur page ${pageCount}`);
 
       for (const product of shopifyProducts) {
         const scrapedProduct: ScrapedProduct = {
@@ -82,11 +157,11 @@ export async function scrapeShopifyProducts(
       nextPageUrl = extractNextPageUrl(linkHeader);
     }
 
-    console.log(`✅ [SHOPIFY SCRAPER] Terminé: ${products.length} produits total`);
+    console.log(`✅ [SHOPIFY ADMIN] Terminé: ${products.length} produits total`);
     return products;
 
   } catch (error: any) {
-    console.error(`❌ [SHOPIFY SCRAPER] Erreur:`, error.message);
+    console.error(`❌ [SHOPIFY ADMIN] Erreur:`, error.message);
     throw new Error(`Impossible de récupérer les produits Shopify: ${error.message}`);
   }
 }
@@ -199,6 +274,8 @@ function extractNextPageUrl(linkHeader: string | null): string | null {
 
 /**
  * 🎯 FONCTION PRINCIPALE: Scraper universel
+ * Pour Shopify: essaie d'abord l'endpoint public /products.json (SANS TOKEN)
+ * Si échec ou token fourni explicitement, utilise l'API Admin
  */
 export async function scrapeProducts(
   platform: 'shopify' | 'woocommerce',
@@ -210,11 +287,36 @@ export async function scrapeProducts(
   }
 ): Promise<ScrapedProduct[]> {
   if (platform === 'shopify') {
+    // 🎯 STRATÉGIE SHOPIFY:
+    // 1. Si pas de token → essayer endpoint public /products.json
+    // 2. Si token fourni → utiliser API Admin directement
+    // 3. Si public échoue et pas de token → erreur claire
+
     if (!credentials.access_token) {
-      throw new Error('Access token Shopify requis');
+      // ✅ Essayer l'endpoint PUBLIC (sans authentification)
+      console.log('🔓 [SCRAPER] Pas de token fourni, tentative via endpoint public...');
+      try {
+        const products = await scrapeShopifyPublic(credentials.shop_url);
+        if (products.length > 0) {
+          console.log(`✅ [SCRAPER] Succès via endpoint public: ${products.length} produits`);
+          return products;
+        }
+        throw new Error('Aucun produit trouvé via endpoint public');
+      } catch (publicError: any) {
+        console.warn(`⚠️ [SCRAPER] Endpoint public échoué: ${publicError.message}`);
+        throw new Error(
+          `Impossible d'accéder aux produits sans token. ` +
+          `L'endpoint public /products.json n'est pas accessible ou est vide. ` +
+          `Veuillez fournir un Access Token Shopify.`
+        );
+      }
+    } else {
+      // ✅ Token fourni → API Admin
+      console.log('🔐 [SCRAPER] Token fourni, utilisation API Admin...');
+      return scrapeShopifyProducts(credentials.shop_url, credentials.access_token);
     }
-    return scrapeShopifyProducts(credentials.shop_url, credentials.access_token);
   } else {
+    // WooCommerce nécessite toujours les credentials
     if (!credentials.consumer_key || !credentials.consumer_secret) {
       throw new Error('Consumer key et secret WooCommerce requis');
     }
