@@ -3,6 +3,7 @@ import { FastifyPluginAsync } from 'fastify'
 import { supabaseServiceClient } from '../lib/supabase'
 import { z } from 'zod'
 import { scrapeProducts } from '../services/product-scraper'
+import { batchEnrichProducts } from '../services/product-enrichment'
 
 // ✅ TYPES BEAUTÉ COMPLETS
 interface BeautyProductData {
@@ -119,7 +120,8 @@ const SyncCredentialsSchema = z.object({
   shop_url: z.string().url(),
   access_token: z.string().optional(), // ✅ Optionnel pour scraping public Shopify
   api_key: z.string().optional(),
-  api_secret: z.string().optional()
+  api_secret: z.string().optional(),
+  auto_enrich: z.boolean().optional() // ✅ Auto-enrichissement IA après import
 })
 
 // ✅ HELPERS
@@ -562,13 +564,13 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { platform, shop_url, access_token, api_key } = validation.data
+      const { platform, shop_url, access_token, api_key, auto_enrich } = validation.data
 
       // ✅ Traiter les chaînes vides comme undefined (le formulaire envoie "" au lieu de undefined)
       const cleanAccessToken = access_token && access_token.trim() !== '' ? access_token : undefined
       const cleanApiKey = api_key && api_key.trim() !== '' ? api_key : undefined
 
-      fastify.log.info(`🛒 [SYNC] Début synchronisation ${platform} depuis ${shop_url} (token: ${!!cleanAccessToken})`)
+      fastify.log.info(`🛒 [SYNC] Début synchronisation ${platform} depuis ${shop_url} (token: ${!!cleanAccessToken}, auto_enrich: ${auto_enrich})`)
 
       // 🎯 SCRAPING DES PRODUITS
       let scrapedProducts;
@@ -698,6 +700,34 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
       fastify.log.info(`✅ [SYNC] Terminé: ${inserted} insérés, ${updated} mis à jour, ${errors} erreurs`)
 
+      // 🤖 AUTO-ENRICHISSEMENT en arrière-plan (si activé)
+      if (auto_enrich && insertedProducts.length > 0) {
+        fastify.log.info(`🎨 [SYNC] Lancement auto-enrichissement de ${insertedProducts.length} produits...`)
+
+        // Lance l'enrichissement en arrière-plan (ne bloque pas la réponse)
+        batchEnrichProducts(insertedProducts)
+          .then(async (enrichedProducts) => {
+            // Mettre à jour les produits enrichis en DB
+            for (const enriched of enrichedProducts) {
+              if (enriched.is_enriched) {
+                await supabaseServiceClient
+                  .from('products')
+                  .update({
+                    beauty_data: enriched.beauty_data,
+                    is_enriched: true,
+                    enrichment_score: enriched.enrichment_score,
+                    needs_enrichment: false
+                  })
+                  .eq('id', enriched.id);
+              }
+            }
+            fastify.log.info(`✅ [ENRICHMENT] ${enrichedProducts.filter(p => p.is_enriched).length} produits enrichis avec succès`);
+          })
+          .catch(error => {
+            fastify.log.error(`❌ [ENRICHMENT] Erreur auto-enrichissement: ${error.message}`);
+          });
+      }
+
       return reply.send({
         success: true,
         data: insertedProducts,
@@ -707,7 +737,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           updated,
           errors
         },
-        message: `Synchronisation terminée : ${inserted} nouveaux produits, ${updated} mis à jour`
+        message: `Synchronisation terminée : ${inserted} nouveaux produits, ${updated} mis à jour${auto_enrich ? ' (enrichissement en cours...)' : ''}`
       })
     } catch (error: any) {
       fastify.log.error(`❌ [PRODUCTS] POST /sync: ${error.message}`)
