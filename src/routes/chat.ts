@@ -157,7 +157,8 @@ async function callClaudeAI(messages: any[], systemPrompt: string, temperature =
   try {
     if (!process.env.CLAUDE_API_KEY) {
       console.warn('⚠️ CLAUDE_API_KEY manquante, fallback vers OpenAI');
-      return await callOpenAI(messages, systemPrompt, temperature);
+      const responseMessage = await callOpenAI(messages, systemPrompt, temperature, false);
+      return responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -191,18 +192,42 @@ async function callClaudeAI(messages: any[], systemPrompt: string, temperature =
   } catch (error) {
     console.error('❌ Erreur Claude AI:', error);
     // ✅ FALLBACK VERS OPENAI SI CLAUDE ÉCHOUE
-    return await callOpenAI(messages, systemPrompt, temperature);
+    const responseMessage = await callOpenAI(messages, systemPrompt, temperature, false);
+    return responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
   }
 }
 
 // ✅ HELPER: Appel OpenAI ROBUSTE
-async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0.7) {
+// ✅ DÉFINITION DU TOOL POUR RECOMMANDER DES PRODUITS
+const recommendProductTool = {
+  type: 'function' as const,
+  function: {
+    name: 'recommend_product',
+    description: 'Recommander un produit spécifique au client après avoir compris ses besoins. Utilise cette fonction quand tu veux présenter visuellement un produit avec son image, prix et lien d\'achat.',
+    parameters: {
+      type: 'object',
+      properties: {
+        product_name: {
+          type: 'string',
+          description: 'Le nom exact du produit à recommander (doit correspondre à un produit du catalogue)'
+        },
+        reason: {
+          type: 'string',
+          description: 'Courte explication (1-2 phrases) de pourquoi ce produit est recommandé pour le client'
+        }
+      },
+      required: ['product_name', 'reason']
+    }
+  }
+};
+
+async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0.7, enableTools = true) {
   try {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OpenAI API Key manquante');
     }
 
-    const completion = await openai.chat.completions.create({
+    const requestPayload: any = {
       model: 'gpt-4o', // ✅ UPGRADE VERS GPT-4O
       messages: [
         { role: 'system', content: systemPrompt },
@@ -210,9 +235,20 @@ async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0
       ],
       temperature: temperature,
       max_tokens: 1000
-    });
+    };
 
-    return completion.choices[0]?.message?.content || 'Désolé, je ne peux pas répondre pour le moment.';
+    // ✅ AJOUTER LES TOOLS SI ACTIVÉS
+    if (enableTools) {
+      requestPayload.tools = [recommendProductTool];
+      requestPayload.tool_choice = 'auto'; // L'IA décide quand utiliser le tool
+    }
+
+    const completion = await openai.chat.completions.create(requestPayload);
+
+    const responseMessage = completion.choices[0]?.message;
+
+    // ✅ RETOURNER LA RÉPONSE COMPLÈTE (peut contenir tool_calls)
+    return responseMessage;
 
   } catch (error) {
     console.error('❌ Erreur OpenAI:', error);
@@ -701,8 +737,9 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         aiResponse = await callClaudeAI(messages, systemPrompt, temperature);
         provider = 'claude';
       } else {
-        // ✅ UTILISER OPENAI PAR DÉFAUT
-        aiResponse = await callOpenAI(messages, systemPrompt, temperature);
+        // ✅ UTILISER OPENAI PAR DÉFAUT (sans tools pour le test)
+        const responseMessage = await callOpenAI(messages, systemPrompt, temperature, false);
+        aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
         provider = 'openai';
       }
 
@@ -808,7 +845,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ S'assurer que l'agent a un titre
       if (!agent.title) {
         agent.title = getDefaultTitle(agent.type);
-        
+
         // ✅ METTRE À JOUR EN BASE SI TITRE MANQUANT
         try {
           await supabaseServiceClient
@@ -820,6 +857,17 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           console.warn('⚠️ Impossible de mettre à jour le titre en base:', updateError);
         }
       }
+
+      // ✅ CHARGER LE CATALOGUE DE PRODUITS DU SHOP
+      const { data: products } = await supabaseServiceClient
+        .from('products')
+        .select('id, name, description, price, image_url, url, category, is_active')
+        .eq('shop_id', shop.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      const productCatalog = products || [];
+      console.log(`📦 ${productCatalog.length} produits chargés pour le shop ${shop.id}`);
 
       // ✅ GÉRER LA CONVERSATION (SUPABASE)
       let conversation = null;
@@ -925,7 +973,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         body.productContext,
         body.message, // userMessage pour RAG
         shop.name, // shopName
-        [], // productCatalog (à enrichir avec données shop plus tard)
+        productCatalog, // ✅ CATALOGUE DE PRODUITS RÉEL
         conversationHistory // ✅ Historique pour détecter premier message
       );
 
@@ -933,17 +981,62 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       const agentConfig = agent.config as AgentConfig;
       const aiProvider = agentConfig?.aiProvider || 'openai';
       const temperature = agentConfig?.temperature || 0.7;
-      
+
       let aiResponse: string;
       let provider: string;
+      let productCard: any = null; // Pour stocker la carte produit si recommandation
 
       try {
         if (aiProvider === 'claude' && shop.subscription_plan !== 'free') {
           aiResponse = await callClaudeAI(conversationHistory, systemPrompt, temperature);
           provider = 'claude';
         } else {
-          aiResponse = await callOpenAI(conversationHistory, systemPrompt, temperature);
+          // ✅ APPEL OPENAI AVEC SUPPORT TOOL CALLS
+          const responseMessage = await callOpenAI(conversationHistory, systemPrompt, temperature);
           provider = 'openai';
+
+          // ✅ VÉRIFIER SI L'IA VEUT RECOMMANDER UN PRODUIT
+          if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+            const toolCall = responseMessage.tool_calls[0];
+
+            if (toolCall.function.name === 'recommend_product') {
+              const args = JSON.parse(toolCall.function.arguments);
+              console.log('🎯 Recommandation produit demandée:', args);
+
+              // ✅ CHERCHER LE PRODUIT DANS LE CATALOGUE
+              const recommendedProduct = productCatalog.find((p: any) =>
+                p.name.toLowerCase().includes(args.product_name.toLowerCase()) ||
+                args.product_name.toLowerCase().includes(p.name.toLowerCase())
+              );
+
+              if (recommendedProduct) {
+                console.log('✅ Produit trouvé:', recommendedProduct.name);
+
+                // ✅ CONSTRUIRE LA CARTE PRODUIT
+                productCard = {
+                  id: recommendedProduct.id,
+                  name: recommendedProduct.name,
+                  description: recommendedProduct.description || args.reason,
+                  price: recommendedProduct.price,
+                  image_url: recommendedProduct.image_url,
+                  url: recommendedProduct.url,
+                  reason: args.reason
+                };
+
+                // ✅ RÉPONSE TEXTUELLE ACCOMPAGNANT LA CARTE
+                aiResponse = args.reason;
+              } else {
+                console.warn('⚠️ Produit non trouvé dans le catalogue:', args.product_name);
+                // Fallback: réponse textuelle normale
+                aiResponse = responseMessage.content || `Je vous recommande ${args.product_name}. ${args.reason}`;
+              }
+            } else {
+              aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
+            }
+          } else {
+            // ✅ RÉPONSE TEXTUELLE NORMALE
+            aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
+          }
         }
       } catch (aiError) {
         console.error('❌ Erreur IA:', aiError);
@@ -952,22 +1045,25 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ SAUVEGARDER LA RÉPONSE IA
+      const messageToSave: any = {
+        conversation_id: conversation.id,
+        role: 'assistant',
+        content: aiResponse,
+        content_type: productCard ? 'product_card' : 'text',
+        response_time_ms: Date.now() - startTime,
+        model_used: provider,
+        tokens_used: 0, // À calculer si possible
+        action_data: {
+          provider: provider,
+          temperature: temperature,
+          timestamp: new Date().toISOString(),
+          ...(productCard && { product_card: productCard }) // Ajouter les données produit si présent
+        }
+      };
+
       const { error: aiMsgError } = await supabaseServiceClient
         .from('messages')
-        .insert({
-          conversation_id: conversation.id,
-          role: 'assistant',
-          content: aiResponse,
-          content_type: 'text',
-          response_time_ms: Date.now() - startTime,
-          model_used: provider,
-          tokens_used: 0, // À calculer si possible
-          action_data: {
-            provider: provider,
-            temperature: temperature,
-            timestamp: new Date().toISOString()
-          }
-        });
+        .insert(messageToSave);
 
       if (aiMsgError) {
         fastify.log.error('❌ Erreur sauvegarde réponse IA');
@@ -990,7 +1086,11 @@ export default async function chatRoutes(fastify: FastifyInstance) {
             name: agent.name,
             title: agent.title, // ✅ TITRE INCLUS
             type: agent.type
-          }
+          },
+          ...(productCard && { // ✅ INCLURE LA CARTE PRODUIT SI PRÉSENTE
+            content_type: 'product_card',
+            product_card: productCard
+          })
         }
       };
 
