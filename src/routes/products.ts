@@ -611,40 +611,62 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      // 🔄 Convertir en format Supabase products
-      const productsToUpsert = scrapedProducts.map(product => ({
-        name: product.name,
-        description: product.description,
-        price: product.price,
-        currency: product.currency || 'XOF',
-        category: product.category,
-        source: platform,
-        external_id: product.external_id,
-        shop_id: userId,
-        url: product.url || null,
-        image_url: product.images?.[0] || null, // ✅ Image principale pour les cartes produit
-        is_active: true,
-        is_visible: true,
-        available_for_sale: true,
-        tags: product.tags,
-        images: product.images,
-        features: [],
-        specifications: {},
-        external_data: {
-          platform,
-          shop_url,
-          variants: product.variants || [],
-          scraped_at: new Date().toISOString()
-        },
-        inventory_quantity: product.inventory_quantity || 0,
-        track_inventory: false,
-        is_enriched: false,
-        needs_enrichment: true,
-        enrichment_score: 0,
-        ai_recommend: true, // ✅ Activer recommandation IA par défaut
-        personalization_enabled: false,
-        last_synced_at: new Date().toISOString()
-      }));
+      // 🔄 Convertir en format Supabase products (aligné avec le schéma de la table)
+      const productsToUpsert = scrapedProducts.map(product => {
+        console.log(`📦 [SYNC] Préparation produit: ${product.name} (external_id: ${product.external_id})`);
+
+        return {
+          // Champs obligatoires
+          name: product.name,
+          description: product.description || '',
+          price: product.price || 0,
+          currency: product.currency || 'XOF',
+          shop_id: userId,
+
+          // Champs optionnels
+          category: product.category || null,
+          source: platform,
+          external_id: product.external_id,
+          url: product.url || null,
+
+          // ✅ CORRECTION: Utiliser BOTH image_url ET featured_image pour compatibilité
+          image_url: product.images?.[0] || null,
+          featured_image: product.images?.[0] || null,
+
+          // Arrays et objets
+          tags: product.tags || [],
+          images: product.images || [],
+          features: [],
+          specifications: {},
+          external_data: {
+            platform,
+            shop_url,
+            variants: product.variants || [],
+            scraped_at: new Date().toISOString()
+          },
+
+          // Statuts
+          is_active: true,
+          is_visible: true,
+          available_for_sale: true,
+
+          // Inventaire
+          inventory_quantity: product.inventory_quantity || 0,
+          track_inventory: false,
+
+          // Enrichissement IA
+          is_enriched: false,
+          needs_enrichment: true,
+          enrichment_score: 0,
+          ai_recommend: true,
+          personalization_enabled: false,
+
+          // Timestamps
+          last_synced_at: new Date().toISOString()
+        };
+      });
+
+      console.log(`📊 [SYNC] ${productsToUpsert.length} produits préparés pour insertion`);
 
       // ✅ UPSERT : Met à jour si existe, insère si nouveau (évite doublons)
       let inserted = 0;
@@ -663,6 +685,8 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (existing) {
           // ✅ UPDATE : Produit existant
+          console.log(`🔄 [SYNC] Mise à jour produit existant: ${product.name} (id: ${existing.id})`);
+
           const { data: updatedProduct, error: updateError } = await supabaseServiceClient
             .from('products')
             .update({
@@ -675,13 +699,21 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
           if (updateError) {
             errors++;
-            fastify.log.error(`❌ [SYNC] Erreur update ${product.name}: ${updateError.message}`);
+            console.error(`❌ [SYNC] Erreur update ${product.name}:`, {
+              message: updateError.message,
+              code: updateError.code,
+              details: updateError.details,
+              hint: updateError.hint
+            });
           } else {
             updated++;
             insertedProducts.push(updatedProduct);
+            console.log(`✅ [SYNC] Produit mis à jour: ${product.name}`);
           }
         } else {
           // ✅ INSERT : Nouveau produit
+          console.log(`➕ [SYNC] Insertion nouveau produit: ${product.name}`);
+
           const { data: newProduct, error: insertError } = await supabaseServiceClient
             .from('products')
             .insert(product)
@@ -690,10 +722,17 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
           if (insertError) {
             errors++;
-            fastify.log.error(`❌ [SYNC] Erreur insert ${product.name}: ${insertError.message}`);
+            console.error(`❌ [SYNC] Erreur insert ${product.name}:`, {
+              message: insertError.message,
+              code: insertError.code,
+              details: insertError.details,
+              hint: insertError.hint,
+              productData: JSON.stringify(product, null, 2).substring(0, 500) // Premier 500 chars pour debug
+            });
           } else {
             inserted++;
             insertedProducts.push(newProduct);
+            console.log(`✅ [SYNC] Produit inséré avec succès: ${product.name} (id: ${newProduct.id})`);
           }
         }
       }
