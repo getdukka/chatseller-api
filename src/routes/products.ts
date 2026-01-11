@@ -661,7 +661,9 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           ai_recommend: true,
           personalization_enabled: false,
 
-          // Timestamps
+          // Timestamps - REQUIRED par Supabase
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
           last_synced_at: new Date().toISOString()
         };
       });
