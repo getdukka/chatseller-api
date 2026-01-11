@@ -926,13 +926,59 @@ async function processMultipleBeautyWebsitePages(
     }
     
     const processingTime = Date.now() - startTime;
-    
+
     console.log(`✅ [TRAITEMENT BEAUTÉ] Terminé en ${processingTime}ms: ${successCount}/${urls.length} succès, ${errors.length} erreurs`);
-    
+
     if (errors.length > 0 && errors.length < 5) {
       console.warn(`⚠️ [TRAITEMENT BEAUTÉ] Erreurs détaillées:`, errors);
     }
-    
+
+    // ✅ AUTO-LIAISON : Lier automatiquement les nouveaux documents à l'agent principal du shop
+    if (processedDocuments.length > 0) {
+      try {
+        // Récupérer l'agent principal (le plus récent actif)
+        const { data: mainAgent } = await supabaseServiceClient
+          .from('agents')
+          .select('id')
+          .eq('shop_id', shopId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (mainAgent) {
+          console.log(`🔗 [TRAITEMENT BEAUTÉ] Liaison automatique à l'agent ${mainAgent.id}`);
+
+          // Créer les liaisons agent_knowledge_base
+          const linksData = processedDocuments.map((doc, index) => ({
+            agent_id: mainAgent.id,
+            knowledge_base_id: doc.id,
+            is_active: true,
+            priority: index
+          }));
+
+          const { error: linkError } = await supabaseServiceClient
+            .from('agent_knowledge_base')
+            .insert(linksData);
+
+          if (linkError) {
+            console.warn(`⚠️ [TRAITEMENT BEAUTÉ] Erreur liaison KB->Agent (non bloquante):`, linkError.message);
+          } else {
+            console.log(`✅ [TRAITEMENT BEAUTÉ] ${processedDocuments.length} documents liés à l'agent ${mainAgent.id}`);
+
+            // Mettre à jour linkedAgents dans les documents retournés
+            processedDocuments.forEach(doc => {
+              doc.linkedAgents = [mainAgent.id];
+            });
+          }
+        } else {
+          console.log(`ℹ️ [TRAITEMENT BEAUTÉ] Aucun agent actif trouvé pour le shop ${shopId}, documents non liés`);
+        }
+      } catch (linkError: any) {
+        console.warn(`⚠️ [TRAITEMENT BEAUTÉ] Erreur auto-liaison (non bloquante):`, linkError.message);
+      }
+    }
+
     return processedDocuments;
     
   } catch (error: any) {
