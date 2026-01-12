@@ -74,6 +74,9 @@ const updateShopSchema = z.object({
   // ✅ DEVISE PAR DÉFAUT DU SHOP
   default_currency: z.enum(['XOF', 'EUR', 'USD', 'GBP', 'MAD', 'TND', 'DZD']).optional(),
 
+  // ✅ STATUT INTÉGRATION WIDGET
+  widget_integrated: z.boolean().optional(),
+
   // ✅ NOUVEAUX CHAMPS BEAUTÉ POUR L'ONBOARDING
   beauty_category: z.string().optional(),
   specialized_target: z.union([z.array(z.string()), z.record(z.any())]).optional(),
@@ -655,6 +658,9 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       // ✅ DEVISE PAR DÉFAUT
       if (body.default_currency !== undefined) updateData.default_currency = body.default_currency;
+
+      // ✅ STATUT INTÉGRATION WIDGET
+      if (body.widget_integrated !== undefined) updateData.widget_integrated = body.widget_integrated;
 
       // ✅ NOUVEAUX CHAMPS BEAUTÉ POUR L'ONBOARDING
       if (body.beauty_category !== undefined) updateData.beauty_category = body.beauty_category;

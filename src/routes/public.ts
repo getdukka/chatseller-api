@@ -1053,17 +1053,26 @@ export default async function publicRoutes(fastify: FastifyInstance) {
     try {
       const { shopId } = request.params;
       fastify.log.info(`🔍 [PUBLIC CONFIG] Récupération config pour shop: ${shopId}`);
-      
+
       if (!isValidUUID(shopId)) {
         fastify.log.warn(`⚠️ ShopId non-UUID détecté: ${shopId}, utilisation configuration fallback`);
         return getFallbackShopConfig(shopId);
       }
-      
+
       const { data: shop, error: shopError } = await supabaseServiceClient
         .from('shops')
-        .select('id, name, is_active, widget_config, agent_config')
+        .select('id, name, is_active, widget_config, agent_config, widget_integrated')
         .eq('id', shopId)
         .single();
+
+      // ✅ DÉTECTION AUTOMATIQUE : Marquer le widget comme intégré lors du premier appel
+      if (shop && !shop.widget_integrated) {
+        fastify.log.info(`🎯 [WIDGET DETECTION] Premier appel détecté pour shop: ${shopId} - Marquage automatique`);
+        await supabaseServiceClient
+          .from('shops')
+          .update({ widget_integrated: true })
+          .eq('id', shopId);
+      }
 
       if (shopError || !shop || !shop.is_active) {
         fastify.log.warn(`⚠️ Shop non trouvé ou inactif: ${shopId}, utilisation configuration fallback`);
