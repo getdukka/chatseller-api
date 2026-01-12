@@ -619,10 +619,14 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
   fastify.put<{ Params: ShopParamsType }>('/:id', async (request, reply) => {
     try {
       const { id } = request.params;
+      fastify.log.info(`📝 [UPDATE SHOP] Demande de mise à jour shop: ${id}`);
+
       const user = await verifySupabaseAuth(request);
-      
+      fastify.log.info(`📝 [UPDATE SHOP] User authentifié: ${user.id} (${user.email})`);
+
       // ✅ VALIDATION
       const body = updateShopSchema.parse(request.body);
+      fastify.log.info(`📝 [UPDATE SHOP] Body validé:`, JSON.stringify(body));
 
       fastify.log.info(`📝 Mise à jour shop ${id} - widget: ${!!body.widget_config}, agent: ${!!body.agent_config}`);
 
@@ -637,6 +641,14 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
+        });
+      }
+
+      // ✅ VÉRIFIER QUE L'UTILISATEUR EST AUTORISÉ À MODIFIER CE SHOP
+      if (existingShop.id !== user.id && existingShop.email !== user.email) {
+        return reply.status(403).send({
+          success: false,
+          error: 'Non autorisé à modifier ce shop'
         });
       }
 
@@ -765,7 +777,8 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: 'Erreur lors de la mise à jour du shop',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   });
