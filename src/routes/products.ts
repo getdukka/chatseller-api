@@ -1058,28 +1058,37 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { productData } = request.body as any
+      // ✅ ACCEPTER LES DEUX FORMATS : { productData } OU { name, description, ... }
+      const body = request.body as any
+      const productData = body.productData || body
+
+      fastify.log.info(`🤖 [AI-ANALYZE] Analyse IA demandée pour produit: ${productData.name}`)
+      fastify.log.info(`🤖 [AI-ANALYZE] Données reçues: ${JSON.stringify(productData).substring(0, 200)}`)
 
       if (!productData?.name) {
+        fastify.log.error('❌ [AI-ANALYZE] Nom du produit manquant')
         return reply.status(400).send({
           success: false,
-          error: 'Données produit requises pour l\'analyse'
+          error: 'Le nom du produit est requis pour l\'analyse'
         })
       }
 
-      // Simulation analyse IA
+      // ✅ ANALYSE IA AVEC DÉTECTION INTELLIGENTE
       const analysis = analyzeProductWithAI(productData)
+
+      fastify.log.info(`✅ [AI-ANALYZE] Analyse terminée: ${analysis.suggestions.key_ingredients?.length || 0} ingrédients, ${analysis.suggestions.benefits?.length || 0} bienfaits`)
 
       return reply.send({
         success: true,
         data: analysis,
-        message: 'Analyse IA terminée'
+        message: 'Analyse IA terminée avec succès'
       })
     } catch (error: any) {
       fastify.log.error(`❌ [PRODUCTS] POST /ai-analyze: ${error.message}`)
       return reply.status(500).send({
         success: false,
-        error: 'Erreur lors de l\'analyse IA'
+        error: 'Erreur lors de l\'analyse IA',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       })
     }
   })
