@@ -626,11 +626,10 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`📝 Mise à jour shop ${id} - widget: ${!!body.widget_config}, agent: ${!!body.agent_config}`);
 
-      // ✅ VÉRIFIER QUE LE SHOP EXISTE
+      // ✅ VÉRIFIER QUE LE SHOP EXISTE ET APPARTIENT À L'UTILISATEUR
       const { data: existingShop, error: findError } = await supabaseServiceClient
         .from('shops')
         .select('*')
-        .or(`id.eq.${user.id},email.eq.${user.email}`)
         .eq('id', id)
         .single();
 
@@ -726,19 +725,11 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
         throw updateError;
       }
 
-      // ✅ RÉCUPÉRER AGENTS POUR RÉPONSE COMPLÈTE - REQUÊTE CORRIGÉE
+      // ✅ RÉCUPÉRER AGENTS POUR RÉPONSE COMPLÈTE - REQUÊTE SIMPLIFIÉE
       const { data: agents } = await supabaseServiceClient
         .from('agents')
-        .select(`
-          id, name, type, personality, description, avatar,
-          welcome_message, fallback_message, is_active, config, created_at,
-          agent_knowledge_base!inner(
-            knowledge_base!inner(
-              id, title, content_type, is_active
-            )
-          )
-        `)
-        .eq('shop_id', id); // ✅ CORRIGÉ : shop_id
+        .select('id, name, type, personality, description, avatar, welcome_message, fallback_message, is_active, config, created_at')
+        .eq('shop_id', id);
 
       const shopWithAgents = {
         ...updatedShop,
