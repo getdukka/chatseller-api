@@ -610,6 +610,154 @@ function mergeSafeBeautyMetadata(existing: Record<string, any>, updates: SafeMet
   };
 }
 
+// ✅ HELPER: Filtrage intelligent des URLs pour base de connaissances
+function isRelevantUrlForKnowledgeBase(url: string): boolean {
+  const lowerUrl = url.toLowerCase();
+
+  // ❌ BLACKLIST - URLs à EXCLURE (pages sans valeur pour la KB)
+  const blacklistPatterns = [
+    // Pages légales/administratives
+    '/privacy', '/confidentialite', '/rgpd', '/gdpr',
+    '/terms', '/cgv', '/cgu', '/mentions-legales', '/legal',
+    '/cookies', '/cookie-policy',
+
+    // Pages compte/auth
+    '/account', '/compte', '/mon-compte', '/my-account',
+    '/login', '/connexion', '/signin', '/sign-in',
+    '/register', '/inscription', '/signup', '/sign-up',
+    '/password', '/mot-de-passe', '/forgot-password',
+    '/logout', '/deconnexion',
+
+    // Pages panier/checkout
+    '/cart', '/panier', '/basket',
+    '/checkout', '/commande', '/paiement', '/payment',
+    '/order-confirmation', '/confirmation-commande',
+
+    // Pages techniques
+    '/sitemap', '/robots.txt', '/feed', '/rss',
+    '/search', '/recherche', '/s?', '/search?',
+    '/admin', '/wp-admin', '/wp-login', '/administrator',
+    '/api/', '/_next/', '/_nuxt/',
+
+    // Pages de wishlist/comparaison
+    '/wishlist', '/favoris', '/compare', '/comparaison',
+
+    // Pages de tracking
+    '/track', '/suivi', '/tracking',
+
+    // Paramètres de pagination/filtres excessifs
+    '?page=', '&page=', '?sort=', '&sort=',
+    '?filter=', '&filter=', '?variant=',
+
+    // Pages 404, erreur
+    '/404', '/error', '/not-found'
+  ];
+
+  // Vérifier si l'URL contient un pattern blacklisté
+  for (const pattern of blacklistPatterns) {
+    if (lowerUrl.includes(pattern)) {
+      return false;
+    }
+  }
+
+  // ✅ WHITELIST - URLs à PRIORISER (haute valeur pour KB beauté)
+  const whitelistPatterns = [
+    // Pages produits/collections
+    '/products/', '/product/', '/produits/', '/produit/',
+    '/collections/', '/collection/', '/categories/', '/categorie/',
+    '/shop/', '/boutique/',
+
+    // Pages marque/histoire
+    '/about', '/a-propos', '/notre-histoire', '/our-story',
+    '/qui-sommes-nous', '/brand', '/marque',
+    '/notre-marque', '/notre-engagement',
+
+    // Pages FAQ/aide
+    '/faq', '/aide', '/help', '/questions',
+    '/support', '/contact',
+
+    // Pages conseils/blog beauté
+    '/conseils', '/tips', '/advice',
+    '/blog', '/journal', '/magazine', '/articles',
+    '/guides', '/guide', '/tutoriels', '/tutorials',
+
+    // Pages ingrédients/formules
+    '/ingredients', '/ingredient', '/actifs',
+    '/formules', '/formulations', '/composition',
+
+    // Pages livraison/retours (info utile)
+    '/livraison', '/shipping', '/delivery',
+    '/retours', '/returns', '/echanges',
+
+    // Pages routines/rituels beauté
+    '/routine', '/rituel', '/ritual',
+
+    // Page d'accueil (toujours utile)
+    // On accepte aussi les URLs sans path spécifique
+  ];
+
+  // Bonus: si l'URL matche un pattern whitelist, c'est clairement pertinent
+  for (const pattern of whitelistPatterns) {
+    if (lowerUrl.includes(pattern)) {
+      return true;
+    }
+  }
+
+  // Par défaut, accepter les URLs qui ne sont pas blacklistées
+  // (pages comme /page-personnalisee, /notre-univers, etc.)
+  return true;
+}
+
+// ✅ HELPER: Filtrer et scorer les URLs pour prioriser les plus pertinentes
+function filterAndScoreUrls(urls: string[], maxUrls: number): string[] {
+  // Scorer chaque URL
+  const scoredUrls = urls.map(url => {
+    const lowerUrl = url.toLowerCase();
+    let score = 0;
+
+    // Haute priorité: pages produits/collections
+    if (lowerUrl.includes('/products/') || lowerUrl.includes('/produits/')) score += 10;
+    if (lowerUrl.includes('/collections/') || lowerUrl.includes('/categories/')) score += 8;
+
+    // Haute priorité: pages marque
+    if (lowerUrl.includes('/about') || lowerUrl.includes('/a-propos')) score += 9;
+    if (lowerUrl.includes('/notre-histoire') || lowerUrl.includes('/our-story')) score += 9;
+
+    // Moyenne priorité: FAQ, conseils
+    if (lowerUrl.includes('/faq') || lowerUrl.includes('/aide')) score += 7;
+    if (lowerUrl.includes('/conseils') || lowerUrl.includes('/blog')) score += 6;
+    if (lowerUrl.includes('/ingredients') || lowerUrl.includes('/formules')) score += 7;
+
+    // Moyenne priorité: infos pratiques
+    if (lowerUrl.includes('/livraison') || lowerUrl.includes('/retours')) score += 5;
+    if (lowerUrl.includes('/contact')) score += 4;
+
+    // Page d'accueil
+    if (url.replace(/https?:\/\/[^\/]+\/?$/, '') === '' || url.endsWith('/')) score += 8;
+
+    // Pénalité: URLs très longues (souvent des variantes produits)
+    if (url.length > 150) score -= 2;
+
+    // Pénalité: beaucoup de segments (URLs profondes)
+    const segments = url.split('/').filter(s => s).length;
+    if (segments > 5) score -= 1;
+
+    return { url, score };
+  });
+
+  // Trier par score décroissant et prendre les N premiers
+  scoredUrls.sort((a, b) => b.score - a.score);
+
+  const filteredUrls = scoredUrls
+    .filter(item => isRelevantUrlForKnowledgeBase(item.url))
+    .slice(0, maxUrls)
+    .map(item => item.url);
+
+  console.log(`🎯 [FILTRAGE KB] ${urls.length} URLs → ${filteredUrls.length} URLs pertinentes (max: ${maxUrls})`);
+
+  return filteredUrls;
+}
+
 // ✅ HELPER: Découvrir pages d'un site beauté
 async function discoverBeautyWebsitePages(baseUrl: string, maxPages: number = 50): Promise<string[]> {
   const startTime = Date.now();
@@ -643,13 +791,16 @@ async function discoverBeautyWebsitePages(baseUrl: string, maxPages: number = 50
     }
     
     discoveredUrls.add(baseUrl);
-    
-    const finalUrls = Array.from(discoveredUrls).slice(0, maxPages);
+
+    // ✅ ÉTAPE 3: Filtrage intelligent des URLs
+    const allUrls = Array.from(discoveredUrls);
+    const filteredUrls = filterAndScoreUrls(allUrls, maxPages);
+
     const processingTime = Date.now() - startTime;
-    
-    console.log(`🎯 [DÉCOUVERTE BEAUTÉ] Terminé en ${processingTime}ms: ${finalUrls.length} pages beauté trouvées`);
-    
-    return finalUrls;
+
+    console.log(`🎯 [DÉCOUVERTE BEAUTÉ] Terminé en ${processingTime}ms: ${allUrls.length} URLs brutes → ${filteredUrls.length} pages pertinentes`);
+
+    return filteredUrls;
     
   } catch (error: any) {
     console.error(`❌ [DÉCOUVERTE BEAUTÉ] Erreur:`, error.message);
@@ -782,13 +933,17 @@ async function crawlBeautyInternalLinks(startUrl: string, domain: string, maxPag
                 fullUrl = new URL(href, currentUrl).toString();
               }
               
-              if (fullUrl && 
-                  fullUrl.includes(domain) && 
-                  !visitedUrls.has(fullUrl) && 
+              if (fullUrl &&
+                  fullUrl.includes(domain) &&
+                  !visitedUrls.has(fullUrl) &&
                   !discoveredUrls.has(fullUrl) &&
                   discoveredUrls.size + newLinksFound < maxPages) {
-                
-                if (!/\.(pdf|jpg|jpeg|png|gif|css|js|ico|xml|json|zip|mp4|mp3)(\?|$)/i.test(fullUrl)) {
+
+                // ✅ Filtrage: exclure fichiers statiques ET URLs non pertinentes
+                const isStaticFile = /\.(pdf|jpg|jpeg|png|gif|css|js|ico|xml|json|zip|mp4|mp3)(\?|$)/i.test(fullUrl);
+                const isRelevant = isRelevantUrlForKnowledgeBase(fullUrl);
+
+                if (!isStaticFile && isRelevant) {
                   toVisit.push(fullUrl);
                   newLinksFound++;
                 }
