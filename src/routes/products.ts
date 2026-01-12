@@ -612,10 +612,10 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 🔄 Convertir en format Supabase products (aligné avec le schéma de la table)
-      const productsToUpsert = scrapedProducts.map(product => {
-        console.log(`📦 [SYNC] Préparation produit: ${product.name} (external_id: ${product.external_id})`);
+      console.log(`🔄 [SYNC] Préparation de ${scrapedProducts.length} produits pour insertion DB...`);
 
-        return {
+      const productsToUpsert = scrapedProducts.map((product, index) => {
+        const productData = {
           // Champs obligatoires
           name: product.name,
           description: product.description || '',
@@ -629,8 +629,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           external_id: product.external_id,
           url: product.url || null,
 
-          // ✅ CORRECTION: Utiliser BOTH image_url ET featured_image pour compatibilité
-          image_url: product.images?.[0] || null,
+          // ✅ Image principale (utiliser seulement featured_image)
           featured_image: product.images?.[0] || null,
 
           // Arrays et objets
@@ -661,82 +660,116 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           ai_recommend: true,
           personalization_enabled: false,
 
-          // Timestamps - REQUIRED par Supabase
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          // ✅ NE PAS FOURNIR created_at/updated_at - laisser Supabase gérer avec DEFAULT
           last_synced_at: new Date().toISOString()
         };
+
+        if (index === 0) {
+          // Log le premier produit en détail pour debug
+          fastify.log.info(`📦 [SYNC DEBUG] Premier produit préparé: ${JSON.stringify(productData, null, 2).substring(0, 800)}`);
+        }
+
+        return productData;
       });
 
-      console.log(`📊 [SYNC] ${productsToUpsert.length} produits préparés pour insertion`);
+      fastify.log.info(`📊 [SYNC] ${productsToUpsert.length} produits préparés pour insertion`);
 
       // ✅ UPSERT : Met à jour si existe, insère si nouveau (évite doublons)
       let inserted = 0;
       let updated = 0;
       let errors = 0;
       const insertedProducts: any[] = [];
+      const errorDetails: any[] = [];
 
-      for (const product of productsToUpsert) {
-        // Vérifier si le produit existe déjà (même external_id + shop_id)
-        const { data: existing } = await supabaseServiceClient
-          .from('products')
-          .select('id')
-          .eq('shop_id', userId)
-          .eq('external_id', product.external_id)
-          .single();
+      fastify.log.info(`🔄 [SYNC] Début du processus d'insertion pour ${productsToUpsert.length} produits...`);
 
-        if (existing) {
-          // ✅ UPDATE : Produit existant
-          console.log(`🔄 [SYNC] Mise à jour produit existant: ${product.name} (id: ${existing.id})`);
+      for (let i = 0; i < productsToUpsert.length; i++) {
+        const product = productsToUpsert[i];
 
-          const { data: updatedProduct, error: updateError } = await supabaseServiceClient
+        try {
+          fastify.log.info(`📍 [SYNC ${i+1}/${productsToUpsert.length}] Traitement: ${product.name} (external_id: ${product.external_id})`);
+
+          // Vérifier si le produit existe déjà (même external_id + shop_id)
+          const { data: existing, error: checkError } = await supabaseServiceClient
             .from('products')
-            .update({
-              ...product,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', existing.id)
-            .select()
-            .single();
+            .select('id, name, updated_at')
+            .eq('shop_id', userId)
+            .eq('external_id', product.external_id)
+            .maybeSingle(); // ✅ Utiliser maybeSingle() au lieu de single() pour éviter erreur si non trouvé
 
-          if (updateError) {
+          if (checkError) {
+            fastify.log.error(`❌ [SYNC] Erreur lors de la vérification d'existence: ${product.name} - ${checkError.message} (code: ${checkError.code})`);
             errors++;
-            console.error(`❌ [SYNC] Erreur update ${product.name}:`, {
-              message: updateError.message,
-              code: updateError.code,
-              details: updateError.details,
-              hint: updateError.hint
-            });
-          } else {
-            updated++;
-            insertedProducts.push(updatedProduct);
-            console.log(`✅ [SYNC] Produit mis à jour: ${product.name}`);
+            errorDetails.push({ product: product.name, step: 'check', error: checkError.message });
+            continue;
           }
-        } else {
-          // ✅ INSERT : Nouveau produit
-          console.log(`➕ [SYNC] Insertion nouveau produit: ${product.name}`);
 
-          const { data: newProduct, error: insertError } = await supabaseServiceClient
-            .from('products')
-            .insert(product)
-            .select()
-            .single();
+          if (existing) {
+            // ✅ UPDATE : Produit existant
+            fastify.log.info(`🔄 [SYNC] Produit existant trouvé - Mise à jour: ${product.name} (DB id: ${existing.id})`);
 
-          if (insertError) {
-            errors++;
-            console.error(`❌ [SYNC] Erreur insert ${product.name}:`, {
-              message: insertError.message,
-              code: insertError.code,
-              details: insertError.details,
-              hint: insertError.hint,
-              productData: JSON.stringify(product, null, 2).substring(0, 500) // Premier 500 chars pour debug
-            });
+            const { data: updatedProduct, error: updateError } = await supabaseServiceClient
+              .from('products')
+              .update({
+                ...product,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existing.id)
+              .select()
+              .single();
+
+            if (updateError) {
+              errors++;
+              fastify.log.error(`❌ [SYNC] Erreur UPDATE pour ${product.name}: ${updateError.message} (code: ${updateError.code}, details: ${updateError.details}, hint: ${updateError.hint})`);
+              errorDetails.push({ product: product.name, step: 'update', error: updateError.message, code: updateError.code });
+            } else {
+              updated++;
+              insertedProducts.push(updatedProduct);
+              fastify.log.info(`✅ [SYNC] Produit mis à jour avec succès: ${product.name}`);
+            }
           } else {
-            inserted++;
-            insertedProducts.push(newProduct);
-            console.log(`✅ [SYNC] Produit inséré avec succès: ${product.name} (id: ${newProduct.id})`);
+            // ✅ INSERT : Nouveau produit
+            fastify.log.info(`➕ [SYNC] Nouveau produit - Insertion: ${product.name}`);
+
+            // Log détaillé du premier produit pour debug
+            if (i === 0) {
+              fastify.log.info(`🔍 [SYNC DEBUG] Premier produit - name: ${product.name}, price: ${product.price}, shop_id: ${product.shop_id}, external_id: ${product.external_id}, source: ${product.source}, images: ${product.images?.length || 0}, tags: ${product.tags?.length || 0}`);
+            }
+
+            const { data: newProduct, error: insertError } = await supabaseServiceClient
+              .from('products')
+              .insert(product)
+              .select()
+              .single();
+
+            if (insertError) {
+              errors++;
+              fastify.log.error(`❌ [SYNC] Erreur INSERT pour ${product.name}: ${insertError.message} (code: ${insertError.code}, details: ${JSON.stringify(insertError.details)}, hint: ${insertError.hint})`);
+              fastify.log.error(`❌ [SYNC] Données produit échouées: name=${product.name}, shop_id=${product.shop_id}, external_id=${product.external_id}, source=${product.source}, price=${product.price}`);
+              errorDetails.push({
+                product: product.name,
+                step: 'insert',
+                error: insertError.message,
+                code: insertError.code,
+                details: insertError.details,
+                hint: insertError.hint
+              });
+            } else {
+              inserted++;
+              insertedProducts.push(newProduct);
+              fastify.log.info(`✅ [SYNC] Produit inséré avec succès: ${product.name} (nouveau DB id: ${newProduct?.id})`);
+            }
           }
+        } catch (unexpectedError: any) {
+          errors++;
+          fastify.log.error(`❌ [SYNC] Erreur inattendue pour ${product.name}:`, unexpectedError);
+          errorDetails.push({ product: product.name, step: 'unexpected', error: unexpectedError.message });
         }
+      }
+
+      fastify.log.info(`📊 [SYNC] Résumé final: ${inserted} insérés, ${updated} mis à jour, ${errors} erreurs`);
+      if (errors > 0) {
+        fastify.log.error(`📋 [SYNC] Détail des ${errorDetails.length} erreurs: ${JSON.stringify(errorDetails, null, 2)}`);
       }
 
       fastify.log.info(`✅ [SYNC] Terminé: ${inserted} insérés, ${updated} mis à jour, ${errors} erreurs`)
