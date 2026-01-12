@@ -626,7 +626,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       // ✅ VALIDATION
       const body = updateShopSchema.parse(request.body);
-      fastify.log.info(`📝 [UPDATE SHOP] Body validé:`, JSON.stringify(body));
+      fastify.log.info(`📝 [UPDATE SHOP] Body validé: ${JSON.stringify(body)}`);
 
       fastify.log.info(`📝 Mise à jour shop ${id} - widget: ${!!body.widget_config}, agent: ${!!body.agent_config}`);
 
