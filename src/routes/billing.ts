@@ -360,26 +360,54 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
   fastify.post('/create-checkout-session', async (request, reply) => {
     try {
       fastify.log.info('🚀 === CHECKOUT SESSION BEAUTÉ ===');
-      
+
+      // ✅ LOG DU BODY REÇU POUR DEBUG
+      fastify.log.info(`📥 Body reçu: ${JSON.stringify(request.body)}`);
+
+      // ✅ VÉRIFICATION VARIABLES STRIPE
+      if (!process.env.STRIPE_SECRET_KEY) {
+        fastify.log.error('❌ STRIPE_SECRET_KEY non configuré');
+        return reply.status(500).send({
+          success: false,
+          error: 'Configuration Stripe manquante (SECRET_KEY)'
+        });
+      }
+
       const body = createSubscriptionSchema.parse(request.body);
       fastify.log.info(`📝 Plan beauté demandé: ${body.plan}`);
-      
+
+      // ✅ VÉRIFIER QUE LE PRICE ID EXISTE
+      const priceIdEnvVar = body.plan === 'starter' ? 'STRIPE_PRICE_ID_STARTER' : 'STRIPE_PRICE_ID_GROWTH';
+      const priceId = process.env[priceIdEnvVar];
+      fastify.log.info(`📝 Price ID env var: ${priceIdEnvVar} = ${priceId ? priceId.substring(0, 20) + '...' : 'NON DÉFINI'}`);
+
+      if (!priceId) {
+        fastify.log.error(`❌ ${priceIdEnvVar} non configuré dans les variables d'environnement`);
+        return reply.status(500).send({
+          success: false,
+          error: `Configuration Stripe manquante: ${priceIdEnvVar} non défini`
+        });
+      }
+
       const user = await verifySupabaseAuth(request);
       fastify.log.info(`👤 Utilisateur beauté: ${user.id} (${user.email})`);
-      
+
       const shop = await getOrCreateBeautyShop(user, fastify);
 
       // ✅ VÉRIFICATIONS PLAN BEAUTÉ
       if (shop.subscription_plan === body.plan) {
-        return reply.status(400).send({ 
+        return reply.status(400).send({
+          success: false,
           error: 'Vous avez déjà ce plan beauté',
-          currentPlan: shop.subscription_plan 
+          currentPlan: shop.subscription_plan
         });
       }
 
       const plan = BEAUTY_PLANS[body.plan];
       if (!plan.stripePriceId) {
-        return reply.status(400).send({ 
+        fastify.log.error(`❌ stripePriceId manquant pour plan ${body.plan}`);
+        return reply.status(400).send({
+          success: false,
           error: 'Ce plan beauté nécessite un contact commercial',
           contactEmail: 'sales@chatseller.app'
         });
