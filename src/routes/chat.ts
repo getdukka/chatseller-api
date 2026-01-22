@@ -932,19 +932,23 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         const welcomeMessage = agent.welcome_message ||
           `Bonjour ! Je suis ${agent.name}, votre ${agent.title || 'conseillère'}. Comment puis-je vous aider aujourd'hui ?`;
 
-        const { error: welcomeError } = await supabaseServiceClient
+        const { data: welcomeData, error: welcomeError } = await supabaseServiceClient
           .from('messages')
           .insert({
             conversation_id: conversation.id,
             role: 'assistant',
             content: welcomeMessage,
             content_type: 'text'
-          });
+          })
+          .select()
+          .single();
 
         if (welcomeError) {
           console.warn('⚠️ Erreur envoi message bienvenue:', welcomeError);
         } else {
           console.log('✅ Message de bienvenue automatique envoyé');
+          // ✅ IMPORTANT: Mettre à jour conversation.messages avec le message de bienvenue
+          conversation.messages = [welcomeData];
         }
       }
 
@@ -968,16 +972,32 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         .filter((akb: any) => akb.knowledge_base?.is_active)
         .map((akb: any) => akb.knowledge_base);
 
+      // ✅ LOGS DÉTAILLÉS POUR DEBUG
+      console.log('🔍 [DEBUG] conversation.messages brut:', JSON.stringify(conversation.messages, null, 2));
+      console.log('🔍 [DEBUG] conversation.id:', conversation.id);
+      console.log('🔍 [DEBUG] body.conversationId fourni:', body.conversationId);
+
       // ✅ CONSTRUIRE L'HISTORIQUE DE LA CONVERSATION (AVANT d'ajouter le nouveau message)
       const existingMessages = (conversation.messages || []).map((msg: ConversationMessage) => ({
         role: msg.role,
         content: msg.content
       }));
 
-      // ✅ DÉTECTER SI C'EST LE PREMIER MESSAGE (AVANT d'ajouter le nouveau)
-      // Premier message = aucun message existant dans la conversation
-      const isFirstMessage = existingMessages.length === 0;
-      fastify.log.info(`📊 [CHAT] Messages existants: ${existingMessages.length}, isFirstMessage: ${isFirstMessage}`);
+      // ✅ LOGS DES MESSAGES EXISTANTS
+      console.log('🔍 [DEBUG] existingMessages parsés:', existingMessages.length);
+      existingMessages.forEach((msg: { role: string; content: string }, i: number) => {
+        console.log(`   [${i}] ${msg.role}: "${msg.content.substring(0, 50)}..."`);
+      });
+
+      // ✅ DÉTECTER SI C'EST LE PREMIER MESSAGE DE L'UTILISATEUR
+      // Premier message utilisateur = il n'y a que le message de bienvenue (assistant) ou rien
+      // On considère que c'est le premier message si l'utilisateur n'a pas encore envoyé de message
+      const userMessagesCount = existingMessages.filter((m: { role: string }) => m.role === 'user').length;
+      const isFirstMessage = userMessagesCount === 0;
+
+      console.log('🔍 [DEBUG] Messages utilisateur existants:', userMessagesCount);
+      console.log('🔍 [DEBUG] isFirstMessage calculé:', isFirstMessage);
+      fastify.log.info(`📊 [CHAT] Messages existants: ${existingMessages.length}, userMessages: ${userMessagesCount}, isFirstMessage: ${isFirstMessage}`);
 
       // ✅ AJOUTER LE NOUVEAU MESSAGE À L'HISTORIQUE POUR OPENAI
       const conversationHistory = [
