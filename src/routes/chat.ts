@@ -989,15 +989,15 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         console.log(`   [${i}] ${msg.role}: "${msg.content.substring(0, 50)}..."`);
       });
 
-      // ✅ DÉTECTER SI C'EST LE PREMIER MESSAGE DE L'UTILISATEUR
-      // Premier message utilisateur = il n'y a que le message de bienvenue (assistant) ou rien
-      // On considère que c'est le premier message si l'utilisateur n'a pas encore envoyé de message
-      const userMessagesCount = existingMessages.filter((m: { role: string }) => m.role === 'user').length;
-      const isFirstMessage = userMessagesCount === 0;
+      // ✅ DÉTECTER SI C'EST LE PREMIER MESSAGE (AUCUN MESSAGE DANS L'HISTORIQUE)
+      // isFirstMessage = true SEULEMENT si la conversation est VIDE (pas de welcome message envoyé)
+      // Si le welcome message a déjà été envoyé, l'IA ne doit PAS re-saluer
+      const isFirstMessage = existingMessages.length === 0;
 
-      console.log('🔍 [DEBUG] Messages utilisateur existants:', userMessagesCount);
+      console.log('🔍 [DEBUG] Total messages existants:', existingMessages.length);
       console.log('🔍 [DEBUG] isFirstMessage calculé:', isFirstMessage);
-      fastify.log.info(`📊 [CHAT] Messages existants: ${existingMessages.length}, userMessages: ${userMessagesCount}, isFirstMessage: ${isFirstMessage}`);
+      console.log('🔍 [DEBUG] → Si isFirstMessage=false, l\'IA ne dira PAS Bonjour');
+      fastify.log.info(`📊 [CHAT] Messages existants: ${existingMessages.length}, isFirstMessage: ${isFirstMessage}`);
 
       // ✅ AJOUTER LE NOUVEAU MESSAGE À L'HISTORIQUE POUR OPENAI
       const conversationHistory = [
