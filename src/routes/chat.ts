@@ -264,15 +264,15 @@ function buildSystemPrompt(
   userMessage: string = '',
   shopName?: string,
   productCatalog: any[] = [],
-  conversationHistory: any[] = []
+  existingMessages: any[] = [],
+  isFirstMessage: boolean = true // ✅ NOUVEAU PARAMÈTRE EXPLICITE
 ) {
   const agentTitle = agent.title || getDefaultTitle(agent.type);
 
   // 🎯 NOUVEAU SYSTÈME RAG : Recherche contextuelle intelligente
   const relevantContext = getRelevantContext(userMessage, productCatalog);
 
-  // 🎯 Déterminer si c'est le premier message
-  const isFirstMessage = conversationHistory.length === 0;
+  console.log(`🎯 [SYSTEM PROMPT] isFirstMessage: ${isFirstMessage}, existingMessages: ${existingMessages.length}`);
 
   // 🎯 UTILISER LE SYSTEM PROMPT EXPERT BEAUTÉ avec contexte conversationnel
   return buildBeautyExpertPrompt(agent, relevantContext, shopName, isFirstMessage);
@@ -713,7 +713,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         body.message, // userMessage pour RAG
         shop.name, // shopName
         [], // productCatalog (vide pour test, à enrichir plus tard)
-        [] // conversationHistory vide pour test (toujours premier message)
+        [], // existingMessages vide pour test
+        true // isFirstMessage = true pour test
       );
 
       // ✅ PRÉPARER LES MESSAGES
@@ -872,12 +873,25 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ GÉRER LA CONVERSATION (SUPABASE)
       let conversation = null;
       if (body.conversationId) {
-        const { data: existingConv } = await supabaseServiceClient
+        // ✅ RÉCUPÉRER LA CONVERSATION AVEC MESSAGES TRIÉS PAR DATE
+        const { data: existingConv, error: convFetchError } = await supabaseServiceClient
           .from('conversations')
-          .select('*, messages(*)')
+          .select('*, messages(id, role, content, content_type, created_at)')
           .eq('id', body.conversationId)
           .single();
-        conversation = existingConv;
+
+        if (convFetchError) {
+          fastify.log.warn(`⚠️ Erreur récupération conversation: ${convFetchError.message}`);
+        } else if (existingConv) {
+          // ✅ TRIER LES MESSAGES PAR DATE (Supabase ne garantit pas l'ordre)
+          if (existingConv.messages && Array.isArray(existingConv.messages)) {
+            existingConv.messages.sort((a: any, b: any) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            );
+          }
+          conversation = existingConv;
+          fastify.log.info(`📜 Conversation existante trouvée avec ${existingConv.messages?.length || 0} messages`);
+        }
       }
 
       if (!conversation) {
@@ -954,17 +968,22 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         .filter((akb: any) => akb.knowledge_base?.is_active)
         .map((akb: any) => akb.knowledge_base);
 
-      // ✅ CONSTRUIRE L'HISTORIQUE DE LA CONVERSATION
-      const conversationHistory = (conversation.messages || []).map((msg: ConversationMessage) => ({
+      // ✅ CONSTRUIRE L'HISTORIQUE DE LA CONVERSATION (AVANT d'ajouter le nouveau message)
+      const existingMessages = (conversation.messages || []).map((msg: ConversationMessage) => ({
         role: msg.role,
         content: msg.content
       }));
 
-      // ✅ AJOUTER LE NOUVEAU MESSAGE
-      conversationHistory.push({
-        role: 'user',
-        content: body.message
-      });
+      // ✅ DÉTECTER SI C'EST LE PREMIER MESSAGE (AVANT d'ajouter le nouveau)
+      // Premier message = aucun message existant dans la conversation
+      const isFirstMessage = existingMessages.length === 0;
+      fastify.log.info(`📊 [CHAT] Messages existants: ${existingMessages.length}, isFirstMessage: ${isFirstMessage}`);
+
+      // ✅ AJOUTER LE NOUVEAU MESSAGE À L'HISTORIQUE POUR OPENAI
+      const conversationHistory = [
+        ...existingMessages,
+        { role: 'user', content: body.message }
+      ];
 
       // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC RAG BEAUTÉ
       const systemPrompt = buildSystemPrompt(
@@ -974,7 +993,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         body.message, // userMessage pour RAG
         shop.name, // shopName
         productCatalog, // ✅ CATALOGUE DE PRODUITS RÉEL
-        conversationHistory // ✅ Historique pour détecter premier message
+        existingMessages, // ✅ Messages AVANT le nouveau pour détecter premier message
+        isFirstMessage // ✅ PASSER EXPLICITEMENT LE FLAG
       );
 
       // ✅ GÉNÉRER LA RÉPONSE IA
