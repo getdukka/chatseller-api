@@ -68,6 +68,7 @@ const updateShopSchema = z.object({
   industry: z.string().optional(),
   platform: z.string().optional(),
   subscription_plan: z.enum(['starter', 'growth', 'performance']).optional(),
+  trial_ends_at: z.string().datetime().nullable().optional(),
   onboarding_completed: z.boolean().optional(),
   onboarding_completed_at: z.string().datetime().nullable().optional(),
 
@@ -662,6 +663,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       if (body.industry !== undefined) updateData.industry = body.industry;
       if (body.platform !== undefined) updateData.platform = body.platform;
       if (body.subscription_plan !== undefined) updateData.subscription_plan = body.subscription_plan;
+      if (body.trial_ends_at !== undefined) updateData.trial_ends_at = body.trial_ends_at;
       if (body.onboarding_completed !== undefined) updateData.onboarding_completed = body.onboarding_completed;
       if (body.onboarding_completed_at !== undefined) {
         updateData.onboarding_completed_at = body.onboarding_completed_at ? body.onboarding_completed_at : null;
