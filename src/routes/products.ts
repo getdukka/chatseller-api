@@ -660,7 +660,8 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           ai_recommend: true,
           personalization_enabled: false,
 
-          // ✅ NE PAS FOURNIR created_at/updated_at - laisser Supabase gérer avec DEFAULT
+          // ✅ Fournir updated_at explicitement (pas de DEFAULT en DB)
+          updated_at: new Date().toISOString(),
           last_synced_at: new Date().toISOString()
         };
 
@@ -811,6 +812,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           updated,
           errors
         },
+        errorDetails: errors > 0 ? errorDetails : undefined,
         message: `Synchronisation terminée : ${inserted} nouveaux produits, ${updated} mis à jour${auto_enrich ? ' (enrichissement en cours...)' : ''}`
       })
     } catch (error: any) {

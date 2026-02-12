@@ -1025,6 +1025,7 @@ async function processMultipleBeautyWebsitePages(
         const { data: newDocument, error } = await supabaseServiceClient
           .from('knowledge_base')
           .insert({
+            id: crypto.randomUUID(),
             shop_id: shopId,
             title: pageTitle,
             content: content,
@@ -1033,6 +1034,7 @@ async function processMultipleBeautyWebsitePages(
             source_url: url,
             tags: [...tags, 'website', 'indexation-beaute', metadata.beautyCategory || 'multi'],
             is_active: true,
+            updated_at: new Date().toISOString(),
             metadata: createSafeBeautyMetadata({
               ...metadata,
               sourceUrl: url,
@@ -1389,6 +1391,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
+          id: crypto.randomUUID(),
           shop_id: shop.id,
           title: data.filename || 'Fichier beauté uploadé',
           content: content,
@@ -1397,6 +1400,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           source_url: storageUrl,
           tags: ['fichier', 'upload', 'beaute', beautyCategory || 'multi', shop.subscription_plan],
           is_active: true,
+          updated_at: new Date().toISOString(),
           metadata: metadata
         })
         .select()
@@ -1738,6 +1742,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
+          id: crypto.randomUUID(),
           shop_id: shop.id,
           title: body.title,
           content: body.content,
@@ -1746,6 +1751,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           source_url: body.sourceUrl || null,
           tags: [...body.tags, 'beaute', body.beautyCategory || 'multi'],
           is_active: body.isActive,
+          updated_at: new Date().toISOString(),
           metadata: metadata
         })
         .select()
@@ -1834,6 +1840,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { data: newDocument, error } = await supabaseServiceClient
         .from('knowledge_base')
         .insert({
+          id: crypto.randomUUID(),
           shop_id: shop.id,
           title: body.title || title,
           content: content,
@@ -1842,6 +1849,7 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           source_url: body.url,
           tags: ['beaute', 'url', metadata.beautyCategory || 'multi'],
           is_active: true,
+          updated_at: new Date().toISOString(),
           metadata: createSafeBeautyMetadata(metadata)
         })
         .select()
