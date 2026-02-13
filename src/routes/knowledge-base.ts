@@ -271,7 +271,7 @@ async function extractBeautyContentFromUrl(url: string): Promise<{ title: string
         },
         signal: controller.signal,
         redirect: 'follow',
-        referrer: 'no-referrer'
+        referrerPolicy: 'no-referrer'
       });
     } catch (fetchError: any) {
       clearTimeout(timeoutId);
