@@ -547,18 +547,21 @@ async function uploadBeautyFileToSupabase(fileData: any, shopId: string): Promis
   try {
     const timestamp = Date.now();
     const randomSuffix = crypto.randomBytes(8).toString('hex');
-    const fileExtension = path.extname(fileData.filename || 'file.txt');
-    const fileName = `beauty_${shopId}_${timestamp}_${randomSuffix}${fileExtension}`;
+
+    // ✅ SÉCURITÉ: Extension dérivée du MIME type validé (pas du filename utilisateur)
+    const validatedMime = fileData.mimetype as keyof typeof ALLOWED_MIME_TYPES;
+    const safeExtension = ALLOWED_MIME_TYPES[validatedMime] || '.bin';
+    const fileName = `beauty_${shopId}_${timestamp}_${randomSuffix}${safeExtension}`;
     const filePath = `beauty-knowledge-base/${shopId}/${fileName}`;
-    
+
     console.log('📤 Upload fichier beauté vers Supabase Storage:', filePath);
-    
+
     const fileBuffer = await fileData.toBuffer();
-    
+
     const { data, error } = await supabaseServiceClient.storage
       .from('chatseller-files')
       .upload(filePath, fileBuffer, {
-        contentType: fileData.mimetype,
+        contentType: validatedMime, // ✅ MIME type déjà validé par la route appelante
         cacheControl: '3600',
         upsert: false
       });
