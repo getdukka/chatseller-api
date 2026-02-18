@@ -270,7 +270,8 @@ function buildSystemPrompt(
   const agentTitle = agent.title || getDefaultTitle(agent.type);
 
   // 🎯 NOUVEAU SYSTÈME RAG : Recherche contextuelle intelligente
-  const relevantContext = getRelevantContext(userMessage, productCatalog);
+  // ✅ PASSE LA KB MARQUE pour que l'IA utilise les docs indexés
+  const relevantContext = getRelevantContext(userMessage, productCatalog, knowledgeBase);
 
   console.log(`🎯 [SYSTEM PROMPT] isFirstMessage: ${isFirstMessage}, existingMessages: ${existingMessages.length}`);
 
@@ -806,15 +807,15 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER LES AGENTS ACTIFS AVEC TITRE
+      // ✅ RÉCUPÉRER LES AGENTS ACTIFS AVEC TITRE (LEFT JOIN - agents sans KB inclus)
       const { data: agents, error: agentsError } = await supabaseServiceClient
         .from('agents')
         .select(`
           id, name, title, type, personality, description,
           welcome_message, fallback_message, avatar, config,
-          agent_knowledge_base!inner(
-            knowledge_base!inner(
-              id, title, content, content_type, tags
+          agent_knowledge_base(
+            knowledge_base(
+              id, title, content, content_type, tags, is_active
             )
           )
         `)

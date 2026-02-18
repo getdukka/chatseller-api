@@ -58,11 +58,47 @@ console.log(`✅ [BEAUTY RAG] ${Object.keys(beautyKnowledge.ingredients).length}
  * 🔍 RECHERCHE CONTEXTUELLE AVEC PRIORITÉ INGRÉDIENTS AFRICAINS
  * @param userMessage - Message de l'utilisateur
  * @param productCatalog - Catalogue produits de la marque (optionnel)
+ * @param brandKnowledgeBase - Documents KB spécifiques à la marque (optionnel)
  * @returns Contexte pertinent formaté
  */
-export function getRelevantContext(userMessage: string, productCatalog: any[] = []): string {
+export function getRelevantContext(userMessage: string, productCatalog: any[] = [], brandKnowledgeBase: any[] = []): string {
   const context: string[] = [];
   const messageLower = userMessage.toLowerCase();
+
+  // ========================================
+  // 0️⃣ PRIORITÉ ABSOLUE : BASE DE CONNAISSANCES MARQUE
+  // ========================================
+  if (brandKnowledgeBase && brandKnowledgeBase.length > 0) {
+    const messageParts = messageLower.split(/\s+/).filter(w => w.length > 3);
+    const brandDocs: string[] = [];
+
+    for (const doc of brandKnowledgeBase) {
+      if (!doc || !doc.content || doc.content.length < 30) continue;
+      if (doc.is_active === false) continue;
+
+      const docTitle = (doc.title || '').toLowerCase();
+      const docContentPreview = doc.content.toLowerCase().substring(0, 500);
+
+      // Vérifier pertinence : titre ou début du contenu contient des mots du message
+      const isRelevant = messageParts.some(word =>
+        docTitle.includes(word) || docContentPreview.includes(word)
+      );
+
+      // Toujours inclure si peu de docs (≤5) ; sinon filtrer par pertinence
+      if (isRelevant || brandKnowledgeBase.length <= 5) {
+        const truncatedContent = doc.content.length > 2000
+          ? doc.content.substring(0, 2000) + '...'
+          : doc.content;
+        brandDocs.push(`📖 CONNAISSANCE MARQUE — ${doc.title || 'Document'}\n${truncatedContent}`);
+      }
+    }
+
+    if (brandDocs.length > 0) {
+      // Insérer en tête (priorité maximale)
+      context.push(...brandDocs);
+      console.log(`✅ [RAG] ${brandDocs.length} document(s) KB marque inclus dans le contexte`);
+    }
+  }
 
   console.log(`🔍 [RAG] Recherche contextuelle pour: "${userMessage.substring(0, 50)}..."`);
 
@@ -440,13 +476,20 @@ Note : C'est le PREMIER message de cette conversation. Accueille chaleureusement
 Tu as DÉJÀ accueilli la cliente. Cette conversation est EN COURS.
 
 INTERDIT de commencer ta réponse par :
-❌ "Bonjour" / "Bonsoir" / "Salut"
+❌ "Bonjour" / "Bonsoir" / "Salut" / "Coucou"
+❌ "Hello" / "Hi" / "Hey" (même en anglais)
 ❌ "Bienvenue" / "Bienvenue chez..."
 ❌ "Ravi(e) de vous aider" (en début de message)
 ❌ Toute formule d'accueil
 
+INTERDIT de te réintroduire :
+❌ "[Ton prénom] ici" (ex: "Anna ici", "Katia ici")
+❌ "C'est [Ton prénom]" / "Je suis [Ton prénom]" en début de message
+❌ "[Ton prénom], votre conseillère..."
+Tu t'es déjà présentée. La cliente sait qui tu es. Réponds directement.
+
 COMMENCE DIRECTEMENT par répondre à ce que la cliente vient de dire.
-Exemple : Si elle dit "J'ai des cheveux secs", réponds "Je comprends..." ou "Pour les cheveux secs..." PAS "Bonjour ! Je suis ravie..."`}
+Exemple : Si elle dit "J'ai des cheveux secs", réponds "Je comprends..." ou "Pour les cheveux secs..." PAS "Hello ! Anna ici..."`}
 
 **🧠 RÈGLE DE MÉMOIRE CONTEXTUELLE**
 AVANT de répondre, RELIS l'historique de conversation.

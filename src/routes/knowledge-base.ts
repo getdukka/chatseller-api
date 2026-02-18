@@ -342,30 +342,47 @@ async function extractBeautyContentFromUrl(url: string): Promise<{ title: string
     
     // ✅ EXTRACTION CONTENU AVEC FOCUS BEAUTÉ
     let cleanContent = '';
-    
+
     try {
       console.log(`🧹 [EXTRACTION BEAUTÉ] Nettoyage du contenu...`);
-      
-      let processedHtml = html
+
+      // ✅ ÉTAPE 1: Essayer d'extraire uniquement le contenu <main> (évite nav/sidebar)
+      let sourceHtml = html;
+      const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i)
+        || html.match(/<div[^>]*(?:role=["']main["']|id=["'](?:main|content|main-content)["']|class=["'][^"']*(?:main-content|page-content|site-content)[^"']*["'])[^>]*>([\s\S]*?)<\/div>/i);
+      if (mainMatch) {
+        sourceHtml = mainMatch[1] || mainMatch[0];
+        console.log(`🎯 [EXTRACTION BEAUTÉ] Contenu <main> isolé (${sourceHtml.length} chars)`);
+      }
+
+      let processedHtml = sourceHtml
+        // Supprimer scripts et styles
         .replace(/<script[^>]*>.*?<\/script>/gis, '')
         .replace(/<style[^>]*>.*?<\/style>/gis, '')
         .replace(/<noscript[^>]*>.*?<\/noscript>/gis, '')
+        // Supprimer SVG (icônes) - beaucoup de bruit
+        .replace(/<svg[^>]*>.*?<\/svg>/gis, '')
+        // Supprimer nav/header/footer/aside (en cas de fallback sans <main>)
         .replace(/<nav[^>]*>.*?<\/nav>/gis, '')
         .replace(/<header[^>]*>.*?<\/header>/gis, '')
         .replace(/<footer[^>]*>.*?<\/footer>/gis, '')
         .replace(/<aside[^>]*>.*?<\/aside>/gis, '')
+        // Supprimer banners cookies, modals, overlays, popups
+        .replace(/<div[^>]*class=["'][^"']*(?:cookie|consent|gdpr|banner|modal|overlay|popup|notification|alert)[^"']*["'][^>]*>.*?<\/div>/gis, '')
+        // Supprimer breadcrumbs et pagination
+        .replace(/<[^>]*(?:breadcrumb|pagination)[^>]*>.*?<\/(?:nav|div|ol|ul)>/gis, '')
         .replace(/<!--.*?-->/gis, '')
         .replace(/<meta[^>]*>/gi, '')
         .replace(/<link[^>]*>/gi, '')
         .replace(/<base[^>]*>/gi, '');
-      
+
       processedHtml = processedHtml
         .replace(/<br[^>]*>/gi, '\n')
         .replace(/<\/p>/gi, '\n\n')
         .replace(/<\/div>/gi, '\n')
         .replace(/<\/h[1-6]>/gi, '\n\n')
         .replace(/<\/li>/gi, '\n');
-      
+
       cleanContent = processedHtml
         .replace(/<[^>]*>/g, ' ')
         .replace(/&nbsp;/g, ' ')
@@ -374,13 +391,15 @@ async function extractBeautyContentFromUrl(url: string): Promise<{ title: string
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
-        .replace(/&[a-zA-Z0-9]+;/g, ' ')
+        .replace(/&[a-zA-Z0-9#]+;/g, ' ')
+        // Supprimer lignes qui ressemblent à du JSON ou du code
+        .replace(/^\s*[\[\{].*[\]\}]\s*$/gm, '')
         .replace(/\s+/g, ' ')
         .replace(/\n\s*\n\s*\n/g, '\n\n')
         .trim();
-      
+
       console.log(`✂️ [EXTRACTION BEAUTÉ] Contenu nettoyé: ${cleanContent.length} caractères`);
-      
+
     } catch (contentError) {
       console.error(`❌ [EXTRACTION BEAUTÉ] Erreur nettoyage contenu:`, contentError);
       cleanContent = html
