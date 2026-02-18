@@ -28,6 +28,7 @@ import settingsRoutes from './routes/settings';
 
 // ✅ SUPABASE CLIENT INTÉGRÉ
 import { createClient } from '@supabase/supabase-js'
+import { z } from 'zod'
 
 console.log('🚀 === DÉMARRAGE CHATSELLER API v1.6.2 (CORS E-COMMERCE CORRIGÉ) ===')
 
@@ -211,7 +212,6 @@ async function authenticate(request: any, reply: any) {
     
     console.log('✅ [AUTH] Utilisateur authentifié:', {
       id: user.id,
-      email: user.email,
       shop_id: user.id
     })
     
@@ -360,19 +360,8 @@ async function registerPlugins() {
           return callback(null, true)
         }
         
-        // ✅ FALLBACK - REFUSER AVEC LOG DÉTAILLÉ
+        // Refuser les origins non reconnues
         console.log(`❌ [CORS] Origin refusée: ${origin}`)
-        console.log(`    - Pas un domaine ChatSeller`)
-        console.log(`    - Pas un domaine e-commerce reconnu`)
-        console.log(`    - Pas un site spécifique autorisé`)
-        console.log(`    - Pas en mode développement`)
-        
-        // ✅ EN PRODUCTION, ÊTRE TRÈS PERMISSIF POUR LES E-COMMERCES
-        if (process.env.NODE_ENV === 'production') {
-          console.log('⚠️ [CORS] Production - AUTORISATION PERMISSIVE pour e-commerce:', origin)
-          return callback(null, true) // ✅ TRÈS PERMISSIF EN PRODUCTION
-        }
-        
         callback(new Error('Non autorisé par CORS'), false)
       },
       credentials: true,
@@ -402,35 +391,15 @@ async function registerPlugins() {
       preflight: true
     })
 
-    // ✅ AJOUT CRITIQUE : Handler spécial pour OPTIONS (preflight CORS)
-    fastify.addHook('onRequest', async (request, reply) => {
-      if (request.method === 'OPTIONS') {
-        console.log('🔄 [CORS] Requête OPTIONS preflight détectée:', request.headers.origin)
-        
-        // ✅ Headers CORS manuels pour garantir compatibilité
-        reply.header('Access-Control-Allow-Origin', request.headers.origin || '*')
-        reply.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH')
-        reply.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth-Token,X-Shop-Id,X-Message-Count,User-Agent,Referer,Cache-Control')
-        reply.header('Access-Control-Allow-Credentials', 'true')
-        reply.header('Access-Control-Max-Age', '86400') // 24h cache preflight
-        
-        return reply.status(200).send('OK')
-      }
-    })
+    // Note: OPTIONS preflight est géré automatiquement par @fastify/cors (preflight: true)
 
-    // ✅ HOOK POUR AJOUTER HEADERS CORS SUR TOUTES LES RÉPONSES
+    // ✅ HOOK POUR AJOUTER HEADERS DE SÉCURITÉ SUR TOUTES LES RÉPONSES
+    // Note: Access-Control-Allow-Origin est géré par @fastify/cors uniquement
     fastify.addHook('onSend', async (request, reply, payload) => {
-      const origin = request.headers.origin
-      if (origin) {
-        reply.header('Access-Control-Allow-Origin', origin)
-        reply.header('Access-Control-Allow-Credentials', 'true')
-      }
-      
-      // ✅ Headers de sécurité pour e-commerce
       reply.header('X-Content-Type-Options', 'nosniff')
       reply.header('X-Frame-Options', 'SAMEORIGIN')
       reply.header('Referrer-Policy', 'strict-origin-when-cross-origin')
-      
+      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
       return payload
     })
 
@@ -549,18 +518,16 @@ async function registerRoutes() {
     // =====================================
     await fastify.register(async function (fastify) {
       await fastify.register(rateLimit, {
-        max: 2000, // ✅ Très élevé pour les e-commerces
+        max: 200, // Limité pour prévenir les abus OpenAI coûteux
         timeWindow: '1 minute',
         keyGenerator: (request) => {
-          const shopId = (request.params as any)?.shopId || (request.body as any)?.shopId || 'unknown'
-          const origin = request.headers.origin || 'no-origin'
-          return `public-${request.ip}-${shopId}-${origin.replace(/https?:\/\//, '').substring(0, 30)}`
+          const shopId = (request.body as any)?.shopId || 'unknown'
+          return `public-${request.ip}-${shopId}`.substring(0, 80)
         },
         errorResponseBuilder: (request, context) => ({
           success: false,
-          error: 'Limite de requêtes atteinte pour ce site',
-          retryAfter: context.after,
-          shopId: (request.body as any)?.shopId || 'unknown'
+          error: 'Limite de requêtes atteinte. Réessayez dans quelques instants.',
+          retryAfter: context.after
         })
       })
       
@@ -586,8 +553,12 @@ async function registerRoutes() {
       
       fastify.post('/login', async (request, reply) => {
         try {
-          const { email, password } = request.body as any
-          
+          const loginSchema = z.object({
+            email: z.string().email(),
+            password: z.string().min(6)
+          })
+          const { email, password } = loginSchema.parse(request.body)
+
           const { data, error } = await supabaseAuthClient.auth.signInWithPassword({
             email,
             password,
@@ -610,8 +581,13 @@ async function registerRoutes() {
 
       fastify.post('/signup', async (request, reply) => {
         try {
-          const { email, password, metadata } = request.body as any
-          
+          const signupSchema = z.object({
+            email: z.string().email(),
+            password: z.string().min(8),
+            metadata: z.record(z.string(), z.unknown()).optional()
+          })
+          const { email, password, metadata } = signupSchema.parse(request.body)
+
           const { data, error } = await supabaseAuthClient.auth.signUp({
             email,
             password,
@@ -798,7 +774,7 @@ async function registerRoutes() {
             failedTables.push(...failed)
 
             if (failed.length > 0) {
-              recommendations.push(`📊 Tables inaccessibles: ${failed.join(', ')} - DÉSACTIVER RLS avec: ${failed.map(t => `ALTER TABLE public.${t} DISABLE ROW LEVEL SECURITY;`).join(' ')}`)
+              recommendations.push(`📊 Tables inaccessibles: ${failed.join(', ')} - Vérifier les politiques RLS Supabase pour ces tables`)
             }
           }
 
@@ -951,45 +927,11 @@ async function registerRoutes() {
       
     }, { prefix: '/api/v1' })
 
-    // ✅ FALLBACK 404 AMÉLIORÉ AVEC INFO CORS
     fastify.setNotFoundHandler(async (request, reply) => {
       console.log(`❌ Route non trouvée: ${request.method} ${request.url}`)
-      
       return reply.status(404).send({
         success: false,
-        error: 'Route not found',
-        method: request.method,
-        url: request.url,
-        timestamp: new Date().toISOString(),
-        origin: request.headers.origin,
-        cors: 'e-commerce-enabled',
-        availableRoutes: {
-          health: ['GET /health', 'GET /health/full'],
-          corsTest: ['GET /cors-test'],
-          diagnostic: ['GET /api/v1/diagnostic'],
-          testSupabase: ['GET /api/v1/test-supabase'],
-          public: [
-            'GET /api/v1/public/shops/public/:shopId/config',
-            'POST /api/v1/public/chat'
-          ],
-          auth: [
-            'POST /api/v1/auth/login',
-            'POST /api/v1/auth/signup'
-          ],
-          business: [
-            'GET /api/v1/shops',
-            'GET /api/v1/shops/:id',
-            'POST /api/v1/shops',
-            'PUT /api/v1/shops/:id',
-            'GET /api/v1/agents',
-            'POST /api/v1/agents',
-            'GET /api/v1/conversations',
-            'GET /api/v1/analytics/dashboard',
-            'GET /api/v1/knowledge-base',
-            'POST /api/v1/knowledge-base/upload',
-            '... et toutes les autres routes business'
-          ]
-        }
+        error: 'Route not found'
       })
     })
 

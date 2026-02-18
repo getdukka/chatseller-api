@@ -240,15 +240,63 @@ async function checkBeautyPlanLimits(shopId: string, plan: string): Promise<{
   };
 }
 
+// ✅ SÉCURITÉ: Bloquer les URLs qui pointent vers des ressources internes (SSRF protection)
+function isBlockedUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Bloquer les protocoles non-HTTP
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
+
+    // Bloquer les noms d'hôtes internes/réservés
+    const blockedHostnames = [
+      'localhost', '0.0.0.0', 'metadata', 'metadata.google.internal'
+    ];
+    if (blockedHostnames.includes(hostname)) return true;
+
+    // Bloquer les adresses IP privées et spéciales
+    const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+    const match = hostname.match(ipv4Pattern);
+    if (match) {
+      const [, a, b, c, d] = match.map(Number);
+      // 127.x.x.x (loopback)
+      if (a === 127) return true;
+      // 10.x.x.x (private)
+      if (a === 10) return true;
+      // 172.16.x.x – 172.31.x.x (private)
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      // 192.168.x.x (private)
+      if (a === 192 && b === 168) return true;
+      // 169.254.x.x (link-local / AWS metadata)
+      if (a === 169 && b === 254) return true;
+      // 0.x.x.x
+      if (a === 0) return true;
+    }
+
+    // Bloquer les domaines .local et .internal
+    if (hostname.endsWith('.local') || hostname.endsWith('.internal')) return true;
+
+    return false;
+  } catch {
+    return true; // URL malformée → bloquer par défaut
+  }
+}
+
 // ✅ HELPER: Extraire contenu d'une URL beauté (VERSION ULTRA-ROBUSTE)
 async function extractBeautyContentFromUrl(url: string): Promise<{ title: string; content: string; metadata: SafeMetadata }> {
   const startTime = Date.now();
-  
+
   try {
     console.log(`🌐 [EXTRACTION BEAUTÉ] Début: ${url}`);
-    
+
     if (!url || !url.startsWith('http')) {
       throw new Error(`URL invalide: ${url}`);
+    }
+
+    // ✅ SÉCURITÉ: Bloquer les URLs internes (SSRF)
+    if (isBlockedUrl(url)) {
+      throw new Error(`URL bloquée pour des raisons de sécurité: ${url}`);
     }
     
     const controller = new AbortController();
@@ -1594,6 +1642,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`📊 [${requestId}] Plan beauté vérifié - ${planLimits.currentCount}/${planLimits.limit} documents`);
 
+      // ✅ SÉCURITÉ: Bloquer les URLs internes (SSRF)
+      if (isBlockedUrl(body.url)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'URL non autorisée. Seules les URLs publiques sont acceptées.'
+        });
+      }
+
       // ✅ DÉCOUVRIR PAGES DU SITE BEAUTÉ
       const maxPagesPerPlan = {
         starter: 10,
@@ -1851,6 +1907,14 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
           success: false,
           error: planLimits.reason,
           requiresUpgrade: true
+        });
+      }
+
+      // ✅ SÉCURITÉ: Bloquer les URLs internes (SSRF)
+      if (isBlockedUrl(body.url)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'URL non autorisée. Seules les URLs publiques sont acceptées.'
         });
       }
 

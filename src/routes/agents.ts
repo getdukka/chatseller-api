@@ -421,8 +421,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({
           success: false,
           error: 'Données invalides',
-          details: zodError.errors,
-          received: request.body
+          details: zodError.errors
         });
       }
 
