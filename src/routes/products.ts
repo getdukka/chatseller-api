@@ -184,7 +184,8 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Filtres
       if (search?.trim()) {
-        const searchTerm = search.trim()
+        // ✅ Limite la longueur pour éviter les abus (DoS)
+        const searchTerm = search.trim().substring(0, 100)
         query = query.or(`name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`)
       }
       
@@ -922,15 +923,20 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { id } = request.params as any
-      const { recommend } = request.body as any
+      const { id } = request.params as { id: string }
 
-      if (typeof recommend !== 'boolean') {
+      // ✅ Validation Zod stricte (remplace le cast `as any`)
+      const aiRecommendSchema = z.object({
+        recommend: z.boolean({ required_error: 'Le paramètre "recommend" doit être un booléen' })
+      })
+      const parsed = aiRecommendSchema.safeParse(request.body)
+      if (!parsed.success) {
         return reply.status(400).send({
           success: false,
-          error: 'Le paramètre "recommend" doit être un booléen'
+          error: parsed.error.errors[0]?.message || 'Paramètre invalide'
         })
       }
+      const { recommend } = parsed.data
 
       const { data, error } = await supabaseServiceClient
         .from('products')
@@ -1061,8 +1067,17 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // ✅ ACCEPTER LES DEUX FORMATS : { productData } OU { name, description, ... }
-      const body = request.body as any
-      const productData = body.productData || body
+      // Validation stricte pour éviter les données non typées
+      const aiAnalyzeBodySchema = z.object({
+        productData: z.record(z.unknown()).optional(),
+        name: z.string().max(500).optional(),
+        description: z.string().max(5000).optional(),
+        price: z.number().optional(),
+        category: z.string().max(100).optional(),
+        sku: z.string().max(100).optional()
+      }).passthrough() // Autorise champs supplémentaires
+      const body = aiAnalyzeBodySchema.parse(request.body)
+      const productData = (body.productData as Record<string, unknown>) || body
 
       fastify.log.info(`🤖 [AI-ANALYZE] Analyse IA demandée pour produit: ${productData.name}`)
       fastify.log.info(`🤖 [AI-ANALYZE] Données reçues: ${JSON.stringify(productData).substring(0, 200)}`)
