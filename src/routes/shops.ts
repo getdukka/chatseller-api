@@ -67,7 +67,7 @@ const updateShopSchema = z.object({
   domain: z.string().nullable().optional(),
   industry: z.string().optional(),
   platform: z.string().optional(),
-  subscription_plan: z.enum(['starter', 'growth', 'performance']).optional(),
+  // subscription_plan est intentionnellement absent : seul le webhook Stripe peut le modifier
   trial_ends_at: z.string().datetime().nullable().optional(),
   onboarding_completed: z.boolean().optional(),
   onboarding_completed_at: z.string().datetime().nullable().optional(),
@@ -125,7 +125,7 @@ const createShopSchema = z.object({
   domain: z.string().nullable().optional(),
   industry: z.string().optional(),
   platform: z.string().optional(),
-  subscription_plan: z.enum(['starter', 'growth', 'performance']).default('starter'),
+  // subscription_plan ignoré à la création : toujours 'starter', modifiable uniquement via webhook Stripe
   is_active: z.boolean().default(true),
   onboarding_completed: z.boolean().default(false),
   onboarding_completed_at: z.string().datetime().nullable().optional(),
@@ -568,7 +568,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
           domain: body.domain,
           industry: body.industry, 
           platform: body.platform,
-          subscription_plan: body.subscription_plan || 'starter',
+          subscription_plan: 'starter', // Toujours 'starter' à la création
           is_active: body.is_active,
           onboarding_completed: body.onboarding_completed, 
           onboarding_completed_at: body.onboarding_completed_at ? body.onboarding_completed_at : null, 
@@ -662,7 +662,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       if (body.domain !== undefined) updateData.domain = body.domain;
       if (body.industry !== undefined) updateData.industry = body.industry;
       if (body.platform !== undefined) updateData.platform = body.platform;
-      if (body.subscription_plan !== undefined) updateData.subscription_plan = body.subscription_plan;
+      // subscription_plan ne peut PAS être modifié ici — uniquement via webhook Stripe (/billing/webhook)
       if (body.trial_ends_at !== undefined) updateData.trial_ends_at = body.trial_ends_at;
       if (body.onboarding_completed !== undefined) updateData.onboarding_completed = body.onboarding_completed;
       if (body.onboarding_completed_at !== undefined) {

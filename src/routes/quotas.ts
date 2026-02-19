@@ -331,29 +331,29 @@ export default async function quotasRoutes(fastify: FastifyInstance) {
         })
       }
 
+      // ✅ SÉCURITÉ: subscription_plan ne peut être modifié que par le webhook Stripe
+      // Cette route ne met à jour QUE les quotas (pas le plan lui-même)
       const { error } = await supabaseServiceClient
         .from('shops')
-        .update({ 
-          subscription_plan: newPlan,
+        .update({
           quotas: newQuotas,
           updated_at: new Date().toISOString()
         })
         .eq('id', shopId)
 
       if (error) {
-        fastify.log.error('Erreur mise à jour plan: %s', error.message)
+        fastify.log.error('Erreur mise à jour quotas: %s', error.message)
         return reply.status(500).send({
           success: false,
-          error: 'Erreur lors de la mise à jour du plan'
+          error: 'Erreur lors de la mise à jour des quotas'
         })
       }
 
-      fastify.log.info(`✅ Plan mis à jour vers ${newPlan} pour shop ${shopId}`)
+      fastify.log.info(`✅ Quotas mis à jour pour shop ${shopId} (plan cible: ${newPlan})`)
 
       return {
         success: true,
         data: {
-          new_plan: newPlan,
           new_quotas: newQuotas
         }
       }
