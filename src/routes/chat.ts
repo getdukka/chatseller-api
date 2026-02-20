@@ -42,7 +42,14 @@ const testMessageSchema = z.object({
   message: z.string().min(1, 'Le message est requis'),
   agentId: z.string().min(1, 'ID agent requis'),
   shopId: z.string().min(1, 'ID shop requis'),
-  testMode: z.boolean().default(true)
+  testMode: z.boolean().default(true),
+  // Historique de conversation pour maintenir le contexte dans le playground
+  conversationHistory: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string()
+  })).optional().default([]),
+  // Permet au client de signaler explicitement si c'est le 1er message
+  isFirstMessage: z.boolean().optional()
 });
 
 const sendMessageSchema = z.object({
@@ -706,31 +713,49 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         .filter((akb: any) => akb.knowledge_base?.is_active)
         .map((akb: any) => akb.knowledge_base);
 
+      // ✅ CHARGER LE CATALOGUE PRODUITS DU SHOP (pour le RAG)
+      const { data: products } = await supabaseServiceClient
+        .from('products')
+        .select('id, name, description, price, image_url, url, category, is_active')
+        .eq('shop_id', shop.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      const productCatalog = products || [];
+
+      // ✅ HISTORIQUE DE CONVERSATION (envoyé par le client playground)
+      const conversationHistory = body.conversationHistory || [];
+
+      // ✅ isFirstMessage : calculé depuis l'historique (sauf si forcé par le client)
+      const isFirstMessage = body.isFirstMessage !== undefined
+        ? body.isFirstMessage
+        : conversationHistory.length === 0;
+
+      console.log(`🎯 [PLAYGROUND TEST] isFirstMessage: ${isFirstMessage}, historique: ${conversationHistory.length} messages`);
+
       // ✅ CONSTRUIRE LE PROMPT SYSTÈME AVEC RAG BEAUTÉ
       const systemPrompt = buildSystemPrompt(
         agent,
         knowledgeBase,
-        null, // productContext
-        body.message, // userMessage pour RAG
-        shop.name, // shopName
-        [], // productCatalog (vide pour test, à enrichir plus tard)
-        [], // existingMessages vide pour test
-        true // isFirstMessage = true pour test
+        null,           // productContext
+        body.message,   // userMessage pour RAG
+        shop.name,      // shopName
+        productCatalog, // ✅ catalogue réel du shop
+        conversationHistory, // ✅ historique réel
+        isFirstMessage  // ✅ calculé dynamiquement
       );
 
-      // ✅ PRÉPARER LES MESSAGES
+      // ✅ PRÉPARER LES MESSAGES (historique + nouveau message)
       const messages = [
-        {
-          role: 'user',
-          content: body.message
-        }
+        ...conversationHistory,
+        { role: 'user', content: body.message }
       ];
 
       // ✅ CHOISIR LE PROVIDER IA
       const agentConfig = agent.config as AgentConfig;
       const aiProvider = agentConfig?.aiProvider || 'openai';
-      const temperature = agentConfig?.temperature || 0.7;
-      
+      const temperature = agentConfig?.temperature || 0.65; // 0.65 = bon équilibre naturel/cohérent
+
       let aiResponse: string;
       let provider: string;
 
@@ -739,9 +764,15 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         aiResponse = await callClaudeAI(messages, systemPrompt, temperature);
         provider = 'claude';
       } else {
-        // ✅ UTILISER OPENAI PAR DÉFAUT (sans tools pour le test)
-        const responseMessage = await callOpenAI(messages, systemPrompt, temperature, false);
-        aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
+        // ✅ UTILISER OPENAI AVEC TOOLS (pour que les recommandations produits fonctionnent aussi en test)
+        const responseMessage = await callOpenAI(messages, systemPrompt, temperature, true);
+        // Si tool call → extraire le texte de la raison
+        if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+          const args = JSON.parse(responseMessage.tool_calls[0].function.arguments);
+          aiResponse = args.reason || responseMessage.content || 'Je vous recommande ce produit.';
+        } else {
+          aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
+        }
         provider = 'openai';
       }
 
@@ -1021,7 +1052,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ GÉNÉRER LA RÉPONSE IA
       const agentConfig = agent.config as AgentConfig;
       const aiProvider = agentConfig?.aiProvider || 'openai';
-      const temperature = agentConfig?.temperature || 0.7;
+      const temperature = agentConfig?.temperature || 0.65; // 0.65 = naturel mais cohérent
 
       let aiResponse: string;
       let provider: string;
