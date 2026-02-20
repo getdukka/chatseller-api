@@ -69,34 +69,59 @@ export function getRelevantContext(userMessage: string, productCatalog: any[] = 
   // 0️⃣ PRIORITÉ ABSOLUE : BASE DE CONNAISSANCES MARQUE
   // ========================================
   if (brandKnowledgeBase && brandKnowledgeBase.length > 0) {
-    const messageParts = messageLower.split(/\s+/).filter(w => w.length > 3);
-    const brandDocs: string[] = [];
+    // Mots-clés du message (longueur > 2 pour attraper plus de termes)
+    const messageParts = messageLower.split(/\s+/).filter(w => w.length > 2);
+
+    // ✅ SCORING : chaque document reçoit un score de pertinence
+    const scoredDocs: Array<{ content: string; score: number; title: string }> = [];
 
     for (const doc of brandKnowledgeBase) {
       if (!doc || !doc.content || doc.content.length < 30) continue;
       if (doc.is_active === false) continue;
 
       const docTitle = (doc.title || '').toLowerCase();
-      const docContentPreview = doc.content.toLowerCase().substring(0, 500);
+      const docContent = doc.content.toLowerCase();
 
-      // Vérifier pertinence : titre ou début du contenu contient des mots du message
-      const isRelevant = messageParts.some(word =>
-        docTitle.includes(word) || docContentPreview.includes(word)
-      );
+      // Calculer le score de pertinence
+      let score = 0;
+      for (const word of messageParts) {
+        // Titre : 3 points par occurrence (le titre est très indicatif)
+        let idx = docTitle.indexOf(word);
+        while (idx !== -1) {
+          score += 3;
+          idx = docTitle.indexOf(word, idx + word.length);
+        }
+        // Contenu complet : 1 point par occurrence (plafonné à 5)
+        let count = 0;
+        idx = docContent.indexOf(word);
+        while (idx !== -1 && count < 5) {
+          score += 1;
+          count++;
+          idx = docContent.indexOf(word, idx + word.length);
+        }
+      }
 
-      // Toujours inclure si peu de docs (≤5) ; sinon filtrer par pertinence
-      if (isRelevant || brandKnowledgeBase.length <= 5) {
+      // Toujours inclure si peu de docs (≤5) avec score minimum de 1
+      if (score > 0 || brandKnowledgeBase.length <= 5) {
         const truncatedContent = doc.content.length > 2000
           ? doc.content.substring(0, 2000) + '...'
           : doc.content;
-        brandDocs.push(`📖 CONNAISSANCE MARQUE — ${doc.title || 'Document'}\n${truncatedContent}`);
+        scoredDocs.push({
+          content: `📖 CONNAISSANCE MARQUE — ${doc.title || 'Document'}\n${truncatedContent}`,
+          score: score > 0 ? score : 1,
+          title: doc.title || 'Document'
+        });
       }
     }
 
-    if (brandDocs.length > 0) {
-      // Insérer en tête (priorité maximale)
-      context.push(...brandDocs);
-      console.log(`✅ [RAG] ${brandDocs.length} document(s) KB marque inclus dans le contexte`);
+    if (scoredDocs.length > 0) {
+      // Trier par score décroissant, garder les 7 plus pertinents
+      scoredDocs.sort((a, b) => b.score - a.score);
+      const topDocs = scoredDocs.slice(0, 7);
+
+      context.push(...topDocs.map(d => d.content));
+      console.log(`✅ [RAG] ${topDocs.length}/${brandKnowledgeBase.length} doc(s) KB marque sélectionnés par score:`);
+      topDocs.forEach(d => console.log(`   📄 "${d.title}" (score: ${d.score})`));
     }
   }
 

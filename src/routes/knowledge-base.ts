@@ -4,6 +4,9 @@ import { z } from 'zod';
 import { supabaseServiceClient } from '../lib/supabase';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import pdfParse from 'pdf-parse';
+import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
 
 // ✅ CONFIGURATION DES LIMITES PAR PLAN - NOUVEAUX PLANS BEAUTÉ
 const BEAUTY_PLAN_LIMITS = {
@@ -599,19 +602,63 @@ async function extractTextFromBeautyFile(fileData: any, mimeType: string): Promi
     if (mimeType === 'text/plain' || mimeType === 'text/csv') {
       const buffer = await fileData.toBuffer();
       content = buffer.toString('utf-8');
-      
+
     } else if (mimeType === 'application/pdf') {
-      content = `[Catalogue Beauté PDF : ${fileData.filename}]\n\nContenu du catalogue beauté PDF non analysé dans cette version. Le fichier a été sauvegardé et sera traité ultérieurement par votre Conseillère IA.`;
-      
+      try {
+        const buffer = await fileData.toBuffer();
+        const pdfData = await pdfParse(buffer);
+        content = pdfData.text || '';
+        console.log(`📄 PDF parsé: ${pdfData.numpages} pages, ${pdfData.text.length} caractères`);
+        if (!content.trim()) {
+          content = `[PDF: ${fileData.filename}]\n\nLe document PDF ne contient pas de texte extractible (PDF scanné ou protégé).`;
+        }
+      } catch (parseError: any) {
+        console.error('❌ Erreur parsing PDF:', parseError.message);
+        content = `[PDF: ${fileData.filename}]\n\nErreur lors de l'extraction du contenu PDF: ${parseError.message}`;
+      }
+
     } else if (mimeType.includes('word') || mimeType.includes('document')) {
-      content = `[Document Beauté Word : ${fileData.filename}]\n\nContenu du document beauté Word non analysé dans cette version. Le fichier a été sauvegardé et sera traité ultérieurement par votre Conseillère IA.`;
-      
+      try {
+        const buffer = await fileData.toBuffer();
+        const result = await mammoth.extractRawText({ buffer });
+        content = result.value || '';
+        if (result.messages.length > 0) {
+          console.warn('⚠️ Avertissements mammoth:', result.messages.map((m: any) => m.message).join(', '));
+        }
+        console.log(`📄 DOCX parsé: ${content.length} caractères`);
+        if (!content.trim()) {
+          content = `[DOCX: ${fileData.filename}]\n\nLe document Word est vide ou ne contient pas de texte extractible.`;
+        }
+      } catch (parseError: any) {
+        console.error('❌ Erreur parsing DOCX:', parseError.message);
+        content = `[DOCX: ${fileData.filename}]\n\nErreur lors de l'extraction du contenu Word: ${parseError.message}`;
+      }
+
     } else if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) {
-      content = `[Fichier Beauté Excel : ${fileData.filename}]\n\nContenu du fichier beauté Excel non analysé dans cette version. Le fichier a été sauvegardé et sera traité ultérieurement par votre Conseillère IA.`;
-      
+      try {
+        const buffer = await fileData.toBuffer();
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheets: string[] = [];
+        for (const sheetName of workbook.SheetNames) {
+          const sheet = workbook.Sheets[sheetName];
+          const csv = XLSX.utils.sheet_to_csv(sheet);
+          if (csv.trim()) {
+            sheets.push(`[Feuille: ${sheetName}]\n${csv}`);
+          }
+        }
+        content = sheets.join('\n\n');
+        console.log(`📄 Excel parsé: ${workbook.SheetNames.length} feuilles, ${content.length} caractères`);
+        if (!content.trim()) {
+          content = `[Excel: ${fileData.filename}]\n\nLe fichier Excel est vide.`;
+        }
+      } catch (parseError: any) {
+        console.error('❌ Erreur parsing Excel:', parseError.message);
+        content = `[Excel: ${fileData.filename}]\n\nErreur lors de l'extraction du contenu Excel: ${parseError.message}`;
+      }
+
     } else if (mimeType.includes('image')) {
-      content = `[Image Catalogue Beauté : ${fileData.filename}]\n\nImage de catalogue beauté sauvegardée. L'analyse automatique des images n'est pas encore disponible, mais votre Conseillère IA pourra s'y référer.`;
-      
+      content = `[Image Catalogue Beauté : ${fileData.filename}]\n\nImage de catalogue beauté sauvegardée. L'analyse automatique des images n'est pas encore disponible.`;
+
     } else {
       content = `[Fichier Beauté : ${fileData.filename}]\n\nFichier beauté sauvegardé. Type non supporté pour l'extraction automatique.`;
     }
