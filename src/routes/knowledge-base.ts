@@ -1178,6 +1178,7 @@ async function processMultipleBeautyWebsitePages(
 
           // Créer les liaisons agent_knowledge_base
           const linksData = processedDocuments.map((doc, index) => ({
+            id: crypto.randomUUID(),
             agent_id: mainAgent.id,
             knowledge_base_id: doc.id,
             is_active: true,

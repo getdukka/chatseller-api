@@ -1086,6 +1086,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       // Dupliquer knowledge base links
       if (originalAgent.agent_knowledge_base && originalAgent.agent_knowledge_base.length > 0) {
         const linksData = originalAgent.agent_knowledge_base.map((kb: any) => ({
+          id: crypto.randomUUID(),
           agent_id: duplicatedAgent.id,
           knowledge_base_id: kb.knowledge_base_id,
           is_active: kb.is_active,
@@ -1286,6 +1287,7 @@ export default async function agentsRoutes(fastify: FastifyInstance) {
       // Créer nouvelles liaisons
       if (documentIds && documentIds.length > 0) {
         const linksData = documentIds.map((kbId, index) => ({
+          id: crypto.randomUUID(),
           agent_id: id,
           knowledge_base_id: kbId,
           is_active: true,
