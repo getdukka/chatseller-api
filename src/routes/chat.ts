@@ -1162,6 +1162,30 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           } else {
             // ✅ RÉPONSE TEXTUELLE NORMALE (pas de tool call)
             aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
+
+            // 🎯 POST-DÉTECTION : Si l'IA mentionne un produit du catalogue SANS tool call,
+            // on trouve le produit mentionné et on crée une product card automatiquement
+            if (productCatalog.length > 0) {
+              const responseLower = aiResponse.toLowerCase();
+              const mentionedProduct = productCatalog.find((p: any) => {
+                const nameLower = p.name.toLowerCase();
+                // Vérifier si le nom complet du produit est mentionné dans la réponse
+                return responseLower.includes(nameLower);
+              });
+
+              if (mentionedProduct) {
+                console.log('🎯 [AUTO-CARD] Produit détecté dans le texte sans tool call:', mentionedProduct.name);
+                productCard = {
+                  id: mentionedProduct.id,
+                  name: mentionedProduct.name,
+                  description: mentionedProduct.description || '',
+                  price: mentionedProduct.price,
+                  image_url: mentionedProduct.image_url,
+                  url: mentionedProduct.url,
+                  reason: 'Recommandation personnalisée'
+                };
+              }
+            }
           }
         }
       } catch (aiError) {
@@ -1172,30 +1196,31 @@ export default async function chatRoutes(fastify: FastifyInstance) {
 
       // ✅ POST-PROCESSING : Supprimer les salutations si ce n'est PAS le premier message
       if (!isFirstMessage && aiResponse) {
-        const greetingPatterns = [
-          /^Bonjour\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
-          /^Bonsoir\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
-          /^Salut\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
-          /^Hello\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
-          /^Coucou\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
-          /^Bienvenue\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
-          /^Bonjour et bienvenue\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
-          /^Ravie?\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
-        ];
+        const originalResponse = aiResponse;
 
+        // Stratégie : supprimer la LIGNE ENTIÈRE si elle commence par un mot de salutation
+        // (pas de regex avec emoji dans les character classes — ça ne marche pas sans flag `u`)
         let cleaned = aiResponse;
-        for (const pattern of greetingPatterns) {
-          cleaned = cleaned.replace(pattern, '');
-        }
-        // Nettoyer aussi les phrases d'introduction redondantes après la salutation
-        cleaned = cleaned.replace(/^C'est un plaisir de vous aider[.!]*\s*/i, '');
-        cleaned = cleaned.replace(/^Je suis (ravie?|là) (de |pour )vous aider[.!]*\s*/i, '');
 
-        // S'assurer que le texte restant commence par une majuscule
-        if (cleaned && cleaned !== aiResponse) {
+        // Étape 1 : Supprimer la première ligne si c'est une salutation
+        // Matche "Bonjour", "Bonjour !", "Bonjour ! 😊", "Bonjour et bienvenue !", etc.
+        cleaned = cleaned.replace(/^(Bonjour et bienvenue|Bonjour|Bonsoir|Salut|Hello|Coucou|Bienvenue|Ravie?|Enchantée?|Hey)\b[^\n]*/i, '');
+
+        // Étape 2 : Supprimer les lignes d'introduction redondantes (après la salutation)
+        cleaned = cleaned.replace(/^(C'est un plaisir|Je suis (ravie?|là|contente?|heureuse?))[^\n]*/i, '');
+
+        // Étape 3 : Nettoyer les sauts de ligne en tête
+        cleaned = cleaned.replace(/^\s*\n+/, '');
+        cleaned = cleaned.trim();
+
+        // Étape 4 : Capitaliser la première lettre
+        if (cleaned && cleaned.length > 10 && cleaned !== originalResponse) {
           cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-          console.log('🔧 [POST-PROCESS] Salutation supprimée de la réponse IA');
+          console.log('🔧 [POST-PROCESS] Salutation supprimée. Avant:', originalResponse.substring(0, 60), '→ Après:', cleaned.substring(0, 60));
           aiResponse = cleaned;
+        } else if (cleaned !== originalResponse) {
+          // Si le nettoyage a trop retiré, garder l'original
+          console.log('⚠️ [POST-PROCESS] Nettoyage trop agressif, texte restant trop court. On garde l\'original.');
         }
       }
 
