@@ -1094,24 +1094,25 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           const responseMessage = await callOpenAI(conversationHistory, systemPrompt, temperature);
           provider = 'openai';
 
-          // ✅ VÉRIFIER SI L'IA VEUT RECOMMANDER UN PRODUIT
+          // ✅ VÉRIFIER SI L'IA VEUT UTILISER UN TOOL
           if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+            // Traiter le premier tool call (GPT-4o envoie généralement 1 à la fois)
             const toolCall = responseMessage.tool_calls[0];
+            // Le texte accompagnant le tool call (si l'IA a écrit du texte + appelé un tool)
+            const textContent = responseMessage.content || '';
 
             if (toolCall.function.name === 'recommend_product') {
               const args = JSON.parse(toolCall.function.arguments);
-              console.log('🎯 Recommandation produit demandée:', args);
+              console.log('🎯 [TOOL] recommend_product:', args.product_name);
 
-              // ✅ CHERCHER LE PRODUIT DANS LE CATALOGUE
               const recommendedProduct = productCatalog.find((p: any) =>
                 p.name.toLowerCase().includes(args.product_name.toLowerCase()) ||
                 args.product_name.toLowerCase().includes(p.name.toLowerCase())
               );
 
               if (recommendedProduct) {
-                console.log('✅ Produit trouvé:', recommendedProduct.name);
+                console.log('✅ Produit trouvé:', recommendedProduct.name, '— prix:', recommendedProduct.price);
 
-                // ✅ CONSTRUIRE LA CARTE PRODUIT
                 productCard = {
                   id: recommendedProduct.id,
                   name: recommendedProduct.name,
@@ -1122,27 +1123,25 @@ export default async function chatRoutes(fastify: FastifyInstance) {
                   reason: args.reason
                 };
 
-                // ✅ RÉPONSE TEXTUELLE ACCOMPAGNANT LA CARTE
-                aiResponse = args.reason;
+                // ✅ Si l'IA a écrit du texte EN PLUS du tool call, on le garde
+                // Sinon, on utilise la raison comme texte
+                aiResponse = textContent || args.reason;
               } else {
                 console.warn('⚠️ Produit non trouvé dans le catalogue:', args.product_name);
-                // Fallback: réponse textuelle normale
-                aiResponse = responseMessage.content || `Je vous recommande ${args.product_name}. ${args.reason}`;
+                aiResponse = textContent || `Je te recommande ${args.product_name}. ${args.reason}`;
               }
             } else if (toolCall.function.name === 'add_to_cart') {
               const args = JSON.parse(toolCall.function.arguments);
-              console.log('🛒 Ajout au panier demandé par IA:', args);
+              console.log('🛒 [TOOL] add_to_cart:', args.product_name);
 
-              // ✅ CHERCHER LE PRODUIT DANS LE CATALOGUE
               const cartProduct = productCatalog.find((p: any) =>
                 p.name.toLowerCase().includes(args.product_name.toLowerCase()) ||
                 args.product_name.toLowerCase().includes(p.name.toLowerCase())
               );
 
               if (cartProduct) {
-                console.log('✅ Produit trouvé pour panier:', cartProduct.name);
+                console.log('✅ Produit ajouté au panier:', cartProduct.name);
 
-                // ✅ CONSTRUIRE LE CART ITEM
                 cartItem = {
                   id: cartProduct.id,
                   name: cartProduct.name,
@@ -1152,16 +1151,16 @@ export default async function chatRoutes(fastify: FastifyInstance) {
                   url: cartProduct.url
                 };
 
-                aiResponse = args.message || `${cartProduct.name} a été ajouté à votre panier !`;
+                aiResponse = textContent || args.message || `${cartProduct.name} a été ajouté à ton panier !`;
               } else {
                 console.warn('⚠️ Produit non trouvé pour panier:', args.product_name);
-                aiResponse = responseMessage.content || `Désolé, je n'ai pas trouvé "${args.product_name}" dans notre catalogue.`;
+                aiResponse = textContent || `Désolé, je n'ai pas trouvé "${args.product_name}" dans notre catalogue.`;
               }
             } else {
               aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
             }
           } else {
-            // ✅ RÉPONSE TEXTUELLE NORMALE
+            // ✅ RÉPONSE TEXTUELLE NORMALE (pas de tool call)
             aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
           }
         }
