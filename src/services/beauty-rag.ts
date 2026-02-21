@@ -457,7 +457,8 @@ function formatFullCatalog(products: any[]): string {
     formatted += `• ${name}${price}${category}\n`;
   });
 
-  formatted += `\nNote : Utilise recommend_product avec le nom exact pour recommander un produit.`;
+  formatted += `\nNote : Utilise recommend_product avec le nom exact pour recommander un produit visuellement (carte produit).`;
+  formatted += `\nNote : Utilise add_to_cart quand le client demande explicitement d'ajouter un produit à son panier/commande (ex: "ajoutez aussi...", "je veux aussi...", "mettez dans mon panier").`;
   return formatted;
 }
 
@@ -506,7 +507,8 @@ ${isFirstMessage
 **1. Écouter** — Identifier le besoin exact (type de peau/cheveux, problématique, budget si pertinent).
 **2. Diagnostiquer** — Maximum 1-2 questions ciblées, UNIQUEMENT si l'information manque vraiment.
 **3. Recommander** — Produit du catalogue + pourquoi il convient (ingrédients actifs + bénéfice) + comment l'utiliser. Utiliser le tool \`recommend_product\` avec le nom exact du produit.
-**4. Rassurer** — Timeline réaliste ("résultats visibles en 4-6 semaines"), inviter à poser d'autres questions.
+**4. Ajouter au panier** — Quand le client demande d'ajouter un produit à sa commande/panier (ex: "ajoutez aussi...", "je prends aussi...", "mettez dans mon panier"), utilise le tool \`add_to_cart\` avec le nom exact du produit. Propose aussi des produits complémentaires après un ajout (upsell).
+**5. Rassurer** — Timeline réaliste ("résultats visibles en 4-6 semaines"), inviter à poser d'autres questions.
 
 **Si aucun produit ne correspond :** "Dans notre catalogue actuel, je n'ai pas de produit spécifiquement formulé pour [besoin]. [Produit proche] pourrait aider grâce à [ingrédient]. Je peux aussi transmettre ta demande à notre équipe."
 

@@ -228,6 +228,32 @@ const recommendProductTool = {
   }
 };
 
+const addToCartTool = {
+  type: 'function' as const,
+  function: {
+    name: 'add_to_cart',
+    description: 'Ajouter un produit au panier du client. Utilise cette fonction quand le client demande explicitement d\'ajouter un produit à son panier ou sa commande (ex: "ajoutez aussi la crème", "je veux aussi le sérum", "mettez-le dans mon panier").',
+    parameters: {
+      type: 'object',
+      properties: {
+        product_name: {
+          type: 'string',
+          description: 'Le nom exact du produit à ajouter au panier (doit correspondre à un produit du catalogue)'
+        },
+        quantity: {
+          type: 'number',
+          description: 'Quantité à ajouter (par défaut 1)'
+        },
+        message: {
+          type: 'string',
+          description: 'Message de confirmation à afficher au client (ex: "C\'est ajouté ! Autre chose ?")'
+        }
+      },
+      required: ['product_name', 'message']
+    }
+  }
+};
+
 async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0.7, enableTools = true) {
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -246,7 +272,7 @@ async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0
 
     // ✅ AJOUTER LES TOOLS SI ACTIVÉS
     if (enableTools) {
-      requestPayload.tools = [recommendProductTool];
+      requestPayload.tools = [recommendProductTool, addToCartTool];
       requestPayload.tool_choice = 'auto'; // L'IA décide quand utiliser le tool
     }
 
@@ -1057,6 +1083,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       let aiResponse: string;
       let provider: string;
       let productCard: any = null; // Pour stocker la carte produit si recommandation
+      let cartItem: any = null; // Pour stocker l'item panier si add_to_cart
 
       try {
         if (aiProvider === 'claude' && shop.subscription_plan !== 'free') {
@@ -1102,6 +1129,34 @@ export default async function chatRoutes(fastify: FastifyInstance) {
                 // Fallback: réponse textuelle normale
                 aiResponse = responseMessage.content || `Je vous recommande ${args.product_name}. ${args.reason}`;
               }
+            } else if (toolCall.function.name === 'add_to_cart') {
+              const args = JSON.parse(toolCall.function.arguments);
+              console.log('🛒 Ajout au panier demandé par IA:', args);
+
+              // ✅ CHERCHER LE PRODUIT DANS LE CATALOGUE
+              const cartProduct = productCatalog.find((p: any) =>
+                p.name.toLowerCase().includes(args.product_name.toLowerCase()) ||
+                args.product_name.toLowerCase().includes(p.name.toLowerCase())
+              );
+
+              if (cartProduct) {
+                console.log('✅ Produit trouvé pour panier:', cartProduct.name);
+
+                // ✅ CONSTRUIRE LE CART ITEM
+                cartItem = {
+                  id: cartProduct.id,
+                  name: cartProduct.name,
+                  price: cartProduct.price,
+                  quantity: args.quantity || 1,
+                  image_url: cartProduct.image_url,
+                  url: cartProduct.url
+                };
+
+                aiResponse = args.message || `${cartProduct.name} a été ajouté à votre panier !`;
+              } else {
+                console.warn('⚠️ Produit non trouvé pour panier:', args.product_name);
+                aiResponse = responseMessage.content || `Désolé, je n'ai pas trouvé "${args.product_name}" dans notre catalogue.`;
+              }
             } else {
               aiResponse = responseMessage.content || 'Désolé, je ne peux pas répondre pour le moment.';
             }
@@ -1117,11 +1172,12 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ SAUVEGARDER LA RÉPONSE IA
+      const contentType = productCard ? 'product_card' : cartItem ? 'cart_update' : 'text';
       const messageToSave: any = {
         conversation_id: conversation.id,
         role: 'assistant',
         content: aiResponse,
-        content_type: productCard ? 'product_card' : 'text',
+        content_type: contentType,
         response_time_ms: Date.now() - startTime,
         model_used: provider,
         tokens_used: 0, // À calculer si possible
@@ -1129,7 +1185,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           provider: provider,
           temperature: temperature,
           timestamp: new Date().toISOString(),
-          ...(productCard && { product_card: productCard }) // Ajouter les données produit si présent
+          ...(productCard && { product_card: productCard }),
+          ...(cartItem && { cart_item: cartItem })
         }
       };
 
@@ -1162,6 +1219,10 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           ...(productCard && { // ✅ INCLURE LA CARTE PRODUIT SI PRÉSENTE
             content_type: 'product_card',
             product_card: productCard
+          }),
+          ...(cartItem && { // ✅ INCLURE L'ITEM PANIER SI AJOUT VIA IA
+            content_type: 'cart_update',
+            cart_item: cartItem
           })
         }
       };

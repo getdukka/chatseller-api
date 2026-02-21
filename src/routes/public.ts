@@ -1603,7 +1603,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
   });
 
   // ✅ ROUTE PUBLIQUE : Finaliser une commande (appelée par le widget)
-  // Pas d'authentification requise — shopId + conversationId obligatoires pour sécurité
+  // Supporte multi-produits via productItems[] OU legacy single product
   fastify.post<{
     Body: {
       shopId: string;
@@ -1613,10 +1613,14 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       customerAddress?: string;
       customerEmail?: string;
       paymentMethod: string;
+      // Multi-produits (nouveau format)
+      productItems?: Array<{ id?: string; name: string; price: number; quantity: number; ai_recommended?: boolean }>;
+      totalAmount?: number;
+      // Legacy single product (rétro-compatible)
       productId?: string;
-      productName: string;
-      productPrice: number;
-      quantity: number;
+      productName?: string;
+      productPrice?: number;
+      quantity?: number;
     }
   }>('/orders/complete', async (request, reply) => {
     try {
@@ -1628,6 +1632,8 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
         customerAddress,
         customerEmail,
         paymentMethod,
+        productItems: rawProductItems,
+        totalAmount: rawTotalAmount,
         productId,
         productName,
         productPrice,
@@ -1637,8 +1643,33 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       fastify.log.info(`🛒 [PUBLIC ORDER] Commande reçue — shop: ${shopId}, conversation: ${conversationId}`);
 
       // ✅ VALIDATION
-      if (!shopId || !conversationId || !customerName || !customerPhone || !productName || !productPrice || !quantity) {
-        return reply.status(400).send({ success: false, error: 'Champs obligatoires manquants' });
+      if (!shopId || !conversationId || !customerName || !customerPhone) {
+        return reply.status(400).send({ success: false, error: 'Champs obligatoires manquants (shopId, conversationId, customerName, customerPhone)' });
+      }
+
+      // ✅ Construire product_items : nouveau format OU legacy
+      let productItemsFinal: Array<{ id?: string; name: string; price: number; quantity: number; ai_recommended: boolean }>;
+
+      if (rawProductItems && Array.isArray(rawProductItems) && rawProductItems.length > 0) {
+        // Nouveau format multi-produits
+        productItemsFinal = rawProductItems.map(item => ({
+          id: item.id || undefined,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity || 1,
+          ai_recommended: item.ai_recommended ?? true
+        }));
+      } else if (productName && productPrice) {
+        // Legacy single product (rétro-compatibilité)
+        productItemsFinal = [{
+          id: productId || undefined,
+          name: productName,
+          price: productPrice,
+          quantity: quantity || 1,
+          ai_recommended: true
+        }];
+      } else {
+        return reply.status(400).send({ success: false, error: 'Produits manquants (productItems[] ou productName/productPrice requis)' });
       }
 
       // ✅ SÉCURITÉ : Vérifier que la conversation appartient bien à ce shop
@@ -1661,7 +1692,9 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
         .eq('id', shopId)
         .single();
 
-      const totalAmount = productPrice * quantity;
+      const totalAmount = rawTotalAmount || productItemsFinal.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+      fastify.log.info(`🛒 [PUBLIC ORDER] ${productItemsFinal.length} article(s), total: ${totalAmount} FCFA`);
 
       // ✅ CRÉER LA COMMANDE EN BASE
       const { data: order, error: orderError } = await supabaseServiceClient
@@ -1673,13 +1706,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
           customer_phone: customerPhone,
           customer_email: customerEmail || null,
           customer_address: customerAddress || null,
-          product_items: [{
-            id: productId || null,
-            name: productName,
-            price: productPrice,
-            quantity: quantity,
-            ai_recommended: true
-          }],
+          product_items: productItemsFinal,
           total_amount: totalAmount,
           currency: 'XOF',
           payment_method: paymentMethod,
@@ -1715,18 +1742,30 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
           const orderNumber = order.id.slice(-8).toUpperCase();
           const shopName = shop.name || 'ChatSeller';
 
+          // Générer le HTML des produits
+          const productsHtml = productItemsFinal.map(item =>
+            `<div style="padding:12px 16px;background:#f9fafb;border-radius:8px;margin-bottom:8px">
+              <p style="margin:0 0 4px;font-weight:600;color:#1f2937">${item.name}</p>
+              <p style="margin:0;font-size:13px;color:#6b7280">Quantité: ${item.quantity} × ${item.price.toLocaleString('fr-FR')} FCFA</p>
+            </div>`
+          ).join('');
+
+          const productsTextForClient = productItemsFinal.map(item =>
+            `<p style="margin:4px 0;font-weight:600;color:#1f2937">${item.name} × ${item.quantity}</p>`
+          ).join('');
+
           const emailPromises: Promise<any>[] = [];
 
           // Email au marchand
           emailPromises.push(resendClient.emails.send({
             from: 'ChatSeller <noreply@chatseller.app>',
             to: shop.email,
-            subject: `🛍️ Nouvelle commande #${orderNumber} — ${customerName}`,
+            subject: `🛍️ Nouvelle commande #${orderNumber} — ${customerName} (${productItemsFinal.length} article${productItemsFinal.length > 1 ? 's' : ''})`,
             html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Inter,sans-serif;background:#f9fafb;margin:0;padding:20px">
 <div style="max-width:560px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08)">
   <div style="background:linear-gradient(135deg,#8B5CF6,#6D28D9);padding:28px 32px">
     <h1 style="color:white;margin:0;font-size:22px">🛍️ Nouvelle commande !</h1>
-    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px">Commande #${orderNumber} reçue via le widget ChatSeller</p>
+    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px">Commande #${orderNumber} — ${productItemsFinal.length} article${productItemsFinal.length > 1 ? 's' : ''} via ChatSeller</p>
   </div>
   <div style="padding:28px 32px">
     <h2 style="font-size:16px;color:#374151;margin:0 0 16px">Informations client</h2>
@@ -1736,11 +1775,8 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       ${customerAddress ? `<tr><td style="padding:6px 0;color:#6b7280">Adresse</td><td style="padding:6px 0">${customerAddress}</td></tr>` : ''}
       <tr><td style="padding:6px 0;color:#6b7280">Paiement</td><td style="padding:6px 0">${paymentMethod}</td></tr>
     </table>
-    <h2 style="font-size:16px;color:#374151;margin:24px 0 12px">Produit commandé</h2>
-    <div style="padding:16px;background:#f9fafb;border-radius:8px">
-      <p style="margin:0 0 4px;font-weight:600;color:#1f2937">${productName}</p>
-      <p style="margin:0;font-size:13px;color:#6b7280">Quantité: ${quantity} × ${productPrice.toLocaleString('fr-FR')} FCFA</p>
-    </div>
+    <h2 style="font-size:16px;color:#374151;margin:24px 0 12px">Articles commandés</h2>
+    ${productsHtml}
     <div style="margin-top:16px;padding:16px;background:#f0fdf4;border-radius:8px;text-align:right">
       <span style="font-size:18px;font-weight:700;color:#059669">Total : ${totalAmount.toLocaleString('fr-FR')} FCFA</span>
     </div>
@@ -1768,8 +1804,8 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
     <p style="color:#374151;font-size:15px;line-height:1.6">Votre commande <strong>#${orderNumber}</strong> est bien enregistrée. ${shopName} vous contactera au <strong>${customerPhone}</strong> pour confirmer les détails de livraison.</p>
     <div style="margin:20px 0;padding:16px;background:#f9fafb;border-radius:8px">
       <p style="margin:0;font-size:14px;color:#6b7280">Votre commande</p>
-      <p style="margin:4px 0;font-weight:600;color:#1f2937">${productName} × ${quantity}</p>
-      <p style="margin:4px 0 0;font-size:22px;font-weight:700;color:#059669">${totalAmount.toLocaleString('fr-FR')} FCFA</p>
+      ${productsTextForClient}
+      <p style="margin:8px 0 0;font-size:22px;font-weight:700;color:#059669">${totalAmount.toLocaleString('fr-FR')} FCFA</p>
     </div>
   </div>
   <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:12px;color:#9ca3af">Commande passée via ChatSeller • Vendeuse IA 24/7</div>
@@ -1789,7 +1825,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
         data: {
           orderId: order.id,
           orderNumber,
-          message: `🎉 **Commande confirmée !**\n\nVotre commande n°${orderNumber} est bien enregistrée.\nNous vous contacterons au ${customerPhone} pour confirmer la livraison.\n\nMerci pour votre confiance ! 😊`
+          message: `🎉 **Commande confirmée !**\n\nVotre commande n°${orderNumber} (${productItemsFinal.length} article${productItemsFinal.length > 1 ? 's' : ''} — ${totalAmount.toLocaleString('fr-FR')} FCFA) est bien enregistrée.\nNous vous contacterons au ${customerPhone} pour confirmer la livraison.\n\nMerci pour votre confiance ! 😊`
         }
       };
 
