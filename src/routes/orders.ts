@@ -1,8 +1,99 @@
-// src/routes/orders.ts 
+// src/routes/orders.ts
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { supabaseServiceClient } from '../lib/supabase';
+import { Resend } from 'resend';
+
+// ✅ INITIALISATION RESEND
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// ✅ HELPER : Envoyer notifications email commande
+async function sendOrderEmails(order: any, shopEmail: string, shopName: string) {
+  const orderNumber = order.id.slice(-8).toUpperCase();
+  const products = Array.isArray(order.product_items) ? order.product_items : [order.product_items];
+  const productLines = products.map((p: any) =>
+    `<tr><td style="padding:8px;border-bottom:1px solid #f3f4f6">${p.name || p.productName}</td>
+     <td style="padding:8px;border-bottom:1px solid #f3f4f6;text-align:center">${p.quantity || 1}</td>
+     <td style="padding:8px;border-bottom:1px solid #f3f4f6;text-align:right">${((p.price || p.productPrice || 0) * (p.quantity || 1)).toLocaleString('fr-FR')} FCFA</td></tr>`
+  ).join('');
+
+  const promises: Promise<any>[] = [];
+
+  // Email au marchand
+  promises.push(
+    resend.emails.send({
+      from: 'ChatSeller <noreply@chatseller.app>',
+      to: shopEmail,
+      subject: `🛍️ Nouvelle commande #${orderNumber} — ${order.customer_name}`,
+      html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Inter,sans-serif;background:#f9fafb;margin:0;padding:20px">
+<div style="max-width:560px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08)">
+  <div style="background:linear-gradient(135deg,#8B5CF6,#6D28D9);padding:28px 32px">
+    <h1 style="color:white;margin:0;font-size:22px">🛍️ Nouvelle commande !</h1>
+    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px">Commande #${orderNumber} reçue via ChatSeller</p>
+  </div>
+  <div style="padding:28px 32px">
+    <h2 style="font-size:16px;color:#374151;margin:0 0 16px">Informations client</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;color:#374151">
+      <tr><td style="padding:6px 0;color:#6b7280;width:140px">Nom</td><td style="padding:6px 0;font-weight:600">${order.customer_name}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280">Téléphone</td><td style="padding:6px 0;font-weight:600">${order.customer_phone}</td></tr>
+      ${order.customer_address ? `<tr><td style="padding:6px 0;color:#6b7280">Adresse</td><td style="padding:6px 0">${order.customer_address}</td></tr>` : ''}
+      <tr><td style="padding:6px 0;color:#6b7280">Paiement</td><td style="padding:6px 0">${order.payment_method}</td></tr>
+    </table>
+    <h2 style="font-size:16px;color:#374151;margin:24px 0 12px">Produits commandés</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <thead><tr style="background:#f9fafb">
+        <th style="padding:8px;text-align:left;color:#6b7280;font-weight:500">Produit</th>
+        <th style="padding:8px;text-align:center;color:#6b7280;font-weight:500">Qté</th>
+        <th style="padding:8px;text-align:right;color:#6b7280;font-weight:500">Montant</th>
+      </tr></thead>
+      <tbody>${productLines}</tbody>
+    </table>
+    <div style="margin-top:16px;padding:16px;background:#f0fdf4;border-radius:8px;text-align:right">
+      <span style="font-size:18px;font-weight:700;color:#059669">Total : ${order.total_amount?.toLocaleString('fr-FR')} FCFA</span>
+    </div>
+    <div style="margin-top:24px">
+      <a href="https://dashboard.chatseller.app/orders" style="display:inline-block;padding:12px 24px;background:linear-gradient(135deg,#8B5CF6,#6D28D9);color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">Voir dans le Dashboard →</a>
+    </div>
+  </div>
+  <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:12px;color:#9ca3af">
+    ChatSeller — Votre Vendeuse IA 24/7
+  </div>
+</div></body></html>`
+    }).catch(err => console.error('⚠️ Email marchand non envoyé:', err.message))
+  );
+
+  // Email de confirmation au client (si email fourni)
+  if (order.customer_email) {
+    promises.push(
+      resend.emails.send({
+        from: `${shopName} via ChatSeller <noreply@chatseller.app>`,
+        to: order.customer_email,
+        subject: `✅ Commande confirmée #${orderNumber} — ${shopName}`,
+        html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Inter,sans-serif;background:#f9fafb;margin:0;padding:20px">
+<div style="max-width:560px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08)">
+  <div style="background:linear-gradient(135deg,#10b981,#059669);padding:28px 32px">
+    <h1 style="color:white;margin:0;font-size:22px">✅ Commande confirmée !</h1>
+    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px">Merci pour votre commande, ${order.customer_name?.split(' ')[0]} !</p>
+  </div>
+  <div style="padding:28px 32px">
+    <p style="color:#374151;font-size:15px;line-height:1.6">Votre commande <strong>#${orderNumber}</strong> a bien été enregistrée. L'équipe de ${shopName} vous contactera au <strong>${order.customer_phone}</strong> pour confirmer les détails de livraison.</p>
+    <div style="margin:20px 0;padding:16px;background:#f9fafb;border-radius:8px">
+      <p style="margin:0;font-size:14px;color:#6b7280">Montant total</p>
+      <p style="margin:4px 0 0;font-size:22px;font-weight:700;color:#059669">${order.total_amount?.toLocaleString('fr-FR')} FCFA</p>
+    </div>
+  </div>
+  <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:12px;color:#9ca3af">
+    Commande passée via ChatSeller • Vendeuse IA 24/7
+  </div>
+</div></body></html>`
+      }).catch(err => console.error('⚠️ Email client non envoyé:', err.message))
+    );
+  }
+
+  await Promise.allSettled(promises);
+  console.log(`📧 Notifications email envoyées pour commande #${orderNumber}`);
+}
 
 // ✅ SCHÉMAS DE VALIDATION
 const orderStepSchema = z.object({
@@ -499,7 +590,25 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       
       // ✅ NETTOYER LE WORKFLOW TEMPORAIRE
       orderWorkflows.delete(conversationId);
-      
+
+      // ✅ ENVOYER NOTIFICATIONS EMAIL
+      try {
+        const { data: shop } = await supabaseServiceClient
+          .from('shops')
+          .select('email, name, notification_config')
+          .eq('id', conversation.shop_id)
+          .single();
+
+        if (shop?.email) {
+          const emailOrdersEnabled = shop.notification_config?.email?.orders !== false;
+          if (emailOrdersEnabled) {
+            await sendOrderEmails(order, shop.email, shop.name || 'ChatSeller');
+          }
+        }
+      } catch (emailErr: any) {
+        console.error('⚠️ Erreur envoi email commande (non bloquant):', emailErr.message);
+      }
+
       const orderNumber = order.id.slice(-8);
       const confirmationMessage = `🎉 **Commande confirmée !**\n\nVotre commande n°${orderNumber} a été enregistrée avec succès.\n\nNous vous contacterons au ${orderData.customer.phone} pour confirmer les détails.\n\nMerci pour votre confiance ! 😊`;
       

@@ -3,6 +3,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import OpenAI from 'openai';
+import { Resend } from 'resend';
 import { supabaseServiceClient } from '../lib/supabase';
 import { randomUUID } from 'crypto';
 
@@ -10,6 +11,7 @@ import { randomUUID } from 'crypto';
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+
 
 if (!process.env.OPENAI_API_KEY) {
   console.warn('⚠️ OPENAI_API_KEY manquante - mode dégradé activé');
@@ -1597,6 +1599,203 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
           mode: 'fallback'
         }
       };
+    }
+  });
+
+  // ✅ ROUTE PUBLIQUE : Finaliser une commande (appelée par le widget)
+  // Pas d'authentification requise — shopId + conversationId obligatoires pour sécurité
+  fastify.post<{
+    Body: {
+      shopId: string;
+      conversationId: string;
+      customerName: string;
+      customerPhone: string;
+      customerAddress?: string;
+      customerEmail?: string;
+      paymentMethod: string;
+      productId?: string;
+      productName: string;
+      productPrice: number;
+      quantity: number;
+    }
+  }>('/orders/complete', async (request, reply) => {
+    try {
+      const {
+        shopId,
+        conversationId,
+        customerName,
+        customerPhone,
+        customerAddress,
+        customerEmail,
+        paymentMethod,
+        productId,
+        productName,
+        productPrice,
+        quantity
+      } = request.body;
+
+      fastify.log.info(`🛒 [PUBLIC ORDER] Commande reçue — shop: ${shopId}, conversation: ${conversationId}`);
+
+      // ✅ VALIDATION
+      if (!shopId || !conversationId || !customerName || !customerPhone || !productName || !productPrice || !quantity) {
+        return reply.status(400).send({ success: false, error: 'Champs obligatoires manquants' });
+      }
+
+      // ✅ SÉCURITÉ : Vérifier que la conversation appartient bien à ce shop
+      const { data: conversation, error: convError } = await supabaseServiceClient
+        .from('conversations')
+        .select('id, shop_id')
+        .eq('id', conversationId)
+        .eq('shop_id', shopId)
+        .single();
+
+      if (convError || !conversation) {
+        fastify.log.warn(`⚠️ [PUBLIC ORDER] Conversation non trouvée ou non autorisée: ${conversationId}`);
+        return reply.status(403).send({ success: false, error: 'Conversation non trouvée ou non autorisée' });
+      }
+
+      // ✅ RÉCUPÉRER INFOS SHOP
+      const { data: shop } = await supabaseServiceClient
+        .from('shops')
+        .select('name, email, notification_config')
+        .eq('id', shopId)
+        .single();
+
+      const totalAmount = productPrice * quantity;
+
+      // ✅ CRÉER LA COMMANDE EN BASE
+      const { data: order, error: orderError } = await supabaseServiceClient
+        .from('orders')
+        .insert({
+          shop_id: shopId,
+          conversation_id: conversationId,
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          customer_email: customerEmail || null,
+          customer_address: customerAddress || null,
+          product_items: [{
+            id: productId || null,
+            name: productName,
+            price: productPrice,
+            quantity: quantity,
+            ai_recommended: true
+          }],
+          total_amount: totalAmount,
+          currency: 'XOF',
+          payment_method: paymentMethod,
+          status: 'pending',
+          attribution_method: 'session',
+          confidence_score: 90,
+          ai_attributed_revenue: totalAmount,
+          personalized_recommendations: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (orderError) {
+        fastify.log.error(`❌ [PUBLIC ORDER] Erreur INSERT: ${orderError.message}`);
+        return reply.status(500).send({ success: false, error: 'Erreur lors de la création de la commande' });
+      }
+
+      fastify.log.info(`✅ [PUBLIC ORDER] Commande créée: ${order.id}`);
+
+      // ✅ MARQUER CONVERSION DANS LA CONVERSATION
+      await supabaseServiceClient
+        .from('conversations')
+        .update({ conversion_completed: true, completed_at: new Date().toISOString() })
+        .eq('id', conversationId);
+
+      // ✅ NOTIFICATIONS EMAIL (non bloquantes)
+      if (shop?.email) {
+        const emailOrdersEnabled = shop.notification_config?.email?.orders !== false;
+        if (emailOrdersEnabled) {
+          const resendClient = new Resend(process.env.RESEND_API_KEY);
+          const orderNumber = order.id.slice(-8).toUpperCase();
+          const shopName = shop.name || 'ChatSeller';
+
+          const emailPromises: Promise<any>[] = [];
+
+          // Email au marchand
+          emailPromises.push(resendClient.emails.send({
+            from: 'ChatSeller <noreply@chatseller.app>',
+            to: shop.email,
+            subject: `🛍️ Nouvelle commande #${orderNumber} — ${customerName}`,
+            html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Inter,sans-serif;background:#f9fafb;margin:0;padding:20px">
+<div style="max-width:560px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08)">
+  <div style="background:linear-gradient(135deg,#8B5CF6,#6D28D9);padding:28px 32px">
+    <h1 style="color:white;margin:0;font-size:22px">🛍️ Nouvelle commande !</h1>
+    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px">Commande #${orderNumber} reçue via le widget ChatSeller</p>
+  </div>
+  <div style="padding:28px 32px">
+    <h2 style="font-size:16px;color:#374151;margin:0 0 16px">Informations client</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;color:#374151">
+      <tr><td style="padding:6px 0;color:#6b7280;width:140px">Nom</td><td style="padding:6px 0;font-weight:600">${customerName}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280">Téléphone</td><td style="padding:6px 0;font-weight:600">${customerPhone}</td></tr>
+      ${customerAddress ? `<tr><td style="padding:6px 0;color:#6b7280">Adresse</td><td style="padding:6px 0">${customerAddress}</td></tr>` : ''}
+      <tr><td style="padding:6px 0;color:#6b7280">Paiement</td><td style="padding:6px 0">${paymentMethod}</td></tr>
+    </table>
+    <h2 style="font-size:16px;color:#374151;margin:24px 0 12px">Produit commandé</h2>
+    <div style="padding:16px;background:#f9fafb;border-radius:8px">
+      <p style="margin:0 0 4px;font-weight:600;color:#1f2937">${productName}</p>
+      <p style="margin:0;font-size:13px;color:#6b7280">Quantité: ${quantity} × ${productPrice.toLocaleString('fr-FR')} FCFA</p>
+    </div>
+    <div style="margin-top:16px;padding:16px;background:#f0fdf4;border-radius:8px;text-align:right">
+      <span style="font-size:18px;font-weight:700;color:#059669">Total : ${totalAmount.toLocaleString('fr-FR')} FCFA</span>
+    </div>
+    <div style="margin-top:24px">
+      <a href="https://dashboard.chatseller.app/orders" style="display:inline-block;padding:12px 24px;background:linear-gradient(135deg,#8B5CF6,#6D28D9);color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">Voir dans le Dashboard →</a>
+    </div>
+  </div>
+  <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:12px;color:#9ca3af">ChatSeller — Votre Vendeuse IA 24/7</div>
+</div></body></html>`
+          }).catch((err: any) => console.error('⚠️ Email marchand non envoyé:', err.message)));
+
+          // Email au client si email fourni
+          if (customerEmail) {
+            emailPromises.push(resendClient.emails.send({
+              from: `${shopName} via ChatSeller <noreply@chatseller.app>`,
+              to: customerEmail,
+              subject: `✅ Commande confirmée #${orderNumber} — ${shopName}`,
+              html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Inter,sans-serif;background:#f9fafb;margin:0;padding:20px">
+<div style="max-width:560px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08)">
+  <div style="background:linear-gradient(135deg,#10b981,#059669);padding:28px 32px">
+    <h1 style="color:white;margin:0;font-size:22px">✅ Commande confirmée !</h1>
+    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px">Merci ${customerName.split(' ')[0]} pour votre confiance !</p>
+  </div>
+  <div style="padding:28px 32px">
+    <p style="color:#374151;font-size:15px;line-height:1.6">Votre commande <strong>#${orderNumber}</strong> est bien enregistrée. ${shopName} vous contactera au <strong>${customerPhone}</strong> pour confirmer les détails de livraison.</p>
+    <div style="margin:20px 0;padding:16px;background:#f9fafb;border-radius:8px">
+      <p style="margin:0;font-size:14px;color:#6b7280">Votre commande</p>
+      <p style="margin:4px 0;font-weight:600;color:#1f2937">${productName} × ${quantity}</p>
+      <p style="margin:4px 0 0;font-size:22px;font-weight:700;color:#059669">${totalAmount.toLocaleString('fr-FR')} FCFA</p>
+    </div>
+  </div>
+  <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:12px;color:#9ca3af">Commande passée via ChatSeller • Vendeuse IA 24/7</div>
+</div></body></html>`
+            }).catch((err: any) => console.error('⚠️ Email client non envoyé:', err.message)));
+          }
+
+          await Promise.allSettled(emailPromises);
+          fastify.log.info(`📧 [PUBLIC ORDER] Emails envoyés pour commande #${orderNumber}`);
+        }
+      }
+
+      const orderNumber = order.id.slice(-8).toUpperCase();
+
+      return {
+        success: true,
+        data: {
+          orderId: order.id,
+          orderNumber,
+          message: `🎉 **Commande confirmée !**\n\nVotre commande n°${orderNumber} est bien enregistrée.\nNous vous contacterons au ${customerPhone} pour confirmer la livraison.\n\nMerci pour votre confiance ! 😊`
+        }
+      };
+
+    } catch (error: any) {
+      fastify.log.error(`❌ [PUBLIC ORDER] Erreur: ${error.message}`);
+      return reply.status(500).send({ success: false, error: 'Erreur lors de la création de la commande' });
     }
   });
 }
