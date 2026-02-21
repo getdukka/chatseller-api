@@ -1170,6 +1170,35 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         provider = 'fallback';
       }
 
+      // ✅ POST-PROCESSING : Supprimer les salutations si ce n'est PAS le premier message
+      if (!isFirstMessage && aiResponse) {
+        const greetingPatterns = [
+          /^Bonjour\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
+          /^Bonsoir\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
+          /^Salut\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
+          /^Hello\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
+          /^Coucou\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
+          /^Bienvenue\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
+          /^Bonjour et bienvenue\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
+          /^Ravie?\s*[!.😊🌟🌸💫✨🌺👋😃🤗]*\s*/i,
+        ];
+
+        let cleaned = aiResponse;
+        for (const pattern of greetingPatterns) {
+          cleaned = cleaned.replace(pattern, '');
+        }
+        // Nettoyer aussi les phrases d'introduction redondantes après la salutation
+        cleaned = cleaned.replace(/^C'est un plaisir de vous aider[.!]*\s*/i, '');
+        cleaned = cleaned.replace(/^Je suis (ravie?|là) (de |pour )vous aider[.!]*\s*/i, '');
+
+        // S'assurer que le texte restant commence par une majuscule
+        if (cleaned && cleaned !== aiResponse) {
+          cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+          console.log('🔧 [POST-PROCESS] Salutation supprimée de la réponse IA');
+          aiResponse = cleaned;
+        }
+      }
+
       // ✅ SAUVEGARDER LA RÉPONSE IA
       const contentType = productCard ? 'product_card' : cartItem ? 'cart_update' : 'text';
       const messageToSave: any = {
