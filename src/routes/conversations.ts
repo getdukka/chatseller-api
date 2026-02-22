@@ -75,12 +75,19 @@ async function conversationsRoutes(fastify: FastifyInstance) {
         throw new Error(`Supabase conversations error: ${conversationsError.message}`)
       }
 
-      // ✅ RÉCUPÉRER LES MESSAGES AVEC FORMATAGE BEAUTÉ
+      // ✅ RÉCUPÉRER LE COMPTAGE RÉEL + DERNIER MESSAGE POUR CHAQUE CONVERSATION
       const conversationsWithMessages = await Promise.all(
         (conversations || []).map(async (conv) => {
-          const { data: messages, error: messagesError } = await supabaseServiceClient
+          // Compter les messages réels
+          const { count: realMessageCount } = await supabaseServiceClient
             .from('messages')
-            .select('id, content, role, created_at, tokens_used, response_time_ms')
+            .select('id', { count: 'exact', head: true })
+            .eq('conversation_id', conv.id)
+
+          // Récupérer le dernier message pour l'aperçu
+          const { data: lastMessages, error: messagesError } = await supabaseServiceClient
+            .from('messages')
+            .select('id, content, role, created_at, content_type')
             .eq('conversation_id', conv.id)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -89,14 +96,17 @@ async function conversationsRoutes(fastify: FastifyInstance) {
             fastify.log.warn(`⚠️ Erreur messages pour conversation ${conv.id}: ${messagesError.message}`)
           }
 
-          // ✅ FORMATAGE BEAUTÉ + CAMELCASE POUR FRONTEND
+          const lastMessage = lastMessages?.[0] || null
+
+          // ✅ FORMATAGE AVEC COMPTAGE RÉEL
           return {
             ...conv,
-            messages: messages || [],
+            messages: lastMessages || [],
+            lastMessage: lastMessage ? { content: lastMessage.content, role: lastMessage.role, created_at: lastMessage.created_at } : null,
             // Normaliser pour le Frontend
             startedAt: conv.started_at,
             lastActivity: conv.last_activity,
-            messageCount: conv.message_count,
+            messageCount: realMessageCount || 0,
             conversionCompleted: conv.conversion_completed,
             visitorId: conv.visitor_id,
             agentId: conv.agent_id,
@@ -179,7 +189,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
       // ✅ RÉCUPÉRER TOUS LES MESSAGES
       const { data: messages, error: messagesError } = await supabaseServiceClient
         .from('messages')
-        .select('id, content, role, created_at, tokens_used, response_time_ms, model_used')
+        .select('id, content, role, created_at, content_type, action_data, tokens_used, response_time_ms, model_used')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true })
 
@@ -439,7 +449,7 @@ async function conversationsRoutes(fastify: FastifyInstance) {
       // ✅ RÉCUPÉRER LES MESSAGES
       const { data: messages, error: messagesError } = await supabaseServiceClient
         .from('messages')
-        .select('id, content, role, created_at, tokens_used, response_time_ms, model_used')
+        .select('id, content, role, created_at, content_type, action_data, tokens_used, response_time_ms, model_used')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true })
 
