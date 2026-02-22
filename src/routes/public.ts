@@ -894,7 +894,7 @@ function generateWelcomeMessage(agent: any, productInfo?: any, shopName: string 
   // ✅ PRIORITÉ 1 : MESSAGE PERSONNALISÉ DE L'UTILISATEUR
   if (agent.welcome_message && agent.welcome_message.trim()) {
     console.log('📝 [WELCOME] Utilisation message personnalisé utilisateur');
-    
+
     // Préparer variables pour remplacement
     const variables = {
       agentName: baseName,
@@ -905,9 +905,14 @@ function generateWelcomeMessage(agent: any, productInfo?: any, shopName: string 
       greeting: greeting,
       productPrice: productInfo?.price ? `${productInfo.price} CFA` : ''
     };
-    
+
     // Remplacer les variables dans le message personnalisé
-    return replaceMessageVariables(agent.welcome_message, variables);
+    let welcomeMsg = replaceMessageVariables(agent.welcome_message, variables);
+
+    // ✅ CORRECTION : Forcer "Bonjour" si le message commence par "Hello"
+    welcomeMsg = welcomeMsg.replace(/^Hello\s*[!.]?\s*/i, 'Bonjour ! ');
+
+    return welcomeMsg;
   }
   
   // ✅ PRIORITÉ 2 : MESSAGE GÉNÉRÉ AUTOMATIQUEMENT
@@ -1475,6 +1480,64 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
         fastify.log.error(`❌ [IA ERROR]: ${aiResult.error || 'Erreur inconnue'} - Utilisation fallback`);
       }
 
+      // ✅ POST-PROCESSING : Supprimer les salutations si ce n'est PAS le premier message
+      const assistantMessageCount = messageHistory.filter((m: any) => m.role === 'assistant').length;
+      if (assistantMessageCount > 0 && aiResponse) {
+        const originalResponse = aiResponse;
+        let cleaned = aiResponse;
+
+        // Étape 1 : Supprimer la première ligne si c'est une salutation
+        cleaned = cleaned.replace(/^(Bonjour et bienvenue|Bonjour|Bonsoir|Salut|Hello|Coucou|Bienvenue|Ravie?|Enchantée?|Hey)\b[^\n]*/i, '');
+
+        // Étape 2 : Supprimer les lignes d'introduction redondantes
+        cleaned = cleaned.replace(/^(C'est un plaisir|Je suis (ravie?|là|contente?|heureuse?))[^\n]*/i, '');
+
+        // Étape 3 : Nettoyer les sauts de ligne en tête
+        cleaned = cleaned.replace(/^\s*\n+/, '');
+        cleaned = cleaned.trim();
+
+        // Étape 4 : Appliquer seulement si le résultat est substantiel
+        if (cleaned && cleaned.length > 10 && cleaned !== originalResponse) {
+          cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+          console.log('🔧 [POST-PROCESS] Salutation supprimée. Avant:', originalResponse.substring(0, 60), '→ Après:', cleaned.substring(0, 60));
+          aiResponse = cleaned;
+        } else if (cleaned !== originalResponse) {
+          console.log('⚠️ [POST-PROCESS] Nettoyage trop agressif, on garde l\'original.');
+        }
+      }
+
+      // ✅ AUTO-DÉTECTION PRODUCT CARD : Si l'IA mentionne un produit dans le texte
+      let productCard: any = null;
+      try {
+        const { data: shopProducts } = await supabaseServiceClient
+          .from('products')
+          .select('id, name, description, price, image_url, url')
+          .eq('shop_id', shopId)
+          .eq('is_active', true);
+
+        if (shopProducts && shopProducts.length > 0) {
+          const responseLower = aiResponse.toLowerCase();
+          const mentionedProduct = shopProducts.find((p: any) => {
+            const nameLower = p.name.toLowerCase();
+            return responseLower.includes(nameLower);
+          });
+          if (mentionedProduct) {
+            console.log('🎯 [AUTO-CARD] Produit détecté dans le texte:', mentionedProduct.name);
+            productCard = {
+              id: mentionedProduct.id,
+              name: mentionedProduct.name,
+              description: mentionedProduct.description || '',
+              price: mentionedProduct.price,
+              image_url: mentionedProduct.image_url,
+              url: mentionedProduct.url,
+              reason: 'Recommandation personnalisée'
+            };
+          }
+        }
+      } catch (productError) {
+        console.warn('⚠️ [AUTO-CARD] Erreur recherche produits:', productError);
+      }
+
       // ✅ SAUVEGARDER ÉTAT COLLECTE AVEC SUPABASE
       if (aiResult.orderCollection) {
         await supabaseServiceClient
@@ -1534,24 +1597,28 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       }
 
       // ✅ SAUVEGARDER RÉPONSE IA
+      const contentType = productCard ? 'product_card' : 'text';
       await supabaseServiceClient
       .from('messages')
       .insert({
         conversation_id: conversation.id,
         role: 'assistant',
         content: aiResponse,
+        content_type: contentType,
         tokens_used: tokensUsed,
         response_time_ms: Date.now() - startTime,
-        model_used: 'gpt-4o' // ✅ UPGRADE VERS GPT-4O
+        model_used: 'gpt-4o'
       });
 
-      fastify.log.info(`✅ [CHAT SUCCESS] Réponse intelligente envoyée pour conversation: ${conversation.id} (${Date.now() - startTime}ms) - Shop: ${shopConfig.name}`);
+      fastify.log.info(`✅ [CHAT SUCCESS] Réponse envoyée (${contentType}) pour conversation: ${conversation.id} (${Date.now() - startTime}ms) - Shop: ${shopConfig.name}`);
 
       return {
         success: true,
         data: {
           conversationId: conversation.id,
           message: aiResponse,
+          content_type: contentType,
+          ...(productCard && { product_card: productCard }),
           agent: {
             name: agent.name,
             title: agent.title,
