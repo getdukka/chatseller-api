@@ -1,6 +1,7 @@
 // src/routes/chat.ts
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
 import OpenAI from 'openai';
 import { getRelevantContext, buildBeautyExpertPrompt } from '../services/beauty-rag';
@@ -635,6 +636,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       const { data: welcomeMsg, error: msgError } = await supabaseServiceClient
         .from('messages')
         .insert({
+          id: randomUUID(),
           conversation_id: conversation.id,
           role: 'assistant',
           content: welcomeMessage,
@@ -644,7 +646,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         .single();
 
       if (msgError) {
-        console.error('❌ Erreur message bienvenue:', msgError);
+        console.error('❌ Erreur message bienvenue:', JSON.stringify(msgError));
         return reply.status(500).send({
           success: false,
           error: 'Erreur envoi message bienvenue'
@@ -993,6 +995,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         const { data: welcomeData, error: welcomeError } = await supabaseServiceClient
           .from('messages')
           .insert({
+            id: randomUUID(),
             conversation_id: conversation.id,
             role: 'assistant',
             content: welcomeMessage,
@@ -1014,6 +1017,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       const { error: msgError } = await supabaseServiceClient
         .from('messages')
         .insert({
+          id: randomUUID(),
           conversation_id: conversation.id,
           role: 'user',
           content: body.message,
@@ -1227,13 +1231,14 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ SAUVEGARDER LA RÉPONSE IA
       const contentType = productCard ? 'product_card' : cartItem ? 'cart_update' : 'text';
       const messageToSave: any = {
+        id: randomUUID(),
         conversation_id: conversation.id,
         role: 'assistant',
         content: aiResponse,
         content_type: contentType,
         response_time_ms: Date.now() - startTime,
         model_used: provider,
-        tokens_used: 0, // À calculer si possible
+        tokens_used: 0,
         action_data: {
           provider: provider,
           temperature: temperature,

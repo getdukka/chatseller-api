@@ -1349,18 +1349,24 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
           });
         }
 
-        await supabaseServiceClient
+        const { error: welcomeMsgError } = await supabaseServiceClient
           .from('messages')
           .insert({
+            id: randomUUID(),
             conversation_id: conversation.id,
             role: 'assistant',
             content: welcomeMessage,
+            content_type: 'text',
             tokens_used: 0,
             response_time_ms: Date.now() - startTime,
             model_used: 'welcome-message'
           });
 
-        fastify.log.info(`✅ [WELCOME] Message d'accueil personnalisé envoyé pour conversation: ${conversation.id} - Shop: ${shopConfig.name}`);
+        if (welcomeMsgError) {
+          console.error('❌ [WELCOME] Erreur insert message bienvenue:', JSON.stringify(welcomeMsgError));
+        } else {
+          fastify.log.info(`✅ [WELCOME] Message d'accueil envoyé pour conversation: ${conversation.id}`);
+        }
 
         return {
           success: true,
@@ -1420,13 +1426,19 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       }
 
       // ✅ SAUVEGARDER MESSAGE UTILISATEUR
-      await supabaseServiceClient
+      const { error: userMsgError } = await supabaseServiceClient
         .from('messages')
         .insert({
+          id: randomUUID(),
           conversation_id: conversation.id,
           role: 'user',
-          content: message
+          content: message,
+          content_type: 'text'
         });
+
+      if (userMsgError) {
+        console.error('❌ [MSG] Erreur insert message utilisateur:', JSON.stringify(userMsgError));
+      }
 
       // ✅ PRÉPARER BASE DE CONNAISSANCE
       const knowledgeContent = (knowledgeBaseRelations || [])
@@ -1598,19 +1610,24 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
 
       // ✅ SAUVEGARDER RÉPONSE IA
       const contentType = productCard ? 'product_card' : 'text';
-      await supabaseServiceClient
-      .from('messages')
-      .insert({
-        conversation_id: conversation.id,
-        role: 'assistant',
-        content: aiResponse,
-        content_type: contentType,
-        tokens_used: tokensUsed,
-        response_time_ms: Date.now() - startTime,
-        model_used: 'gpt-4o'
-      });
+      const { error: aiMsgError } = await supabaseServiceClient
+        .from('messages')
+        .insert({
+          id: randomUUID(),
+          conversation_id: conversation.id,
+          role: 'assistant',
+          content: aiResponse,
+          content_type: contentType,
+          tokens_used: tokensUsed,
+          response_time_ms: Date.now() - startTime,
+          model_used: 'gpt-4o'
+        });
 
-      fastify.log.info(`✅ [CHAT SUCCESS] Réponse envoyée (${contentType}) pour conversation: ${conversation.id} (${Date.now() - startTime}ms) - Shop: ${shopConfig.name}`);
+      if (aiMsgError) {
+        console.error('❌ [MSG] Erreur insert réponse IA:', JSON.stringify(aiMsgError));
+      } else {
+        fastify.log.info(`✅ [CHAT SUCCESS] Réponse (${contentType}) sauvegardée pour conversation: ${conversation.id} (${Date.now() - startTime}ms)`);
+      }
 
       return {
         success: true,
