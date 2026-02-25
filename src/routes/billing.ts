@@ -36,7 +36,7 @@ const BEAUTY_PLANS = {
   growth: {
     name: 'Growth',
     price: 14900, // 149€ en centimes  
-    stripePriceId: process.env.STRIPE_PRICE_ID_GROWTH!,
+    stripePriceId: process.env.STRIPE_PRICE_ID_PRO!,
     features: [
       'Tout du plan Starter inclus',
       'Agents IA illimités (+10€/agent)',
@@ -242,7 +242,7 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
         SUPABASE_SERVICE_KEY: !!process.env.SUPABASE_SERVICE_KEY,
         STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith('sk_'),
         STRIPE_PRICE_ID_STARTER: !!process.env.STRIPE_PRICE_ID_STARTER && process.env.STRIPE_PRICE_ID_STARTER.startsWith('price_'),
-        STRIPE_PRICE_ID_GROWTH: !!process.env.STRIPE_PRICE_ID_GROWTH && process.env.STRIPE_PRICE_ID_GROWTH.startsWith('price_'),
+        STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO && process.env.STRIPE_PRICE_ID_PRO.startsWith('price_'),
         STRIPE_WEBHOOK_SECRET: !!process.env.STRIPE_WEBHOOK_SECRET
       };
       
@@ -288,9 +288,9 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
         }
 
         // Test growth price
-        if (process.env.STRIPE_PRICE_ID_GROWTH) {
+        if (process.env.STRIPE_PRICE_ID_PRO) {
           try {
-            const growthPrice = await stripe.prices.retrieve(process.env.STRIPE_PRICE_ID_GROWTH);
+            const growthPrice = await stripe.prices.retrieve(process.env.STRIPE_PRICE_ID_PRO);
             stripeTest.priceValidation = {
               ...stripeTest.priceValidation,
               growth: {
@@ -377,7 +377,7 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
       fastify.log.info(`📝 Plan beauté demandé: ${body.plan}`);
 
       // ✅ VÉRIFIER QUE LE PRICE ID EXISTE
-      const priceIdEnvVar = body.plan === 'starter' ? 'STRIPE_PRICE_ID_STARTER' : 'STRIPE_PRICE_ID_GROWTH';
+      const priceIdEnvVar = body.plan === 'starter' ? 'STRIPE_PRICE_ID_STARTER' : 'STRIPE_PRICE_ID_PRO';
       const priceId = process.env[priceIdEnvVar];
       fastify.log.info(`📝 Price ID env var: ${priceIdEnvVar} = ${priceId ? priceId.substring(0, 20) + '...' : 'NON DÉFINI'}`);
 
