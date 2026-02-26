@@ -597,8 +597,12 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
       // ✅ CALCUL TRIAL DAYS LEFT
       let trialDaysLeft = 0;
       let trialEndDate = null;
-      
-      if (shop.subscription_plan === 'starter') {
+
+      // isPaid = l'utilisateur a déjà souscrit à un abonnement Stripe
+      const isPaid = !!shop.stripe_customer_id;
+
+      if (shop.subscription_plan === 'starter' && !isPaid) {
+        // Seulement calculer les jours d'essai si l'utilisateur n'a pas encore payé
         const creationDate = new Date(shop.created_at || Date.now());
         const daysSinceCreation = Math.floor((Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24));
         const trialDuration = BEAUTY_PLANS.starter.trialDays;
@@ -615,10 +619,11 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
         success: true,
         subscription: {
           plan: shop.subscription_plan, // 'starter', 'growth', ou 'performance'
-          isActive: shop.is_active && (shop.subscription_plan !== 'starter' || trialDaysLeft > 0),
+          isPaid,                        // true si abonnement Stripe actif
+          isActive: shop.is_active && (shop.subscription_plan !== 'starter' || trialDaysLeft > 0 || isPaid),
           trialDaysLeft: trialDaysLeft,
           trialEndDate: trialEndDate,
-          nextBillingDate: shop.subscription_plan !== 'starter' 
+          nextBillingDate: (shop.subscription_plan !== 'starter' || isPaid)
             ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
             : null,
           shopId: shop.id,
@@ -733,12 +738,14 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
         return;
       }
 
-      // ✅ MISE À JOUR PLAN BEAUTÉ
+      // ✅ MISE À JOUR PLAN BEAUTÉ + IDs STRIPE
       const { data: updatedShop, error: updateError } = await supabaseServiceClient
         .from('shops')
         .update({
           subscription_plan: plan,
           is_active: true,
+          stripe_customer_id: session.customer as string,
+          stripe_subscription_id: session.subscription as string,
           updated_at: new Date().toISOString()
         })
         .eq('id', userId)
