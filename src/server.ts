@@ -484,6 +484,18 @@ async function registerRoutes() {
       }
     })
 
+    // ✅ DIAGNOSTIC STRIPE PUBLIC (sans auth)
+    fastify.get('/stripe-check', async (request, reply) => {
+      const sk = process.env.STRIPE_SECRET_KEY || ''
+      return {
+        STRIPE_MODE: sk.startsWith('sk_live_') ? '✅ LIVE' : sk.startsWith('sk_test_') ? '⚠️ TEST' : '❌ INVALIDE',
+        STRIPE_KEY_PREFIX: sk ? sk.substring(0, 12) + '...' : 'NON DÉFINI',
+        STRIPE_PRICE_ID_STARTER: process.env.STRIPE_PRICE_ID_STARTER || 'NON DÉFINI',
+        STRIPE_PRICE_ID_PRO: process.env.STRIPE_PRICE_ID_PRO || 'NON DÉFINI',
+        STRIPE_WEBHOOK_SECRET: !!process.env.STRIPE_WEBHOOK_SECRET
+      }
+    })
+
     // ✅ ROUTE RACINE
     fastify.get('/', async (request, reply) => {
       return {
