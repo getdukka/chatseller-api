@@ -395,7 +395,9 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
       const shop = await getOrCreateBeautyShop(user, fastify);
 
       // ✅ VÉRIFICATIONS PLAN BEAUTÉ
-      if (shop.subscription_plan === body.plan) {
+      // Les utilisateurs en essai gratuit (starter) peuvent payer le plan starter (conversion essai → payant)
+      const isTrialConversion = shop.subscription_plan === 'starter' && body.plan === 'starter';
+      if (shop.subscription_plan === body.plan && !isTrialConversion) {
         return reply.status(400).send({
           success: false,
           error: 'Vous avez déjà ce plan beauté',
@@ -488,7 +490,8 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
               beautyCategory: shop.beauty_category || 'multi',
               platform: 'chatseller_beauty'
             },
-            trial_period_days: plan.trialDays
+            // Pas de trial pour les conversions essai→payant (l'utilisateur a déjà eu son essai)
+            ...(!isTrialConversion ? { trial_period_days: plan.trialDays } : {})
           }
         });
 
