@@ -237,12 +237,15 @@ export default async function beautyBillingRoutes(fastify: FastifyInstance) {
     try {
       fastify.log.info('🧪 === DIAGNOSTIC BILLING BEAUTÉ ===');
       
+      const sk = process.env.STRIPE_SECRET_KEY || '';
       const envCheck = {
         SUPABASE_URL: !!process.env.SUPABASE_URL,
         SUPABASE_SERVICE_KEY: !!process.env.SUPABASE_SERVICE_KEY,
-        STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith('sk_'),
-        STRIPE_PRICE_ID_STARTER: !!process.env.STRIPE_PRICE_ID_STARTER && process.env.STRIPE_PRICE_ID_STARTER.startsWith('price_'),
-        STRIPE_PRICE_ID_PRO: !!process.env.STRIPE_PRICE_ID_PRO && process.env.STRIPE_PRICE_ID_PRO.startsWith('price_'),
+        STRIPE_SECRET_KEY: !!sk,
+        STRIPE_MODE: sk.startsWith('sk_live_') ? '✅ LIVE' : sk.startsWith('sk_test_') ? '⚠️ TEST' : '❌ INVALIDE',
+        STRIPE_KEY_PREFIX: sk ? sk.substring(0, 12) + '...' : 'NON DÉFINI',
+        STRIPE_PRICE_ID_STARTER: process.env.STRIPE_PRICE_ID_STARTER || 'NON DÉFINI',
+        STRIPE_PRICE_ID_PRO: process.env.STRIPE_PRICE_ID_PRO || 'NON DÉFINI',
         STRIPE_WEBHOOK_SECRET: !!process.env.STRIPE_WEBHOOK_SECRET
       };
       

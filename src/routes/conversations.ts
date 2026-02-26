@@ -3,6 +3,24 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { supabaseServiceClient } from '../lib/supabase'
+import geoip from 'geoip-lite'
+
+// ✅ Lookup géographique depuis une IP (retourne pays + ville)
+function getGeoFromIp(ip: string): { country: string | null; city: string | null } {
+  if (!ip || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+    return { country: null, city: null }
+  }
+  try {
+    const geo = geoip.lookup(ip)
+    if (!geo) return { country: null, city: null }
+    return {
+      country: geo.country || null,
+      city: geo.city || null
+    }
+  } catch {
+    return { country: null, city: null }
+  }
+}
 
 // ✅ SCHÉMAS BEAUTÉ ENRICHIS
 const conversationCreateSchema = z.object({
@@ -98,6 +116,9 @@ async function conversationsRoutes(fastify: FastifyInstance) {
 
           const lastMessage = lastMessages?.[0] || null
 
+          // ✅ GEO IP : pays + ville depuis l'IP du visiteur
+          const geo = getGeoFromIp(conv.visitor_ip || '')
+
           // ✅ FORMATAGE AVEC COMPTAGE RÉEL
           return {
             ...conv,
@@ -115,6 +136,8 @@ async function conversationsRoutes(fastify: FastifyInstance) {
             productPrice: conv.product_price,
             productUrl: conv.product_url,
             visitorIp: conv.visitor_ip,
+            visitorCountry: geo.country,
+            visitorCity: geo.city,
             // ✅ CHAMPS BEAUTÉ
             beautyCategory: conv.beauty_category,
             beautyContext: conv.beauty_context,
