@@ -1784,29 +1784,31 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
 
       fastify.log.info(`🛒 [PUBLIC ORDER] ${productItemsFinal.length} article(s), total: ${totalAmount} FCFA`);
 
-      // ✅ CRÉER LA COMMANDE EN BASE
+      // ✅ CRÉER LA COMMANDE EN BASE (colonnes essentielles uniquement)
+      const orderId = randomUUID();
+      const now = new Date().toISOString();
+      const orderInsert: Record<string, any> = {
+        id: orderId,
+        shop_id: shopId,
+        conversation_id: conversationId,
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        customer_email: customerEmail || null,
+        customer_address: customerAddress || null,
+        product_items: productItemsFinal,
+        total_amount: totalAmount,
+        currency: 'XOF',
+        payment_method: paymentMethod,
+        status: 'pending',
+        created_at: now,
+        updated_at: now
+      };
+
+      fastify.log.info(`🛒 [PUBLIC ORDER] Insert payload: ${JSON.stringify(Object.keys(orderInsert))}`);
+
       const { data: order, error: orderError } = await supabaseServiceClient
         .from('orders')
-        .insert({
-          id: randomUUID(),
-          shop_id: shopId,
-          conversation_id: conversationId,
-          customer_name: customerName,
-          customer_phone: customerPhone,
-          customer_email: customerEmail || null,
-          customer_address: customerAddress || null,
-          product_items: productItemsFinal,
-          total_amount: totalAmount,
-          currency: 'XOF',
-          payment_method: paymentMethod,
-          status: 'pending',
-          attribution_method: 'session',
-          confidence_score: 90,
-          ai_attributed_revenue: totalAmount,
-          personalized_recommendations: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
+        .insert(orderInsert)
         .select()
         .single();
 
