@@ -835,21 +835,10 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER AVEC DONNÉES ANALYTICS COMPLÈTES
+      // ✅ RÉCUPÉRER LA COMMANDE
       const { data: order, error } = await supabaseServiceClient
         .from('orders')
-        .select(`
-          *,
-          conversations (
-            id,
-            visitor_id,
-            product_name,
-            agent_id,
-            message_count,
-            created_at,
-            completed_at
-          )
-        `)
+        .select('*')
         .eq('id', orderId)
         .eq('shop_id', shopId)
         .single();
@@ -861,30 +850,9 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ ENRICHIR AVEC ANALYSES
-      const enrichedOrder = {
-        ...order,
-        analytics: {
-          attribution_confidence: order.confidence_score || 85,
-          conversion_journey: {
-            started_at: order.conversations?.created_at,
-            completed_at: order.conversations?.completed_at,
-            duration: order.conversation_duration,
-            touchpoints: order.messages_count || 0
-          },
-          performance: {
-            roi: order.roi || (order.total_amount && order.attributed_cost 
-              ? Math.round((order.total_amount / order.attributed_cost) * 10) / 10 
-              : null),
-            ai_contribution: order.ai_attributed_revenue || order.total_amount,
-            organic_contribution: order.organic_revenue || 0
-          }
-        }
-      };
-
       return {
         success: true,
-        data: { order: enrichedOrder }
+        data: { order }
       };
 
     } catch (error: any) {
