@@ -752,20 +752,10 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ CONSTRUIRE REQUÊTE AVEC FILTRES ANALYTICS
+      // ✅ CONSTRUIRE REQUÊTE (simple, sans join)
       let query = supabaseServiceClient
         .from('orders')
-        .select(`
-          *,
-          conversations (
-            id,
-            visitor_id,
-            product_name,
-            agent_id,
-            created_at,
-            completed_at
-          )
-        `, { count: 'exact' })
+        .select('*', { count: 'exact' })
         .eq('shop_id', shopId)
         .order('created_at', { ascending: false });
 
@@ -773,15 +763,11 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       if (status) {
         query = query.eq('status', status);
       }
-      
-      if (attribution_method) {
-        query = query.eq('attribution_method', attribution_method);
-      }
-      
+
       if (date_from) {
         query = query.gte('created_at', date_from);
       }
-      
+
       if (date_to) {
         query = query.lte('created_at', date_to);
       }
@@ -798,27 +784,18 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({
           success: false,
           error: 'Erreur lors de la récupération des commandes',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
+          details: error.message
         });
       }
 
       fastify.log.info(`✅ [Orders] ${orders?.length || 0} commandes récupérées (total: ${count || 0})`);
 
-      // ✅ ENRICHIR AVEC MÉTRIQUES ANALYTICS
-      const enrichedOrders = (orders || []).map(order => ({
-        ...order,
-        // Calculer métriques manquantes si nécessaire
-        roi: order.roi || (order.total_amount && order.attributed_cost 
-          ? Math.round((order.total_amount / order.attributed_cost) * 10) / 10 
-          : null),
-        conversion_rate: order.conversations ? 100 : 0, // Simplifié
-        personalized_recommendations: order.personalized_recommendations ?? true
-      }));
+      const totalRevenue = (orders || []).reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0);
 
       return {
         success: true,
         data: {
-          orders: enrichedOrders,
+          orders: orders || [],
           pagination: {
             page,
             limit,
@@ -826,12 +803,9 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
             pages: Math.ceil((count || 0) / limit)
           },
           analytics: {
-            total_revenue: enrichedOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0),
-            avg_order_value: enrichedOrders.length > 0 
-              ? Math.round(enrichedOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0) / enrichedOrders.length)
-              : 0,
-            ai_attribution_rate: enrichedOrders.length > 0
-              ? Math.round((enrichedOrders.filter(o => o.ai_attributed_revenue > 0).length / enrichedOrders.length) * 100)
+            total_revenue: totalRevenue,
+            avg_order_value: (orders || []).length > 0
+              ? Math.round(totalRevenue / (orders || []).length)
               : 0
           }
         }
