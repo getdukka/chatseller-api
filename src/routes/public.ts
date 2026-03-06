@@ -1526,7 +1526,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       try {
         const { data: shopProducts } = await supabaseServiceClient
           .from('products')
-          .select('id, name, description, price, image_url, url')
+          .select('id, name, description, price, featured_image, images, url')
           .eq('shop_id', shopId)
           .eq('is_active', true);
 
@@ -1538,12 +1538,13 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
           });
           if (mentionedProduct) {
             console.log('🎯 [AUTO-CARD] Produit détecté dans le texte:', mentionedProduct.name);
+            const imageUrl = mentionedProduct.featured_image || (mentionedProduct.images && mentionedProduct.images.length > 0 ? mentionedProduct.images[0] : null);
             productCard = {
               id: mentionedProduct.id,
               name: mentionedProduct.name,
               description: mentionedProduct.description || '',
               price: mentionedProduct.price,
-              image_url: mentionedProduct.image_url,
+              image_url: imageUrl,
               url: mentionedProduct.url,
               reason: 'Recommandation personnalisée'
             };
