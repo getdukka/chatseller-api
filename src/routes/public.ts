@@ -282,7 +282,7 @@ function analyzeBeautyProduct(productName: string): string {
 }
 
 // ✅ PROMPT SYSTÈME 
-function buildAgentPrompt(agent: any, knowledgeBase: string, shopName: string, productInfo?: any, orderState?: OrderCollectionState, messageHistory?: any[]) {
+function buildAgentPrompt(agent: any, knowledgeBase: string, shopName: string, productInfo?: any, orderState?: OrderCollectionState, messageHistory?: any[], forceNoGreet: boolean = false) {
   const agentTitle = agent.title || getDefaultTitle(agent.type || 'general')
   const dynamicShopName = shopName || 'notre boutique'
 
@@ -291,13 +291,14 @@ function buildAgentPrompt(agent: any, knowledgeBase: string, shopName: string, p
   const beautyExpertise = getBeautyExpertise(beautyDomain)
   
   // ✅ NOUVEAU : Analyser l'historique des messages pour éviter les répétitions
-  const hasGreeted = messageHistory && messageHistory.some(msg => 
+  // forceNoGreet = true quand le widget envoie isFirstMessage=false (conversation déjà commencée)
+  const hasGreeted = forceNoGreet || (messageHistory && messageHistory.some(msg =>
     msg.role === 'assistant' && (
-      msg.content.toLowerCase().includes('salut') || 
-      msg.content.toLowerCase().includes('bonjour') || 
+      msg.content.toLowerCase().includes('salut') ||
+      msg.content.toLowerCase().includes('bonjour') ||
       msg.content.toLowerCase().includes('bonsoir')
     )
-  )
+  ))
   
   const hasIntroducedProduct = messageHistory && messageHistory.some(msg => 
     msg.role === 'assistant' && productInfo?.name && 
@@ -656,7 +657,7 @@ async function saveOrderToDatabase(conversationId: string, shopId: string, agent
 }
 
 // ✅ FONCTION AMÉLIORÉE : Appeler GPT-4o-mini AVEC ANTI-RÉPÉTITION
-async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, shopName: string, productInfo?: any, orderState?: OrderCollectionState): Promise<OpenAIResult> {
+async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, shopName: string, productInfo?: any, orderState?: OrderCollectionState, forceNoGreet: boolean = false): Promise<OpenAIResult> {
   try {
     console.log('🤖 [OPENAI] Début traitement anti-répétition:', {
       orderState: orderState?.step,
@@ -685,7 +686,7 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
     }
 
     // ✅ NOUVEAU : Construire prompt avec shopName dynamique
-    const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, shopName, productInfo, orderState, messages);
+    const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, shopName, productInfo, orderState, messages, forceNoGreet);
 
     console.log('🤖 [OPENAI] Appel OpenAI avec model: gpt-4o, messages:', messages.length);
 
@@ -1469,7 +1470,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       const shopName = shopConfig.name || 'notre boutique'
       console.log('🏪 [SHOP NAME] Nom boutique utilisé:', shopName)
 
-      const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, shopName, productInfo, orderState);
+      const aiResult = await callOpenAI(messageHistory, agent, knowledgeContent, shopName, productInfo, orderState, isFirstMessage === false);
 
       console.log('🤖 [IA RESULT]:', {
         success: aiResult.success,
@@ -1493,8 +1494,10 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       }
 
       // ✅ POST-PROCESSING : Supprimer les salutations si ce n'est PAS le premier message
+      // isFirstMessage === false : envoyé explicitement par le widget pour tous les messages après le bienvenue
+      // assistantMessageCount > 0 : fallback si isFirstMessage n'est pas fourni
       const assistantMessageCount = messageHistory.filter((m: any) => m.role === 'assistant').length;
-      if (assistantMessageCount > 0 && aiResponse) {
+      if ((assistantMessageCount > 0 || isFirstMessage === false) && aiResponse) {
         const originalResponse = aiResponse;
         let cleaned = aiResponse;
 
