@@ -744,12 +744,15 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ CHARGER LE CATALOGUE PRODUITS DU SHOP (pour le RAG)
       const { data: products } = await supabaseServiceClient
         .from('products')
-        .select('id, name, description, price, image_url, url, category, is_active')
+        .select('id, name, description, price, featured_image, images, url, category, is_active')
         .eq('shop_id', shop.id)
         .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      const productCatalog = products || [];
+      const productCatalog = (products || []).map((p: any) => ({
+        ...p,
+        image_url: p.featured_image || (p.images && p.images.length > 0 ? p.images[0] : null)
+      }));
 
       // ✅ HISTORIQUE DE CONVERSATION (envoyé par le client playground)
       const conversationHistory = body.conversationHistory || [];
@@ -922,12 +925,15 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       // ✅ CHARGER LE CATALOGUE DE PRODUITS DU SHOP
       const { data: products } = await supabaseServiceClient
         .from('products')
-        .select('id, name, description, price, image_url, url, category, is_active')
+        .select('id, name, description, price, featured_image, images, url, category, is_active')
         .eq('shop_id', shop.id)
         .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      const productCatalog = products || [];
+      const productCatalog = (products || []).map((p: any) => ({
+        ...p,
+        image_url: p.featured_image || (p.images && p.images.length > 0 ? p.images[0] : null)
+      }));
       console.log(`📦 ${productCatalog.length} produits chargés pour le shop ${shop.id}`);
 
       // ✅ GÉRER LA CONVERSATION (SUPABASE)
