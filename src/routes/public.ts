@@ -1788,6 +1788,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       const { data: order, error: orderError } = await supabaseServiceClient
         .from('orders')
         .insert({
+          id: randomUUID(),
           shop_id: shopId,
           conversation_id: conversationId,
           customer_name: customerName,
@@ -1810,8 +1811,8 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
         .single();
 
       if (orderError) {
-        fastify.log.error(`❌ [PUBLIC ORDER] Erreur INSERT: ${orderError.message}`);
-        return reply.status(500).send({ success: false, error: 'Erreur lors de la création de la commande' });
+        fastify.log.error(`❌ [PUBLIC ORDER] Erreur INSERT: ${orderError.message} | code: ${orderError.code} | details: ${orderError.details} | hint: ${orderError.hint}`);
+        return reply.status(500).send({ success: false, error: 'Erreur lors de la création de la commande', details: orderError.message });
       }
 
       fastify.log.info(`✅ [PUBLIC ORDER] Commande créée: ${order.id}`);
