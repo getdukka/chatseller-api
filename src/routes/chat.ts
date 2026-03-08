@@ -74,6 +74,30 @@ const analyzeOrderIntentSchema = z.object({
   productContext: z.any().optional()
 });
 
+// ✅ HELPER: Vérifier si le shop a un accès actif (essai ou abonnement)
+const TRIAL_DAYS = 14;
+
+function isShopSubscriptionActive(shop: any): boolean {
+  const plan = shop.subscription_plan as string | undefined;
+
+  // Plans payants toujours actifs (Stripe gère l'expiration)
+  if (plan === 'growth' || plan === 'performance') return true;
+
+  // Plan starter : vérifier trial_ends_at si présent, sinon calculer depuis created_at
+  if (shop.trial_ends_at) {
+    return new Date(shop.trial_ends_at) > new Date();
+  }
+
+  // Fallback : 14 jours depuis created_at
+  if (shop.created_at) {
+    const createdAt = new Date(shop.created_at);
+    const trialEnd = new Date(createdAt.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    return trialEnd > new Date();
+  }
+
+  return false;
+}
+
 // ✅ HELPER: Vérifier l'auth Supabase
 async function verifySupabaseAuth(request: FastifyRequest) {
   const authHeader = request.headers.authorization;
@@ -583,6 +607,16 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // ✅ VÉRIFIER ABONNEMENT / PÉRIODE D'ESSAI
+      if (!isShopSubscriptionActive(shop)) {
+        console.log(`🔒 [chat/init] Shop ${shop.id} - essai expiré, widget bloqué`);
+        return reply.status(403).send({
+          success: false,
+          error: 'Période d\'essai expirée. Veuillez souscrire à un plan pour continuer.',
+          code: 'SUBSCRIPTION_EXPIRED'
+        });
+      }
+
       // ✅ RÉCUPÉRER L'AGENT ACTIF
       const { data: agents } = await supabaseServiceClient
         .from('agents')
@@ -863,9 +897,19 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         .single();
 
       if (shopError || !shop || !shop.is_active) {
-        return reply.status(404).send({ 
-          success: false, 
-          error: 'Shop non trouvé ou inactif' 
+        return reply.status(404).send({
+          success: false,
+          error: 'Shop non trouvé ou inactif'
+        });
+      }
+
+      // ✅ VÉRIFIER ABONNEMENT / PÉRIODE D'ESSAI
+      if (!isShopSubscriptionActive(shop)) {
+        console.log(`🔒 [chat/message] Shop ${shop.id} - essai expiré, widget bloqué`);
+        return reply.status(403).send({
+          success: false,
+          error: 'Période d\'essai expirée. Veuillez souscrire à un plan pour continuer.',
+          code: 'SUBSCRIPTION_EXPIRED'
         });
       }
 
