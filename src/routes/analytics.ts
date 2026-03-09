@@ -82,7 +82,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         .select('total_amount')           // ✅ CORRIGÉ : total_amount
         .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
         .gte('created_at', startDateISO)  // ✅ CORRIGÉ : created_at
-        .in('status', ['completed', 'confirmed', 'paid'])
+        .in('status', ['completed', 'confirmed', 'paid', 'pending'])
 
       let totalRevenue = 0
       if (revenueData && !revenueError) {
@@ -200,7 +200,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         .select('total_amount')           // ✅ CORRIGÉ : total_amount
         .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
         .gte('created_at', startOfMonthISO) // ✅ CORRIGÉ : created_at
-        .in('status', ['completed', 'paid'])
+        .in('status', ['completed', 'confirmed', 'paid', 'pending'])
 
       let totalRevenue = 0
       if (revenueData && !revenueError) {
@@ -437,7 +437,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         .select('total_amount')           // ✅ CORRIGÉ : total_amount
         .eq('shop_id', shopId)           // ✅ CORRIGÉ : shop_id
         .gte('created_at', last30DaysISO) // ✅ CORRIGÉ : created_at
-        .in('status', ['completed', 'paid'])
+        .in('status', ['completed', 'confirmed', 'paid', 'pending'])
 
       // ✅ REVENUS PÉRIODE PRÉCÉDENTE CORRIGÉS : total_amount, shop_id, created_at
       const { data: previousRevenueData } = await supabaseServiceClient
@@ -446,7 +446,7 @@ const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
         .eq('shop_id', shopId)            // ✅ CORRIGÉ : shop_id
         .gte('created_at', previous30DaysISO) // ✅ CORRIGÉ : created_at
         .lt('created_at', last30DaysISO)  // ✅ CORRIGÉ : created_at
-        .in('status', ['completed', 'paid'])
+        .in('status', ['completed', 'confirmed', 'paid', 'pending'])
 
       // ✅ CALCULS REVENUS CORRIGÉS : total_amount
       const currentRevenueAmount = (currentRevenueData || []).reduce((sum, order) => {
