@@ -360,8 +360,23 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
       const widgetConfig = shop.widget_config as WidgetConfig | null;
       const agentConfig = selectedAgent.config as AgentConfig | null;
 
+      // ✅ VÉRIFICATION ABONNEMENT : bloquer le widget si essai/abonnement expiré
+      const TRIAL_DAYS = 14;
+      function isSubscriptionActive(s: any): boolean {
+        const plan = s.subscription_plan as string | undefined;
+        if (plan === 'growth' || plan === 'performance') return true;
+        if (s.trial_ends_at) return new Date(s.trial_ends_at) > new Date();
+        if (s.created_at) {
+          const trialEnd = new Date(new Date(s.created_at).getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+          return trialEnd > new Date();
+        }
+        return false;
+      }
+      const subscriptionActive = isSubscriptionActive(shop);
+
       // ✅ CONFIGURATION PUBLIQUE COMPLÈTE
       const publicConfig = {
+        subscriptionActive,
         shop: {
           id: shop.id,
           shopId: shop.id,
