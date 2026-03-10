@@ -11,10 +11,11 @@ const stripe = process.env.STRIPE_SECRET_KEY
 export default async function adminRoutes(fastify: FastifyInstance) {
   const ADMIN_EMAIL = 'ibuka.ndjoli@gmail.com'
 
-  const verifyAdmin = (request: any, reply: FastifyReply) => {
+  const verifyAdmin = (request: any, reply: FastifyReply): any => {
     if (!request.user || request.user.email !== ADMIN_EMAIL) {
       return reply.status(404).send({ error: 'Not found' })
     }
+    return null
   }
 
   // =========================================
@@ -417,8 +418,8 @@ export default async function adminRoutes(fastify: FastifyInstance) {
             stripeDetails = {
               subscription_id: sub.id,
               status: sub.status,
-              current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
-              cancel_at_period_end: sub.cancel_at_period_end,
+              current_period_end: new Date(((sub as any).current_period_end || 0) * 1000).toISOString(),
+              cancel_at_period_end: (sub as any).cancel_at_period_end || false,
               created: new Date(sub.created * 1000).toISOString(),
               plan_name: sub.items.data[0]?.price?.nickname || null,
               plan_amount: sub.items.data[0]?.price?.unit_amount
@@ -585,7 +586,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
               plan_currency: price?.currency || null,
               plan_interval: price?.recurring?.interval || null,
               created: new Date(sub.created * 1000).toISOString(),
-              current_period_end: new Date(sub.current_period_end * 1000).toISOString()
+              current_period_end: new Date(((sub as any).current_period_end || 0) * 1000).toISOString()
             })
           }
 
