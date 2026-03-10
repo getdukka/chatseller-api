@@ -227,7 +227,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       // Build shops query
       let query = supabaseServiceClient
         .from('shops')
-        .select('id, name, email, subscription_plan, created_at, domain, platform, onboarding_completed, is_active, trial_ends_at, stripe_customer_id, stripe_subscription_id, beauty_category', { count: 'exact' })
+        .select('*', { count: 'exact' })
 
       if (plan) {
         query = query.eq('subscription_plan', plan)
@@ -263,7 +263,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       const [conversationsRes, ordersRes, productsRes] = await Promise.all([
         supabaseServiceClient
           .from('conversations')
-          .select('shop_id, created_at')
+          .select('shop_id, started_at')
           .in('shop_id', shopIds),
         supabaseServiceClient
           .from('orders')
@@ -280,8 +280,9 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       for (const c of (conversationsRes.data || [])) {
         if (!convByShop[c.shop_id]) convByShop[c.shop_id] = { count: 0, lastDate: null }
         convByShop[c.shop_id].count++
-        if (!convByShop[c.shop_id].lastDate || c.created_at > convByShop[c.shop_id].lastDate!) {
-          convByShop[c.shop_id].lastDate = c.created_at
+        const convDate = c.started_at || (c as any).created_at
+        if (convDate && (!convByShop[c.shop_id].lastDate || convDate > convByShop[c.shop_id].lastDate!)) {
+          convByShop[c.shop_id].lastDate = convDate
         }
       }
 
