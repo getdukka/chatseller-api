@@ -286,13 +286,13 @@ async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0
     }
 
     const requestPayload: any = {
-      model: 'gpt-4o', // ✅ UPGRADE VERS GPT-4O
+      model: 'gpt-4o-mini', // ✅ GPT-4O-MINI : 3-5x plus rapide, qualité suffisante pour le chat
       messages: [
         { role: 'system', content: systemPrompt },
         ...messages
       ],
       temperature: temperature,
-      max_tokens: 1000
+      max_tokens: 500 // ✅ Réponses courtes = meilleur UX chat
     };
 
     // ✅ AJOUTER LES TOOLS SI ACTIVÉS
@@ -889,12 +889,49 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       
       const body = sendMessageSchema.parse(request.body);
 
-      // ✅ RÉCUPÉRER LE SHOP ET SES AGENTS (SUPABASE)
-      const { data: shop, error: shopError } = await supabaseServiceClient
-        .from('shops')
-        .select('*')
-        .eq('id', body.shopId)
-        .single();
+      // ✅ REQUÊTES PARALLÈLES : shop + agents + products + conversation en même temps
+      const shopId = body.shopId;
+      const [shopResult, agentsResult, productsResult, convResult] = await Promise.all([
+        // 1. Shop
+        supabaseServiceClient
+          .from('shops')
+          .select('*')
+          .eq('id', shopId)
+          .single(),
+        // 2. Agents avec KB
+        supabaseServiceClient
+          .from('agents')
+          .select(`
+            id, name, title, type, personality, description,
+            welcome_message, fallback_message, avatar, config,
+            agent_knowledge_base(
+              knowledge_base(
+                id, title, content, content_type, tags, is_active
+              )
+            )
+          `)
+          .eq('shop_id', shopId)
+          .eq('is_active', true),
+        // 3. Produits
+        supabaseServiceClient
+          .from('products')
+          .select('id, name, description, price, featured_image, images, url, category, is_active')
+          .eq('shop_id', shopId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+        // 4. Conversation (si ID fourni)
+        body.conversationId
+          ? supabaseServiceClient
+              .from('conversations')
+              .select('*, messages(id, role, content, content_type, created_at)')
+              .eq('id', body.conversationId)
+              .single()
+          : Promise.resolve({ data: null, error: null })
+      ]);
+
+      const { data: shop, error: shopError } = shopResult;
+      const { data: agents, error: agentsError } = agentsResult;
+      const { data: products } = productsResult;
 
       if (shopError || !shop || !shop.is_active) {
         return reply.status(404).send({
@@ -913,95 +950,53 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ✅ RÉCUPÉRER LES AGENTS ACTIFS AVEC TITRE (LEFT JOIN - agents sans KB inclus)
-      const { data: agents, error: agentsError } = await supabaseServiceClient
-        .from('agents')
-        .select(`
-          id, name, title, type, personality, description,
-          welcome_message, fallback_message, avatar, config,
-          agent_knowledge_base(
-            knowledge_base(
-              id, title, content, content_type, tags, is_active
-            )
-          )
-        `)
-        .eq('shop_id', shop.id)
-        .eq('is_active', true);
-
       if (agentsError || !agents || agents.length === 0) {
-        return reply.status(404).send({ 
-          success: false, 
-          error: 'Aucun agent actif trouvé' 
+        return reply.status(404).send({
+          success: false,
+          error: 'Aucun agent actif trouvé'
         });
       }
 
-      // ✅ SÉLECTIONNER L'AGENT (Premier actif ou celui spécifié)
-      let agent = null;
-      if (body.agentId) {
-        agent = agents.find(a => a.id === body.agentId);
-      } else {
-        agent = agents[0]; // Premier agent actif
-      }
+      // ✅ SÉLECTIONNER L'AGENT
+      let agent = body.agentId ? agents.find(a => a.id === body.agentId) : agents[0];
 
       if (!agent) {
-        return reply.status(404).send({ 
-          success: false, 
-          error: 'Agent spécifié non trouvé' 
+        return reply.status(404).send({
+          success: false,
+          error: 'Agent spécifié non trouvé'
         });
       }
 
-      // ✅ S'assurer que l'agent a un titre
+      // ✅ S'assurer que l'agent a un titre (non-bloquant)
       if (!agent.title) {
         agent.title = getDefaultTitle(agent.type);
-
-        // ✅ METTRE À JOUR EN BASE SI TITRE MANQUANT
-        try {
-          await supabaseServiceClient
-            .from('agents')
-            .update({ title: agent.title })
-            .eq('id', agent.id);
-          console.log(`✅ Titre ajouté pour agent ${agent.id}: ${agent.title}`);
-        } catch (updateError) {
-          console.warn('⚠️ Impossible de mettre à jour le titre en base:', updateError);
-        }
+        supabaseServiceClient
+          .from('agents')
+          .update({ title: agent.title })
+          .eq('id', agent.id)
+          .then(() => console.log(`✅ Titre ajouté pour agent ${agent!.id}: ${agent!.title}`));
       }
 
-      // ✅ CHARGER LE CATALOGUE DE PRODUITS DU SHOP
-      const { data: products } = await supabaseServiceClient
-        .from('products')
-        .select('id, name, description, price, featured_image, images, url, category, is_active')
-        .eq('shop_id', shop.id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-
+      // ✅ CATALOGUE PRODUITS (déjà chargé en parallèle)
       const productCatalog = (products || []).map((p: any) => ({
         ...p,
         image_url: p.featured_image || (p.images && p.images.length > 0 ? p.images[0] : null)
       }));
       console.log(`📦 ${productCatalog.length} produits chargés pour le shop ${shop.id}`);
 
-      // ✅ GÉRER LA CONVERSATION (SUPABASE)
+      // ✅ CONVERSATION (déjà chargée en parallèle)
       let conversation = null;
-      if (body.conversationId) {
-        // ✅ RÉCUPÉRER LA CONVERSATION AVEC MESSAGES TRIÉS PAR DATE
-        const { data: existingConv, error: convFetchError } = await supabaseServiceClient
-          .from('conversations')
-          .select('*, messages(id, role, content, content_type, created_at)')
-          .eq('id', body.conversationId)
-          .single();
-
-        if (convFetchError) {
-          fastify.log.warn(`⚠️ Erreur récupération conversation: ${convFetchError.message}`);
-        } else if (existingConv) {
-          // ✅ TRIER LES MESSAGES PAR DATE (Supabase ne garantit pas l'ordre)
-          if (existingConv.messages && Array.isArray(existingConv.messages)) {
-            existingConv.messages.sort((a: any, b: any) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-            );
-          }
-          conversation = existingConv;
-          fastify.log.info(`📜 Conversation existante trouvée avec ${existingConv.messages?.length || 0} messages`);
+      if (body.conversationId && convResult.data) {
+        const existingConv = convResult.data;
+        if (existingConv.messages && Array.isArray(existingConv.messages)) {
+          existingConv.messages.sort((a: any, b: any) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
         }
+        conversation = existingConv;
+        fastify.log.info(`📜 Conversation existante trouvée avec ${existingConv.messages?.length || 0} messages`);
+      } else if (body.conversationId && convResult.error) {
+        fastify.log.warn(`⚠️ Erreur récupération conversation: ${convResult.error.message}`);
       }
 
       if (!conversation) {
@@ -1063,8 +1058,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // ✅ SAUVEGARDER LE MESSAGE UTILISATEUR
-      const { error: msgError } = await supabaseServiceClient
+      // ✅ SAUVEGARDE NON-BLOQUANTE DU MESSAGE UTILISATEUR
+      supabaseServiceClient
         .from('messages')
         .insert({
           id: randomUUID(),
@@ -1072,12 +1067,10 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           role: 'user',
           content: body.message,
           content_type: 'text'
+        })
+        .then(({ error: msgError }) => {
+          if (msgError) console.error('❌ Erreur sauvegarde message user:', msgError);
         });
-
-      if (msgError) {
-        fastify.log.error('❌ Erreur sauvegarde message');
-        console.error('Détails erreur message:', msgError);
-      }
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
       const knowledgeBase = (agent.agent_knowledge_base || [])
@@ -1298,18 +1291,19 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         }
       };
 
-      const { error: aiMsgError } = await supabaseServiceClient
+      // ✅ SAUVEGARDE NON-BLOQUANTE : on n'attend pas l'INSERT pour répondre au client
+      supabaseServiceClient
         .from('messages')
-        .insert(messageToSave);
-
-      if (aiMsgError) {
-        fastify.log.error('❌ Erreur sauvegarde réponse IA');
-        console.error('Détails erreur IA:', aiMsgError);
-      }
+        .insert(messageToSave)
+        .then(({ error: aiMsgError }) => {
+          if (aiMsgError) {
+            console.error('❌ Erreur sauvegarde réponse IA:', aiMsgError);
+          }
+        });
 
       const responseTime = Date.now() - startTime;
 
-      fastify.log.info(`✅ Message traité avec ${provider} en ${responseTime}ms`);
+      fastify.log.info(`⚡ Message traité avec ${provider} en ${responseTime}ms`);
 
       return {
         success: true,
