@@ -286,13 +286,13 @@ async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0
     }
 
     const requestPayload: any = {
-      model: 'gpt-4o-mini', // ✅ GPT-4O-MINI : 3-5x plus rapide, qualité suffisante pour le chat
+      model: 'gpt-4o', // ✅ GPT-4O : meilleure empathie et qualité conversationnelle
       messages: [
         { role: 'system', content: systemPrompt },
         ...messages
       ],
       temperature: temperature,
-      max_tokens: 500 // ✅ Réponses courtes = meilleur UX chat
+      max_tokens: 400 // ✅ Réponses courtes = meilleur UX chat + réponse plus rapide
     };
 
     // ✅ AJOUTER LES TOOLS SI ACTIVÉS
