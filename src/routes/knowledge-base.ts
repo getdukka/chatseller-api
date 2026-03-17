@@ -1671,15 +1671,16 @@ export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
       const { shop, canAccess, reason } = await getBeautyShopWithPlanCheck(user);
       const body = websiteProcessSchema.parse(request.body);
 
-      fastify.log.info(`🔐 [${requestId}] Auth OK - Shop beauté: ${shop.id}, Plan: ${shop.subscription_plan}`);
-
-      if (!canAccess) {
-        return reply.status(403).send({ 
-          success: false, 
-          error: reason,
+      if (!canAccess || !shop) {
+        fastify.log.warn(`🚫 [${requestId}] Accès refusé ou boutique introuvable: ${reason}`);
+        return reply.status(403).send({
+          success: false,
+          error: reason || 'Boutique introuvable',
           requiresUpgrade: true
         });
       }
+
+      fastify.log.info(`🔐 [${requestId}] Auth OK - Shop beauté: ${shop.id}, Plan: ${shop.subscription_plan}`);
 
       // ✅ VÉRIFIER LES LIMITES DU PLAN BEAUTÉ
       const planLimits = await checkBeautyPlanLimits(shop.id, shop.subscription_plan);

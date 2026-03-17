@@ -446,15 +446,10 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
 
       fastify.log.info(`🔍 Récupération shop: ${id}`);
 
-      // ✅ RÉCUPÉRER SHOP AVEC AGENTS
-      const { data: shop, error: shopError } = await supabaseServiceClient
-        .from('shops')
-        .select('*')
-        .or(`id.eq.${id},email.eq.${user.email}`)
-        .eq('id', id)
-        .single();
+      // ✅ RÉCUPÉRER OU CRÉER LE SHOP (nouveau compte = shop pas encore créé)
+      const shop = await getOrCreateShop(user, fastify);
 
-      if (shopError || !shop) {
+      if (!shop) {
         return reply.status(404).send({
           success: false,
           error: 'Shop non trouvé'
@@ -473,7 +468,7 @@ export default async function shopsRoutes(fastify: FastifyInstance) {
             )
           )
         `)
-        .eq('shop_id', id); // ✅ CORRIGÉ : shop_id
+        .eq('shop_id', shop.id);
 
       const shopWithAgents = {
         ...shop,
