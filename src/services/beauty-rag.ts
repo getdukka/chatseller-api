@@ -305,7 +305,11 @@ Timeline : 3-6 mois minimum pour voir résultats`);
   // ========================================
   if (context.length === 0) {
     console.log('⚠️ [RAG] Aucun contexte spécifique trouvé');
-    return `Aucun produit ni information spécifique trouvé pour cette requête. Donne des conseils beauté généraux basés sur tes connaissances en cosmétologie, sans inventer de produit.`;
+    return `AUCUN PRODUIT NI INFORMATION DISPONIBLE POUR L'INSTANT.
+RÈGLE ABSOLUE : Ne présume JAMAIS les produits, spécialités, catégories ou services de cette marque. N'invente rien.
+Si le client demande ce que propose la marque ou ce en quoi elle se spécialise, réponds honnêtement :
+"Je suis encore en train de charger les informations sur nos produits. Puis-je vous aider autrement ? Parlez-moi de votre besoin et je ferai de mon mieux pour vous orienter."
+Tu peux donner des conseils beauté généraux (ingrédients, routines) mais JAMAIS présenter des produits ou catégories inexistants.`;
   }
 
   console.log(`✅ [RAG] ${context.length} élément(s) de contexte retournés`);

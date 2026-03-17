@@ -329,7 +329,14 @@ function buildSystemPrompt(
 
   // 🎯 NOUVEAU SYSTÈME RAG : Recherche contextuelle intelligente
   // ✅ PASSE LA KB MARQUE pour que l'IA utilise les docs indexés
-  const relevantContext = getRelevantContext(userMessage, productCatalog, knowledgeBase);
+  let relevantContext = getRelevantContext(userMessage, productCatalog, knowledgeBase);
+
+  // ✅ INJECTER LE CONTEXTE PRODUIT (quand l'IA est sur une page produit spécifique)
+  if (productContext?.name) {
+    const productLine = `🛍️ PRODUIT DE LA PAGE ACTUELLE : ${productContext.name}${productContext.price ? ` — ${productContext.price} FCFA` : ''}${productContext.url ? `\nLien : ${productContext.url}` : ''}
+Le client vous contacte depuis la page de CE produit spécifique. Priorité : conseiller sur ce produit.\n\n`;
+    relevantContext = productLine + relevantContext;
+  }
 
   console.log(`🎯 [SYSTEM PROMPT] isFirstMessage: ${isFirstMessage}, existingMessages: ${existingMessages.length}`);
 

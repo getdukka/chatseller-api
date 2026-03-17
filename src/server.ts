@@ -132,7 +132,7 @@ const fastify = Fastify({
   trustProxy: true,
   requestTimeout: 30000,
   keepAliveTimeout: 65000,
-  bodyLimit: 10 * 1024 * 1024
+  bodyLimit: 50 * 1024 * 1024 // 50MB pour supporter les uploads de fichiers PDF/DOCX
 })
 
 // ✅ HANDLERS PROCESS NON AGRESSIFS EN PRODUCTION
