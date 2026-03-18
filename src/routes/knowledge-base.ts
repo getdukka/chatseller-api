@@ -58,8 +58,10 @@ const ALLOWED_MIME_TYPES = {
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
   'text/csv': '.csv',
   'text/plain': '.txt',
-  'image/jpeg': '.jpg', // ✅ AJOUT: Catalogues beauté en image
-  'image/png': '.png'   // ✅ AJOUT: Catalogues beauté en image
+  'text/markdown': '.md',
+  'text/x-markdown': '.md',
+  'image/jpeg': '.jpg',
+  'image/png': '.png'
 };
 
 // ✅ INTERFACES ADAPTÉES BEAUTÉ
@@ -1265,8 +1267,9 @@ async function processMultipleBeautyWebsitePages(
 export default async function knowledgeBaseRoutes(fastify: FastifyInstance) {
   
   // ✅ ENREGISTRER LE PLUGIN @FASTIFY/MULTIPART
+  // ✅ Ne PAS utiliser attachFieldsToBody: true — cela consomme le stream et
+  // cause "Request body size did not match Content-Length" quand .file() est appelé ensuite
   await fastify.register(require('@fastify/multipart'), {
-    attachFieldsToBody: true,
     limits: {
       fileSize: 100 * 1024 * 1024, // 100MB max
       files: 1
