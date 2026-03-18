@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { supabaseServiceClient, supabaseAuthClient } from '../lib/supabase';
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { getRelevantContext, buildBeautyExpertPrompt } from '../services/beauty-rag';
 
 // ✅ INTERFACE POUR LA CONFIG AGENT
@@ -37,6 +38,14 @@ const openai = new OpenAI({
 if (!process.env.OPENAI_API_KEY) {
   console.warn('⚠️ OPENAI_API_KEY manquante - mode dégradé activé');
 }
+
+// ✅ INITIALISATION ANTHROPIC (Claude)
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY
+});
+
+const AI_PROVIDER = process.env.AI_PROVIDER || 'openai'; // 'openai' | 'claude'
+console.log(`🤖 [AI PROVIDER] Actif : ${AI_PROVIDER}`);
 
 // ✅ SCHÉMAS DE VALIDATION
 const testMessageSchema = z.object({
@@ -279,37 +288,100 @@ const addToCartTool = {
   }
 };
 
+async function callOpenAIDirectly(messages: any[], systemPrompt: string, temperature = 0.7, enableTools = true) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API Key manquante');
+  }
+
+  const requestPayload: any = {
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages
+    ],
+    temperature: temperature,
+    max_tokens: 400
+  };
+
+  if (enableTools) {
+    requestPayload.tools = [recommendProductTool, addToCartTool];
+    requestPayload.tool_choice = 'auto';
+  }
+
+  const completion = await openai.chat.completions.create(requestPayload);
+  return completion.choices[0]?.message;
+}
+
+async function callClaudeDirectly(messages: any[], systemPrompt: string, temperature = 0.7, enableTools = true) {
+  if (!process.env.CLAUDE_API_KEY) {
+    throw new Error('Claude API Key manquante');
+  }
+
+  // Convertir le format OpenAI → Anthropic
+  const anthropicMessages = messages.map((m: any) => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: m.content || ''
+  }));
+
+  const requestPayload: any = {
+    model: 'claude-sonnet-4-5',
+    max_tokens: 400,
+    temperature: temperature,
+    system: systemPrompt,
+    messages: anthropicMessages
+  };
+
+  // Convertir les tools OpenAI → format Anthropic
+  if (enableTools) {
+    requestPayload.tools = [
+      {
+        name: 'recommend_product',
+        description: recommendProductTool.function.description,
+        input_schema: recommendProductTool.function.parameters
+      },
+      {
+        name: 'add_to_cart',
+        description: addToCartTool.function.description,
+        input_schema: addToCartTool.function.parameters
+      }
+    ];
+  }
+
+  const response = await anthropic.messages.create(requestPayload);
+
+  // Convertir la réponse Anthropic → format OpenAI (pour rester compatible avec le reste du code)
+  const textBlock = response.content.find((b) => b.type === 'text') as { type: 'text'; text: string } | undefined;
+  const toolBlock = response.content.find((b) => b.type === 'tool_use') as { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } | undefined;
+
+  const openAiFormatResponse: any = {
+    role: 'assistant',
+    content: textBlock?.text || null
+  };
+
+  if (toolBlock) {
+    openAiFormatResponse.tool_calls = [{
+      id: toolBlock.id,
+      type: 'function',
+      function: {
+        name: toolBlock.name,
+        arguments: JSON.stringify(toolBlock.input)
+      }
+    }];
+  }
+
+  return openAiFormatResponse;
+}
+
+// ✅ DISPATCHER : utilise OpenAI ou Claude selon AI_PROVIDER
 async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0.7, enableTools = true) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OpenAI API Key manquante');
+    console.log(`🤖 [CALL AI] Provider: ${AI_PROVIDER}`);
+    if (AI_PROVIDER === 'claude') {
+      return await callClaudeDirectly(messages, systemPrompt, temperature, enableTools);
     }
-
-    const requestPayload: any = {
-      model: 'gpt-4o', // ✅ GPT-4O : meilleure empathie et qualité conversationnelle
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages
-      ],
-      temperature: temperature,
-      max_tokens: 400 // ✅ Réponses courtes = meilleur UX chat + réponse plus rapide
-    };
-
-    // ✅ AJOUTER LES TOOLS SI ACTIVÉS
-    if (enableTools) {
-      requestPayload.tools = [recommendProductTool, addToCartTool];
-      requestPayload.tool_choice = 'auto'; // L'IA décide quand utiliser le tool
-    }
-
-    const completion = await openai.chat.completions.create(requestPayload);
-
-    const responseMessage = completion.choices[0]?.message;
-
-    // ✅ RETOURNER LA RÉPONSE COMPLÈTE (peut contenir tool_calls)
-    return responseMessage;
-
+    return await callOpenAIDirectly(messages, systemPrompt, temperature, enableTools);
   } catch (error) {
-    console.error('❌ Erreur OpenAI:', error);
+    console.error(`❌ Erreur ${AI_PROVIDER}:`, error);
     throw error;
   }
 }
