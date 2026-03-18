@@ -778,9 +778,24 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
-      const knowledgeBase = (agent.agent_knowledge_base || [])
+      let knowledgeBase = (agent.agent_knowledge_base || [])
         .filter((akb: any) => akb.knowledge_base?.is_active)
         .map((akb: any) => akb.knowledge_base);
+
+      // ✅ FALLBACK : si aucune liaison agent_knowledge_base, charger directement par shop_id
+      if (knowledgeBase.length === 0) {
+        console.log('ℹ️ [PLAYGROUND] Aucune liaison KB->Agent, fallback direct knowledge_base');
+        const { data: directKb } = await supabaseServiceClient
+          .from('knowledge_base')
+          .select('id, title, content, content_type, is_active')
+          .eq('shop_id', shop.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false });
+        if (directKb && directKb.length > 0) {
+          knowledgeBase = directKb;
+          console.log(`✅ [PLAYGROUND] ${knowledgeBase.length} docs KB chargés via fallback`);
+        }
+      }
 
       // ✅ CHARGER LE CATALOGUE PRODUITS DU SHOP (pour le RAG)
       const { data: products } = await supabaseServiceClient
@@ -1080,9 +1095,23 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         });
 
       // ✅ CONSTRUIRE LA BASE DE CONNAISSANCES
-      const knowledgeBase = (agent.agent_knowledge_base || [])
+      let knowledgeBase = (agent.agent_knowledge_base || [])
         .filter((akb: any) => akb.knowledge_base?.is_active)
         .map((akb: any) => akb.knowledge_base);
+
+      // ✅ FALLBACK : si aucune liaison agent_knowledge_base, charger directement par shop_id
+      if (knowledgeBase.length === 0) {
+        const { data: directKb } = await supabaseServiceClient
+          .from('knowledge_base')
+          .select('id, title, content, content_type, is_active')
+          .eq('shop_id', shopId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false });
+        if (directKb && directKb.length > 0) {
+          knowledgeBase = directKb;
+          console.log(`✅ [CHAT] ${knowledgeBase.length} docs KB via fallback direct`);
+        }
+      }
 
       // ✅ LOGS DÉTAILLÉS POUR DEBUG
       console.log('🔍 [DEBUG] conversation.messages brut:', JSON.stringify(conversation.messages, null, 2));

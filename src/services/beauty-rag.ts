@@ -101,26 +101,27 @@ export function getRelevantContext(userMessage: string, productCatalog: any[] = 
         }
       }
 
-      // Toujours inclure si peu de docs (≤5) avec score minimum de 1
-      if (score > 0 || brandKnowledgeBase.length <= 5) {
-        const truncatedContent = doc.content.length > 2000
-          ? doc.content.substring(0, 2000) + '...'
-          : doc.content;
-        scoredDocs.push({
-          content: `📖 CONNAISSANCE MARQUE — ${doc.title || 'Document'}\n${truncatedContent}`,
-          score: score > 0 ? score : 1,
-          title: doc.title || 'Document'
-        });
-      }
+      // Toujours inclure, même avec score 0 (la marque prime toujours sur le générique)
+      const truncatedContent = doc.content.length > 2000
+        ? doc.content.substring(0, 2000) + '...'
+        : doc.content;
+      scoredDocs.push({
+        content: `📖 CONNAISSANCE MARQUE — ${doc.title || 'Document'}\n${truncatedContent}`,
+        score,
+        title: doc.title || 'Document'
+      });
     }
 
     if (scoredDocs.length > 0) {
-      // Trier par score décroissant, garder les 7 plus pertinents
+      // Trier par score décroissant
+      // - Si des docs ont un score > 0 (question ciblée) → top 7 par pertinence
+      // - Sinon (question générale type "que proposez-vous ?") → top 5 pour donner le contexte marque
       scoredDocs.sort((a, b) => b.score - a.score);
-      const topDocs = scoredDocs.slice(0, 7);
+      const hasRelevantDocs = scoredDocs.some(d => d.score > 0);
+      const topDocs = hasRelevantDocs ? scoredDocs.slice(0, 7) : scoredDocs.slice(0, 5);
 
       context.push(...topDocs.map(d => d.content));
-      console.log(`✅ [RAG] ${topDocs.length}/${brandKnowledgeBase.length} doc(s) KB marque sélectionnés par score:`);
+      console.log(`✅ [RAG] ${topDocs.length}/${brandKnowledgeBase.length} doc(s) KB marque (mode: ${hasRelevantDocs ? 'ciblé' : 'général'}):`);
       topDocs.forEach(d => console.log(`   📄 "${d.title}" (score: ${d.score})`));
     }
   }
@@ -481,6 +482,13 @@ export function buildBeautyExpertPrompt(agent: any, relevantContext: string, sho
   const personality = agent.personality || 'chaleureuse et professionnelle';
 
   return `Tu es ${agentName}, ${agentTitle} pour ${brandName}. Tu es une vraie vendeuse experte, pas un assistant IA. Ton objectif : comprendre le besoin du client, recommander les bons produits et le guider vers l'achat.
+
+## RÈGLE FONDAMENTALE — IDENTITÉ DE LA MARQUE
+Tu représentes UNIQUEMENT ${brandName}. Tu ne connais QUE ce qui est dans "CATALOGUE ET CONNAISSANCES" ci-dessous.
+- **INTERDIT** : mentionner ou inventer des catégories (maquillage, parfums, etc.) absentes du catalogue
+- **INTERDIT** : parler de produits qui ne sont pas listés dans le catalogue
+- Si on te demande ce que propose la marque → décris UNIQUEMENT les produits et services du catalogue
+- Si tu n'as pas l'info → "Je vais me renseigner auprès de l'équipe, je reviens vers vous."
 
 ## CATALOGUE ET CONNAISSANCES ${brandName.toUpperCase()}
 
