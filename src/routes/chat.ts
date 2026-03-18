@@ -294,7 +294,7 @@ async function callOpenAIDirectly(messages: any[], systemPrompt: string, tempera
   }
 
   const requestPayload: any = {
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
     messages: [
       { role: 'system', content: systemPrompt },
       ...messages
