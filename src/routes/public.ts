@@ -1299,7 +1299,7 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       }
 
       // ✅ RÉCUPÉRATION BASE DE CONNAISSANCE
-      const { data: knowledgeBaseRelations } = await supabaseServiceClient
+      const { data: knowledgeBaseRelationsRaw } = await supabaseServiceClient
         .from('agent_knowledge_base')
         .select(`
           knowledge_base!inner(
@@ -1307,6 +1307,22 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
           )
         `)
         .eq('agent_id', agent.id);
+
+      // ✅ FALLBACK : si agent_knowledge_base vide, charger la KB directement par shop_id
+      let knowledgeBaseRelations: any[] = knowledgeBaseRelationsRaw || [];
+      if (knowledgeBaseRelations.length === 0) {
+        const { data: directKb } = await supabaseServiceClient
+          .from('knowledge_base')
+          .select('id, title, content, content_type, is_active')
+          .eq('shop_id', shopId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (directKb && directKb.length > 0) {
+          knowledgeBaseRelations = directKb.map((kb: any) => ({ knowledge_base: kb }));
+          fastify.log.info(`📚 [PUBLIC CHAT] Fallback KB: ${directKb.length} docs chargés par shop_id`);
+        }
+      }
 
       // ✅ CORRECTION CRITIQUE : PREMIER MESSAGE AVEC PRIORITÉ AU MESSAGE PERSONNALISÉ
       if (isFirstMessage) {
@@ -1442,9 +1458,29 @@ Comment puis-je vous aider avec ce ${productType} ? 😊`;
       }
 
       // ✅ PRÉPARER BASE DE CONNAISSANCE
-      const knowledgeContent = (knowledgeBaseRelations || [])
+      let knowledgeContent = (knowledgeBaseRelations || [])
         .map((akb: any) => `## ${akb.knowledge_base.title}\n${akb.knowledge_base.content}`)
         .join('\n\n---\n\n');
+
+      // ✅ ENRICHIR AVEC LES PRODUITS DE LA BOUTIQUE
+      const { data: shopProducts } = await supabaseServiceClient
+        .from('products')
+        .select('name, description, price, url, metadata')
+        .eq('shop_id', shopId)
+        .eq('is_active', true)
+        .limit(30);
+      if (shopProducts && shopProducts.length > 0) {
+        const productsContent = shopProducts.map((p: any) => {
+          const currency = p.metadata?.currency || 'FCFA';
+          const desc = p.description ? `\n${p.description.substring(0, 300)}` : '';
+          return `### ${p.name}\nPrix: ${p.price} ${currency}${desc}`;
+        }).join('\n\n');
+        const catalogSection = `## CATALOGUE PRODUITS DE LA BOUTIQUE\n${productsContent}`;
+        knowledgeContent = knowledgeContent
+          ? `${catalogSection}\n\n---\n\n${knowledgeContent}`
+          : catalogSection;
+        fastify.log.info(`🛍️ [PUBLIC CHAT] ${shopProducts.length} produits injectés dans le contexte`);
+      }
 
       // ✅ RÉCUPÉRER ÉTAT COLLECTE COMMANDE
       let orderState: OrderCollectionState | undefined;
