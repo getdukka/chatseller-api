@@ -324,7 +324,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         is_active: validData.is_active ?? true,
         is_visible: validData.is_visible ?? true,
         available_for_sale: validData.available_for_sale ?? true,
-        currency: 'XOF',
+        currency: 'EUR',
         is_enriched: false,
         needs_enrichment: true,
         enrichment_score: 0,
@@ -621,7 +621,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           name: product.name,
           description: product.description || '',
           price: product.price || 0,
-          currency: product.currency || 'XOF',
+          currency: product.currency || 'EUR',
           shop_id: userId,
 
           // Champs optionnels

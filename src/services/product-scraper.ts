@@ -31,6 +31,22 @@ export async function scrapeShopifyPublic(shopUrl: string): Promise<ScrapedProdu
 
     // Nettoyer l'URL
     const cleanShopUrl = shopUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+    // ✅ Détecter la devise depuis /shop.json (endpoint public Shopify)
+    let shopCurrency = 'EUR';
+    try {
+      const shopInfoResponse = await fetch(`https://${cleanShopUrl}/shop.json`, {
+        headers: { 'Accept': 'application/json', 'User-Agent': 'ChatSeller/1.0' }
+      });
+      if (shopInfoResponse.ok) {
+        const shopInfo = await shopInfoResponse.json() as any;
+        shopCurrency = shopInfo?.shop?.currency || 'EUR';
+        console.log(`💱 [SHOPIFY PUBLIC] Devise détectée: ${shopCurrency}`);
+      }
+    } catch {
+      console.log(`💱 [SHOPIFY PUBLIC] Devise non détectée, fallback EUR`);
+    }
+
     let page = 1;
     let hasMore = true;
 
@@ -76,7 +92,7 @@ export async function scrapeShopifyPublic(shopUrl: string): Promise<ScrapedProdu
           name: product.title || 'Produit sans nom',
           description: stripHtml(product.body_html || ''),
           price: parseFloat(product.variants?.[0]?.price || '0'),
-          currency: 'XOF',
+          currency: shopCurrency,
           images: (product.images || []).map((img: any) => img.src),
           url: `https://${cleanShopUrl}/products/${product.handle}`,
           category: product.product_type || undefined,
@@ -116,6 +132,22 @@ export async function scrapeShopifyProducts(
 
     // Nettoyer l'URL
     const cleanShopUrl = shopUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+    // ✅ Détecter la devise depuis Admin API /shop.json
+    let shopCurrency = 'EUR';
+    try {
+      const shopInfoResponse = await fetch(`https://${cleanShopUrl}/admin/api/2024-01/shop.json`, {
+        headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' }
+      });
+      if (shopInfoResponse.ok) {
+        const shopInfo = await shopInfoResponse.json() as any;
+        shopCurrency = shopInfo?.shop?.currency || 'EUR';
+        console.log(`💱 [SHOPIFY ADMIN] Devise détectée: ${shopCurrency}`);
+      }
+    } catch {
+      console.log(`💱 [SHOPIFY ADMIN] Devise non détectée, fallback EUR`);
+    }
+
     const apiUrl = `https://${cleanShopUrl}/admin/api/2024-01/products.json`;
 
     let nextPageUrl: string | null = apiUrl;
@@ -155,7 +187,7 @@ export async function scrapeShopifyProducts(
           name: product.title || 'Produit sans nom',
           description: stripHtml(product.body_html || ''),
           price: parseFloat(product.variants?.[0]?.price || '0'),
-          currency: 'XOF', // À adapter selon la devise du shop
+          currency: shopCurrency,
           images: (product.images || []).map((img: any) => img.src),
           url: `https://${cleanShopUrl}/products/${product.handle}`,
           category: product.product_type || undefined,
@@ -197,6 +229,25 @@ export async function scrapeWooCommerceProducts(
     console.log(`🛒 [WOOCOMMERCE SCRAPER] Début scraping: ${shopUrl}`);
 
     const cleanShopUrl = shopUrl.replace(/\/$/, '');
+
+    // ✅ Détecter la devise WooCommerce via l'API settings
+    let shopCurrency = 'EUR';
+    try {
+      const currencyResponse = await fetch(`${cleanShopUrl}/wp-json/wc/v3/settings/general/woocommerce_currency`, {
+        headers: {
+          'Authorization': `Basic ${Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (currencyResponse.ok) {
+        const currencyData = await currencyResponse.json() as any;
+        shopCurrency = currencyData?.value || 'EUR';
+        console.log(`💱 [WOOCOMMERCE] Devise détectée: ${shopCurrency}`);
+      }
+    } catch {
+      console.log(`💱 [WOOCOMMERCE] Devise non détectée, fallback EUR`);
+    }
+
     let page = 1;
     let hasMore = true;
 
@@ -231,7 +282,7 @@ export async function scrapeWooCommerceProducts(
           name: product.name || 'Produit sans nom',
           description: stripHtml(product.description || product.short_description || ''),
           price: parseFloat(product.price || '0'),
-          currency: 'XOF', // À adapter
+          currency: shopCurrency,
           images: (product.images || []).map((img: any) => img.src),
           url: product.permalink || `${cleanShopUrl}/product/${product.slug}`,
           category: product.categories?.[0]?.name || undefined,
