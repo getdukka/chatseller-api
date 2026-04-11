@@ -25,6 +25,7 @@ import supportRoutes from './routes/support'
 import quotasRoutes from './routes/quotas'
 import settingsRoutes from './routes/settings';
 import adminRoutes from './routes/admin';
+import shopifyRoutes from './routes/shopify';
 
 
 // ✅ SUPABASE CLIENT INTÉGRÉ
@@ -940,6 +941,9 @@ async function registerRoutes() {
 
       await fastify.register(adminRoutes, { prefix: '/admin' })
       console.log('✅ Routes admin enregistrées')
+
+      await fastify.register(shopifyRoutes, { prefix: '/shopify' })
+      console.log('✅ Routes shopify enregistrées')
 
     }, { prefix: '/api/v1' })
 

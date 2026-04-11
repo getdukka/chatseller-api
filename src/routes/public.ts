@@ -3,6 +3,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
 import { supabaseServiceClient } from '../lib/supabase';
 import { randomUUID } from 'crypto';
@@ -12,9 +13,20 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// ✅ INITIALISATION ANTHROPIC (Claude)
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY || ''
+});
 
-if (!process.env.OPENAI_API_KEY) {
+// ✅ PROVIDER AI : 'openai' | 'claude' (configurable sans redéploiement)
+const AI_PROVIDER = process.env.AI_PROVIDER || 'openai';
+console.log(`🤖 [PUBLIC] AI Provider actif : ${AI_PROVIDER}`);
+
+if (!process.env.OPENAI_API_KEY && AI_PROVIDER === 'openai') {
   console.warn('⚠️ OPENAI_API_KEY manquante - mode dégradé activé');
+}
+if (!process.env.CLAUDE_API_KEY && AI_PROVIDER === 'claude') {
+  console.warn('⚠️ CLAUDE_API_KEY manquante - mode dégradé activé');
 }
 
 // ✅ INTERFACES TYPESCRIPT COMPLÈTES
@@ -656,10 +668,112 @@ async function saveOrderToDatabase(conversationId: string, shopId: string, agent
   }
 }
 
-// ✅ FONCTION AMÉLIORÉE : Appeler GPT-4o-mini AVEC ANTI-RÉPÉTITION
+// ✅ HELPER : Appel OpenAI
+async function callWithOpenAI(systemPrompt: string, messages: any[]): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY manquante');
+  }
+  const completion = await openai.chat.completions.create({
+    model: process.env.OPENAI_MODEL || 'gpt-4o',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages
+    ],
+    max_tokens: 300,
+    temperature: 0.7,
+    presence_penalty: 0.5,
+    frequency_penalty: 0.5
+  });
+  return completion.choices[0]?.message?.content || "Je n'ai pas pu générer de réponse.";
+}
+
+// ✅ HELPER : Appel Claude (Anthropic)
+// Modèle configurable via CLAUDE_MODEL env var.
+// Défaut : claude-sonnet-4-5 (bon rapport qualité/vitesse/coût pour le chat)
+async function callWithClaude(systemPrompt: string, messages: any[]): Promise<string> {
+  if (!process.env.CLAUDE_API_KEY) {
+    throw new Error('CLAUDE_API_KEY manquante');
+  }
+  const anthropicMessages = messages
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content || ''
+    }));
+
+  // Claude exige que le premier message soit de l'utilisateur
+  if (anthropicMessages.length === 0 || anthropicMessages[0].role !== 'user') {
+    anthropicMessages.unshift({ role: 'user', content: '...' });
+  }
+
+  const claudeModel = process.env.CLAUDE_MODEL || 'claude-sonnet-4-5';
+  const response = await anthropic.messages.create({
+    model: claudeModel,
+    max_tokens: 300,
+    system: systemPrompt,
+    messages: anthropicMessages
+  });
+
+  const textBlock = response.content.find(b => b.type === 'text') as { type: 'text'; text: string } | undefined;
+  return textBlock?.text || "Je n'ai pas pu générer de réponse.";
+}
+
+// ✅ DISPATCHER avec fallback automatique
+// Priorité : provider configuré → fallback sur l'autre provider si erreur
+// Erreurs qui déclenchent le fallback : quota épuisé (429), service indisponible (500/503),
+// clé invalide (401), timeout réseau
+async function callAI(systemPrompt: string, messages: any[]): Promise<string> {
+  const primary = process.env.AI_PROVIDER || 'openai';
+  const fallback = primary === 'openai' ? 'claude' : 'openai';
+
+  // Erreurs qui justifient un fallback (problème provider, pas problème de prompt)
+  const isFallbackableError = (error: any): boolean => {
+    const status = error?.status || error?.statusCode || error?.response?.status;
+    const message = error?.message || '';
+    return (
+      status === 429 ||  // quota/rate limit
+      status === 500 ||  // erreur interne provider
+      status === 503 ||  // service indisponible
+      status === 401 ||  // clé invalide/expirée
+      message.includes('OPENAI_API_KEY') ||
+      message.includes('CLAUDE_API_KEY') ||
+      message.includes('timeout') ||
+      message.includes('fetch')
+    );
+  };
+
+  const callProvider = (provider: string) =>
+    provider === 'claude' ? callWithClaude(systemPrompt, messages) : callWithOpenAI(systemPrompt, messages);
+
+  try {
+    console.log(`🤖 [PUBLIC] Appel IA via provider principal: ${primary}`);
+    return await callProvider(primary);
+  } catch (primaryError: any) {
+    if (isFallbackableError(primaryError)) {
+      const hasFallbackKey = fallback === 'claude'
+        ? !!process.env.CLAUDE_API_KEY
+        : !!process.env.OPENAI_API_KEY;
+
+      if (hasFallbackKey) {
+        console.warn(`⚠️ [PUBLIC] ${primary} indisponible (${primaryError?.status || primaryError?.message}), fallback vers ${fallback}`);
+        try {
+          return await callProvider(fallback);
+        } catch (fallbackError: any) {
+          console.error(`❌ [PUBLIC] Fallback ${fallback} aussi en échec:`, fallbackError?.message);
+          throw fallbackError;
+        }
+      }
+    }
+    // Erreur non-fallbackable (ex: prompt invalide) → on la propage directement
+    throw primaryError;
+  }
+}
+
+// ✅ FONCTION AMÉLIORÉE : Appeler l'IA AVEC ANTI-RÉPÉTITION
 async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: string, shopName: string, productInfo?: any, orderState?: OrderCollectionState, forceNoGreet: boolean = false): Promise<OpenAIResult> {
   try {
-    console.log('🤖 [OPENAI] Début traitement anti-répétition:', {
+    console.log('🤖 [AI] Début traitement anti-répétition:', {
+      provider: AI_PROVIDER,
       orderState: orderState?.step,
       orderData: orderState?.data,
       productInfo: productInfo?.name,
@@ -667,7 +781,7 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
       shopName: shopName
     });
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (AI_PROVIDER === 'openai' && !process.env.OPENAI_API_KEY) {
       console.warn('⚠️ OpenAI API Key manquante');
       return {
         success: false,
@@ -675,36 +789,30 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
         fallbackMessage: "Je rencontre un problème technique temporaire. Comment puis-je vous aider autrement ?"
       };
     }
+    if (AI_PROVIDER === 'claude' && !process.env.CLAUDE_API_KEY) {
+      console.warn('⚠️ Claude API Key manquante');
+      return {
+        success: false,
+        error: 'Configuration Claude manquante',
+        fallbackMessage: "Je rencontre un problème technique temporaire. Comment puis-je vous aider autrement ?"
+      };
+    }
 
     const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
-    console.log('📝 [OPENAI] Dernier message utilisateur:', lastUserMessage);
+    console.log('📝 [AI] Dernier message utilisateur:', lastUserMessage);
 
     let existingCustomer = null;
     if (orderState?.step === 'phone' && orderState.data.customerPhone) {
       existingCustomer = await checkExistingCustomer(orderState.data.customerPhone);
-      console.log('🔍 [OPENAI] Vérification client existant:', existingCustomer);
+      console.log('🔍 [AI] Vérification client existant:', existingCustomer);
     }
 
     // ✅ NOUVEAU : Construire prompt avec shopName dynamique
     const systemPrompt = buildAgentPrompt(agentConfig, knowledgeBase, shopName, productInfo, orderState, messages, forceNoGreet);
 
-    console.log('🤖 [OPENAI] Appel OpenAI avec model: gpt-4o, messages:', messages.length);
+    console.log(`🤖 [AI] Appel ${AI_PROVIDER.toUpperCase()}, messages: ${messages.length}`);
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o", // ✅ UPGRADE VERS GPT-4O
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages
-      ],
-      max_tokens: 300,
-      temperature: 0.7,
-      presence_penalty: 0.5,
-      frequency_penalty: 0.5
-    });
-
-    console.log('✅ [OPENAI] Réponse reçue, choices:', completion.choices?.length);
-
-    let response = completion.choices[0]?.message?.content || "Je n'ai pas pu générer de réponse.";
+    let response = await callAI(systemPrompt, messages);
     response = formatAIResponse(response);
 
     console.log('🤖 [OPENAI] Réponse générée:', response.substring(0, 150) + '...');

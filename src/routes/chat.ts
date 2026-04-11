@@ -372,17 +372,41 @@ async function callClaudeDirectly(messages: any[], systemPrompt: string, tempera
   return openAiFormatResponse;
 }
 
-// ✅ DISPATCHER : utilise OpenAI ou Claude selon AI_PROVIDER
+// ✅ DISPATCHER avec fallback automatique (chat.ts — Playground + Widget authentifié)
 async function callOpenAI(messages: any[], systemPrompt: string, temperature = 0.7, enableTools = true) {
+  const primary = AI_PROVIDER;
+  const fallback = primary === 'openai' ? 'claude' : 'openai';
+
+  const isFallbackableError = (error: any): boolean => {
+    const status = error?.status || error?.statusCode;
+    const message = error?.message || '';
+    return (
+      status === 429 || status === 500 || status === 503 || status === 401 ||
+      message.includes('API_KEY') || message.includes('timeout') || message.includes('fetch')
+    );
+  };
+
+  const callProvider = (provider: string) =>
+    provider === 'claude'
+      ? callClaudeDirectly(messages, systemPrompt, temperature, enableTools)
+      : callOpenAIDirectly(messages, systemPrompt, temperature, enableTools);
+
   try {
-    console.log(`🤖 [CALL AI] Provider: ${AI_PROVIDER}`);
-    if (AI_PROVIDER === 'claude') {
-      return await callClaudeDirectly(messages, systemPrompt, temperature, enableTools);
+    console.log(`🤖 [CALL AI] Provider principal: ${primary}`);
+    return await callProvider(primary);
+  } catch (primaryError: any) {
+    if (isFallbackableError(primaryError)) {
+      const hasFallbackKey = fallback === 'claude'
+        ? !!process.env.CLAUDE_API_KEY
+        : !!process.env.OPENAI_API_KEY;
+
+      if (hasFallbackKey) {
+        console.warn(`⚠️ [CALL AI] ${primary} indisponible (${primaryError?.status || primaryError?.message}), fallback vers ${fallback}`);
+        return await callProvider(fallback);
+      }
     }
-    return await callOpenAIDirectly(messages, systemPrompt, temperature, enableTools);
-  } catch (error) {
-    console.error(`❌ Erreur ${AI_PROVIDER}:`, error);
-    throw error;
+    console.error(`❌ Erreur ${primary}:`, primaryError);
+    throw primaryError;
   }
 }
 
