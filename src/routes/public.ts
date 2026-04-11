@@ -881,7 +881,7 @@ async function callOpenAI(messages: any[], agentConfig: any, knowledgeBase: stri
     return {
       success: true,
       message: response,
-      tokensUsed: completion.usage?.total_tokens || 0,
+      tokensUsed: 0,
       orderCollection: newOrderState,
       isOrderIntent: isOrderIntent
     };
