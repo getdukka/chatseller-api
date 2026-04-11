@@ -245,7 +245,7 @@ export default async function shopifyRoutes(fastify: FastifyInstance) {
 
     const { data: shop } = await supabaseServiceClient
       .from('shops')
-      .select('shopify_admin_url, shopify_connected_at, shopify_script_tag_id')
+      .select('shopify_admin_url, shopify_connected_at, shopify_script_tag_id, shopify_access_token')
       .eq('id', shopId)
       .single();
 
