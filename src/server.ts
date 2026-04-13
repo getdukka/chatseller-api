@@ -942,10 +942,15 @@ async function registerRoutes() {
       await fastify.register(adminRoutes, { prefix: '/admin' })
       console.log('✅ Routes admin enregistrées')
 
-      await fastify.register(shopifyRoutes, { prefix: '/shopify' })
-      console.log('✅ Routes shopify enregistrées')
-
     }, { prefix: '/api/v1' })
+
+    // =====================================
+    // ✅ ROUTES SHOPIFY PUBLIQUES (OAuth + webhooks — pas de Bearer token)
+    // /oauth/start et /oauth/callback sont des redirects navigateur
+    // /app/uninstalled est un webhook Shopify (HMAC vérifié dans la route)
+    // =====================================
+    await fastify.register(shopifyRoutes, { prefix: '/api/v1/shopify' })
+    console.log('✅ Routes shopify enregistrées (publiques)')
 
     fastify.setNotFoundHandler(async (request, reply) => {
       console.log(`❌ Route non trouvée: ${request.method} ${request.url}`)
