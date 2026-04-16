@@ -565,13 +565,14 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const { platform, shop_url, access_token, api_key, auto_enrich } = validation.data
+      const { platform, shop_url, access_token, api_key, api_secret, auto_enrich } = validation.data
 
       // ✅ Traiter les chaînes vides comme undefined (le formulaire envoie "" au lieu de undefined)
       const cleanAccessToken = access_token && access_token.trim() !== '' ? access_token : undefined
       const cleanApiKey = api_key && api_key.trim() !== '' ? api_key : undefined
+      const cleanApiSecret = api_secret && api_secret.trim() !== '' ? api_secret : undefined
 
-      fastify.log.info(`🛒 [SYNC] Début synchronisation ${platform} depuis ${shop_url} (token: ${!!cleanAccessToken}, auto_enrich: ${auto_enrich})`)
+      fastify.log.info(`🛒 [SYNC] Début synchronisation ${platform} depuis ${shop_url} (token: ${!!cleanAccessToken}, woo_key: ${!!cleanApiKey}, auto_enrich: ${auto_enrich})`)
 
       // 🎯 SCRAPING DES PRODUITS
       let scrapedProducts;
@@ -580,7 +581,7 @@ const productsRoutes: FastifyPluginAsync = async (fastify) => {
           shop_url,
           access_token: cleanAccessToken,
           consumer_key: cleanApiKey,
-          consumer_secret: cleanAccessToken // Pour WooCommerce
+          consumer_secret: cleanApiSecret // Pour WooCommerce
         });
 
         fastify.log.info(`✅ [SYNC] ${scrapedProducts.length} produits scrapés depuis ${platform}`)
