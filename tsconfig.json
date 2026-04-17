@@ -23,7 +23,6 @@
     "allowSyntheticDefaultImports": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "skipDefaultLibCheck": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
